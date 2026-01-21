@@ -59,11 +59,14 @@ export default function Products() {
     description: '',
     category: '',
     attributes: [{ name: '', values: '' }] as { name: string; values: string }[],
+    variants: [] as ProductVariant[],
     images: [] as string[],
     basePrice: '',
     baseCost: '',
     availableOnline: false,
   });
+
+
 
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -91,26 +94,20 @@ export default function Products() {
   };
 
   const addAttribute = () => {
-    setNewProduct(prev => ({
-      ...prev,
-      attributes: [...prev.attributes, { name: '', values: '' }]
-    }));
+    const newAttributes = [...newProduct.attributes, { name: '', values: '' }];
+    handleAttributeChange(newAttributes);
   };
 
   const updateAttribute = (index: number, field: 'name' | 'values', value: string) => {
-    setNewProduct(prev => ({
-      ...prev,
-      attributes: prev.attributes.map((attr, i) =>
-        i === index ? { ...attr, [field]: value } : attr
-      )
-    }));
+    const newAttributes = newProduct.attributes.map((attr, i) =>
+      i === index ? { ...attr, [field]: value } : attr
+    );
+    handleAttributeChange(newAttributes);
   };
 
   const removeAttribute = (index: number) => {
-    setNewProduct(prev => ({
-      ...prev,
-      attributes: prev.attributes.filter((_, i) => i !== index)
-    }));
+    const newAttributes = newProduct.attributes.filter((_, i) => i !== index);
+    handleAttributeChange(newAttributes);
   };
 
   const generateVariants = (attributes: ProductAttribute[], basePrice: number, baseCost: number, productId: string, productName: string): ProductVariant[] => {
@@ -145,6 +142,74 @@ export default function Products() {
     }));
   };
 
+  // Re-generate variants when attributes change, but try to preserve existing prices
+  const updateVariantsFromAttributes = (
+    currentAttributes: { name: string; values: string }[],
+    currentBasePrice: string,
+    currentBaseCost: string,
+    currentVariants: ProductVariant[]
+  ) => {
+    const parsedAttributes = currentAttributes
+      .filter(a => a.name && a.values)
+      .map((a, i) => ({
+        id: `attr${i}`,
+        name: a.name,
+        values: a.values.split(',').map(v => v.trim())
+      }));
+
+    if (parsedAttributes.length === 0) return [];
+
+    const newVariants = generateVariants(
+      parsedAttributes,
+      parseFloat(currentBasePrice) || 0,
+      parseFloat(currentBaseCost) || 0,
+      'temp-id',
+      newProduct.name || 'Product'
+    );
+
+    // Merge with existing to preserve manual edits if attribute combo matches
+    return newVariants.map(nv => {
+      const existing = currentVariants.find(ev =>
+        JSON.stringify(ev.attributes) === JSON.stringify(nv.attributes)
+      );
+      if (existing) {
+        return {
+          ...nv,
+          price: existing.price,
+          cost: existing.cost,
+          wasPrice: existing.wasPrice,
+          stock: existing.stock
+        };
+      }
+      return nv;
+    });
+  };
+
+  const handleAttributeChange = (newAttributes: { name: string; values: string }[]) => {
+    setNewProduct(prev => ({
+      ...prev,
+      attributes: newAttributes,
+      variants: updateVariantsFromAttributes(newAttributes, prev.basePrice, prev.baseCost, prev.variants)
+    }));
+  };
+
+  const handleBasePriceChange = (field: 'basePrice' | 'baseCost', value: string) => {
+    setNewProduct(prev => {
+      const newState = { ...prev, [field]: value };
+      // Only update variants if they haven't been manually edited? 
+      // Or just re-apply base price to all? 
+      // Strategy: Re-generate all using new base, but checking if we should preserve.
+      // Actually, usually changing base price should update all UNLESS specifically overridden.
+      // For simplicity, let's just update all for now, or let the user edit individually.
+      // Better: Update only if the variant price matched the OLD base price. 
+      // Simpler approach for MVP: changing base price updates ALL variants.
+      return {
+        ...newState,
+        variants: updateVariantsFromAttributes(newState.attributes, newState.basePrice, newState.baseCost, [])
+      };
+    });
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -176,6 +241,7 @@ export default function Products() {
       description: '',
       category: '',
       attributes: [{ name: '', values: '' }],
+      variants: [],
       images: [],
       basePrice: '',
       baseCost: '',
@@ -194,6 +260,7 @@ export default function Products() {
         name: attr.name,
         values: attr.values.join(', ')
       })),
+      variants: product.variants,
       images: product.images || [],
       basePrice: product.variants[0]?.price.toString() || '',
       baseCost: product.variants[0]?.cost.toString() || '',
@@ -212,7 +279,14 @@ export default function Products() {
         values: a.values.split(',').map(v => v.trim())
       }));
 
-    const variants = generateVariants(
+
+
+    // Use specific variants from state if they exist, otherwise generate (fallback)
+    const variants = (newProduct.variants?.length || 0) > 0 ? newProduct.variants.map((v, i) => ({
+      ...v,
+      id: `${productId}-v${i}`,
+      productId
+    })) : generateVariants(
       parsedAttributes,
       parseFloat(newProduct.basePrice) || 0,
       parseFloat(newProduct.baseCost) || 0,
@@ -317,7 +391,7 @@ export default function Products() {
                     id="price"
                     type="number"
                     value={newProduct.basePrice}
-                    onChange={(e) => setNewProduct(prev => ({ ...prev, basePrice: e.target.value }))}
+                    onChange={(e) => handleBasePriceChange('basePrice', e.target.value)}
                     placeholder="29.99"
                   />
                 </div>
@@ -327,7 +401,7 @@ export default function Products() {
                     id="cost"
                     type="number"
                     value={newProduct.baseCost}
-                    onChange={(e) => setNewProduct(prev => ({ ...prev, baseCost: e.target.value }))}
+                    onChange={(e) => handleBasePriceChange('baseCost', e.target.value)}
                     placeholder="12.00"
                   />
                 </div>
@@ -369,9 +443,80 @@ export default function Products() {
                     )}
                   </div>
                 ))}
-                <p className="text-xs text-muted-foreground">
-                  Variants will be automatically generated from all attribute combinations.
-                </p>
+                <div className="space-y-3">
+                  <Label>Generated Variants ({newProduct.variants?.length || 0})</Label>
+                  <div className="border rounded-md overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted">
+                        <tr>
+                          <th className="p-2 text-left">Variant</th>
+                          <th className="p-2 w-24">Price</th>
+                          <th className="p-2 w-24">Cost</th>
+                          <th className="p-2 w-24">Was Price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {newProduct.variants?.map((variant, index) => (
+                          <tr key={index} className="border-t">
+                            <td className="p-2">
+                              {Object.entries(variant.attributes).map(([k, v]) => `${v}`).join(' / ')}
+                            </td>
+                            <td className="p-2">
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.price}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, price: val } : v)
+                                  }));
+                                }}
+                              />
+                            </td>
+                            <td className="p-2">
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.cost}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, cost: val } : v)
+                                  }));
+                                }}
+                              />
+                            </td>
+                            <td className="p-2">
+                              <Input
+                                type="number"
+                                className="h-8"
+                                placeholder="Optional"
+                                value={variant.wasPrice || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, wasPrice: val } : v)
+                                  }));
+                                }}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                        {newProduct.variants.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="p-4 text-center text-muted-foreground">
+                              Add attributes to generate variants
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-3">

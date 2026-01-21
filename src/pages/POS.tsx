@@ -29,6 +29,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -42,7 +44,13 @@ export default function POS() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<'cash' | 'card' | 'mobile' | null>(null);
+
+  // Payment methods state
+  const [paymentMethods, setPaymentMethods] = useState({
+    cash: { active: false, amount: '', reference: '' },
+    card: { active: false, amount: '', reference: '' },
+    mobile: { active: false, amount: '', reference: '' }
+  });
 
   // Customer state
   const [customers, setCustomers] = useState<Customer[]>(mockCustomers);
@@ -137,16 +145,49 @@ export default function POS() {
   const tax = subtotal * 0.08; // 8% tax
   const total = subtotal + tax;
 
+  const totalPaid = Object.values(paymentMethods)
+    .reduce((sum, method) => method.active ? sum + (parseFloat(method.amount) || 0) : sum, 0);
+
+  const handlePaymentMethodToggle = (method: 'cash' | 'card' | 'mobile', active: boolean) => {
+    setPaymentMethods(prev => {
+      const newState = { ...prev };
+      if (active) {
+        // Auto-fill with remaining amount
+        const currentPaid = Object.values(prev)
+          .reduce((sum, m) => m.active ? sum + (parseFloat(m.amount) || 0) : sum, 0);
+        const remaining = Math.max(0, total - currentPaid);
+        newState[method] = { ...prev[method], active: true, amount: remaining.toFixed(2) };
+      } else {
+        newState[method] = { ...prev[method], active: false, amount: '', reference: '' };
+      }
+      return newState;
+    });
+  };
+
+  const updatePaymentDetail = (method: 'cash' | 'card' | 'mobile', field: 'amount' | 'reference', value: string) => {
+    setPaymentMethods(prev => ({
+      ...prev,
+      [method]: { ...prev[method], [field]: value }
+    }));
+  };
+
   const handleCheckout = () => {
-    if (!selectedPayment) {
-      toast.error('Please select a payment method');
+    if (totalPaid < total) {
+      toast.error('Payment amount is less than total');
       return;
     }
     const customerInfo = selectedCustomer ? ` for ${selectedCustomer.name}` : '';
     toast.success(`Sale completed successfully${customerInfo}!`);
     setCart([]);
     setCheckoutOpen(false);
-    setSelectedPayment(null);
+
+    setCart([]);
+    setCheckoutOpen(false);
+    setPaymentMethods({
+      cash: { active: false, amount: '', reference: '' },
+      card: { active: false, amount: '', reference: '' },
+      mobile: { active: false, amount: '', reference: '' }
+    });
     setSelectedCustomer(null);
   };
 
@@ -426,46 +467,113 @@ export default function POS() {
       </div>
 
       {/* Checkout Dialog */}
-      <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
-        <DialogContent>
+      <Dialog open={checkoutOpen} onOpenChange={(open) => {
+        setCheckoutOpen(open);
+        if (open) {
+          // Reset payment state when opening
+          setPaymentMethods({
+            cash: { active: false, amount: '', reference: '' },
+            card: { active: false, amount: '', reference: '' },
+            mobile: { active: false, amount: '', reference: '' }
+          });
+        }
+      }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Complete Payment</DialogTitle>
             <DialogDescription>
-              Total amount: ${total.toFixed(2)}
+              Total amount due: ${total.toFixed(2)}
               {selectedCustomer && (
                 <span className="block mt-1">Customer: {selectedCustomer.name}</span>
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-3 gap-4 py-4">
-            <Button
-              variant={selectedPayment === 'cash' ? 'default' : 'outline'}
-              className="h-24 flex-col gap-2"
-              onClick={() => setSelectedPayment('cash')}
-            >
-              <Banknote className="h-8 w-8" />
-              Cash
-            </Button>
-            <Button
-              variant={selectedPayment === 'card' ? 'default' : 'outline'}
-              className="h-24 flex-col gap-2"
-              onClick={() => setSelectedPayment('card')}
-            >
-              <CreditCard className="h-8 w-8" />
-              Card
-            </Button>
-            <Button
-              variant={selectedPayment === 'mobile' ? 'default' : 'outline'}
-              className="h-24 flex-col gap-2"
-              onClick={() => setSelectedPayment('mobile')}
-            >
-              <Smartphone className="h-8 w-8" />
-              Mobile
-            </Button>
+
+          <div className="space-y-4 py-4">
+            {/* Payment Summary */}
+            <div className="grid grid-cols-3 gap-2 text-center p-3 bg-muted/50 rounded-lg">
+              <div>
+                <div className="text-xs text-muted-foreground">Total Due</div>
+                <div className="font-semibold">${total.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Paid</div>
+                <div className="font-semibold text-green-600">${totalPaid.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">
+                  {totalPaid.toFixed(2) >= total.toFixed(2) ? 'Change' : 'Remaining'}
+                </div>
+                <div className={`font-semibold ${totalPaid >= total ? 'text-blue-600' : 'text-red-600'}`}>
+                  ${Math.abs(totalPaid - total).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Methods Checkboxes */}
+            <div className="space-y-4 border rounded-md p-4">
+              <Label className="text-sm font-medium">Select Payment Methods</Label>
+
+              {(['cash', 'card', 'mobile'] as const).map((method) => (
+                <div key={method} className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`pay-${method}`}
+                      checked={paymentMethods[method].active}
+                      onCheckedChange={(checked) => handlePaymentMethodToggle(method, checked === true)}
+                    />
+                    <Label htmlFor={`pay-${method}`} className="capitalize flex items-center gap-2 cursor-pointer">
+                      {method === 'cash' && <Banknote className="h-4 w-4 text-muted-foreground" />}
+                      {method === 'card' && <CreditCard className="h-4 w-4 text-muted-foreground" />}
+                      {method === 'mobile' && <Smartphone className="h-4 w-4 text-muted-foreground" />}
+                      {method}
+                    </Label>
+                  </div>
+
+                  {paymentMethods[method].active && (
+                    <div className="grid grid-cols-2 gap-3 pl-6 animate-in fade-in slide-in-from-top-1">
+                      <div className="space-y-1">
+                        <Label htmlFor={`amount-${method}`} className="text-xs">Amount</Label>
+                        <Input
+                          id={`amount-${method}`}
+                          type="number"
+                          value={paymentMethods[method].amount}
+                          onChange={(e) => updatePaymentDetail(method, 'amount', e.target.value)}
+                          placeholder="0.00"
+                          className="h-8"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor={`ref-${method}`} className="text-xs">Reference (Optional)</Label>
+                        <Input
+                          id={`ref-${method}`}
+                          type="text"
+                          value={paymentMethods[method].reference}
+                          onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
+                          placeholder="Ref #"
+                          className="h-8"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {(totalPaid < total) && (
+              <div className="text-xs text-red-500 text-center font-medium">
+                Balance remaining: ${(total - totalPaid).toFixed(2)}
+              </div>
+            )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setCheckoutOpen(false)}>Cancel</Button>
-            <Button onClick={handleCheckout} disabled={!selectedPayment}>
+            <Button
+              onClick={handleCheckout}
+              disabled={totalPaid < total - 0.01} // Small epsilon for float comparison
+              className={totalPaid >= total - 0.01 ? 'bg-green-600 hover:bg-green-700' : ''}
+            >
               Complete Sale
             </Button>
           </DialogFooter>
