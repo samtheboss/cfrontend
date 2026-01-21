@@ -12,8 +12,12 @@ export interface ProductVariant {
   attributes: Record<string, string>;
   price: number;
   cost: number;
+  wasPrice?: number;
+  stock: number;
+  cost: number;
   stock: number;
   lowStockThreshold: number;
+  image?: string;
 }
 
 export interface Product {
@@ -22,7 +26,9 @@ export interface Product {
   description: string;
   category: string;
   attributes: ProductAttribute[];
+  attributes: ProductAttribute[];
   variants: ProductVariant[];
+  images: string[];
   availableOnline: boolean;
   createdAt: Date;
   updatedAt: Date;

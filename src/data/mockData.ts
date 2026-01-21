@@ -19,6 +19,10 @@ export const mockProducts: Product[] = [
       { id: 'v5', productId: '1', sku: 'TSH-WHT-M', barcode: '1234567890005', attributes: { size: 'M', color: 'White' }, price: 29.99, cost: 12.00, stock: 28, lowStockThreshold: 10 },
       { id: 'v6', productId: '1', sku: 'TSH-NVY-L', barcode: '1234567890006', attributes: { size: 'L', color: 'Navy' }, price: 29.99, cost: 12.00, stock: 5, lowStockThreshold: 10 },
     ],
+    images: [
+      'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=500',
+      'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&q=80&w=500'
+    ],
     createdAt: new Date('2024-01-15'),
     updatedAt: new Date('2024-01-20')
   },
@@ -38,6 +42,9 @@ export const mockProducts: Product[] = [
       { id: 'v9', productId: '2', sku: 'JNS-BLU-32', barcode: '1234567890009', attributes: { waist: '32', color: 'Blue' }, price: 79.99, cost: 35.00, stock: 3, lowStockThreshold: 5 },
       { id: 'v10', productId: '2', sku: 'JNS-BLK-30', barcode: '1234567890010', attributes: { waist: '30', color: 'Black' }, price: 79.99, cost: 35.00, stock: 18, lowStockThreshold: 5 },
     ],
+    images: [
+      'https://images.unsplash.com/photo-1542272454315-4c01d7abdf4a?auto=format&fit=crop&q=80&w=500'
+    ],
     createdAt: new Date('2024-01-10'),
     updatedAt: new Date('2024-01-18')
   },
@@ -56,6 +63,9 @@ export const mockProducts: Product[] = [
       { id: 'v12', productId: '3', sku: 'SNK-WHT-10', barcode: '1234567890012', attributes: { size: '10', color: 'White' }, price: 129.99, cost: 55.00, stock: 8, lowStockThreshold: 5 },
       { id: 'v13', productId: '3', sku: 'SNK-BLK-9', barcode: '1234567890013', attributes: { size: '9', color: 'Black' }, price: 129.99, cost: 55.00, stock: 0, lowStockThreshold: 5 },
       { id: 'v14', productId: '3', sku: 'SNK-RED-10', barcode: '1234567890014', attributes: { size: '10', color: 'Red' }, price: 129.99, cost: 55.00, stock: 6, lowStockThreshold: 5 },
+    ],
+    images: [
+      'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=500'
     ],
     createdAt: new Date('2024-01-05'),
     updatedAt: new Date('2024-01-22')

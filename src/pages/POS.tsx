@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts, mockCustomers } from '@/data/mockData';
 import { ProductVariant, SaleItem, Customer } from '@/types/inventory';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,7 +43,7 @@ export default function POS() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<'cash' | 'card' | 'mobile' | null>(null);
-  
+
   // Customer state
   const [customers, setCustomers] = useState<Customer[]>(mockCustomers);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -117,6 +117,16 @@ export default function POS() {
       }
       return item;
     }));
+  };
+
+  const updatePrice = (variantId: string, newPrice: number) => {
+    if (newPrice < 0) return;
+    setCart(prev => prev.map(item =>
+      item.variantId === variantId
+        ? { ...item, price: newPrice }
+        : item
+    ));
+    toast.success('Price updated');
   };
 
   const removeFromCart = (variantId: string) => {
@@ -244,7 +254,7 @@ export default function POS() {
                 Current Sale
               </h2>
             </div>
-            
+
             {/* Customer Selection */}
             <div className="flex gap-2">
               <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
@@ -286,7 +296,7 @@ export default function POS() {
                   </Command>
                 </PopoverContent>
               </Popover>
-              
+
               {selectedCustomer ? (
                 <Button
                   variant="ghost"
@@ -331,7 +341,26 @@ export default function POS() {
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <p className="font-semibold">${(item.price * item.quantity).toFixed(2)}</p>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="ghost" className="h-auto p-0 hover:bg-transparent font-semibold text-primary">
+                            ${(item.price * item.quantity).toFixed(2)}
+                            <Edit className="ml-1 h-3 w-3 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48">
+                          <div className="grid gap-2">
+                            <Label htmlFor={`price-${item.variantId}`}>Unit Price override</Label>
+                            <Input
+                              id={`price-${item.variantId}`}
+                              type="number"
+                              defaultValue={item.price}
+                              onChange={(e) => updatePrice(item.variantId, parseFloat(e.target.value))}
+                            />
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
                       <div className="flex items-center gap-1">
                         <Button
                           variant="outline"
@@ -368,7 +397,7 @@ export default function POS() {
           </div>
 
           {/* Cart Summary */}
-          <div className="p-4 border-t bg-muted/30">
+          < div className="p-4 border-t bg-muted/30" >
             <div className="space-y-2 mb-4">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>

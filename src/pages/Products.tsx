@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
-import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,19 +51,21 @@ export default function Products() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   // New product form state
   const [newProduct, setNewProduct] = useState({
     name: '',
     description: '',
     category: '',
     attributes: [{ name: '', values: '' }] as { name: string; values: string }[],
+    images: [] as string[],
     basePrice: '',
     baseCost: '',
     availableOnline: false,
   });
 
-  const filteredProducts = products.filter(p => 
+  const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.category.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -98,7 +100,7 @@ export default function Products() {
   const updateAttribute = (index: number, field: 'name' | 'values', value: string) => {
     setNewProduct(prev => ({
       ...prev,
-      attributes: prev.attributes.map((attr, i) => 
+      attributes: prev.attributes.map((attr, i) =>
         i === index ? { ...attr, [field]: value } : attr
       )
     }));
@@ -115,7 +117,7 @@ export default function Products() {
     if (attributes.length === 0) return [];
 
     const combinations: Record<string, string>[] = [];
-    
+
     const generateCombinations = (index: number, current: Record<string, string>) => {
       if (index === attributes.length) {
         combinations.push({ ...current });
@@ -127,9 +129,9 @@ export default function Products() {
         generateCombinations(index + 1, current);
       }
     };
-    
+
     generateCombinations(0, {});
-    
+
     return combinations.map((combo, i) => ({
       id: `${productId}-v${i}`,
       productId,
@@ -143,8 +145,65 @@ export default function Products() {
     }));
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setNewProduct(prev => ({
+        ...prev,
+        images: [...prev.images, url]
+      }));
+    }
+  };
+
+  const updateImage = (index: number, value: string) => {
+    setNewProduct(prev => ({
+      ...prev,
+      images: prev.images.map((img, i) => i === index ? value : img)
+    }));
+  };
+
+  const removeImage = (index: number) => {
+    setNewProduct(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index)
+    }));
+  };
+
+  const resetForm = () => {
+    setNewProduct({
+      name: '',
+      description: '',
+      category: '',
+      attributes: [{ name: '', values: '' }],
+      images: [],
+      basePrice: '',
+      baseCost: '',
+      availableOnline: false,
+    });
+    setEditingId(null);
+  };
+
+  const handleEditProduct = (product: Product) => {
+    setEditingId(product.id);
+    setNewProduct({
+      name: product.name,
+      description: product.description,
+      category: product.category,
+      attributes: product.attributes.map(attr => ({
+        name: attr.name,
+        values: attr.values.join(', ')
+      })),
+      images: product.images || [],
+      basePrice: product.variants[0]?.price.toString() || '',
+      baseCost: product.variants[0]?.cost.toString() || '',
+      availableOnline: product.availableOnline,
+    });
+    setIsAddDialogOpen(true);
+  };
+
   const handleCreateProduct = () => {
-    const productId = `p${Date.now()}`;
+    const productId = editingId || `p${Date.now()}`;
     const parsedAttributes: ProductAttribute[] = newProduct.attributes
       .filter(a => a.name && a.values)
       .map((a, i) => ({
@@ -168,21 +227,19 @@ export default function Products() {
       category: newProduct.category,
       attributes: parsedAttributes,
       variants,
+      images: newProduct.images.filter(img => img.trim() !== ''),
       availableOnline: newProduct.availableOnline,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    setProducts(prev => [...prev, product]);
-    setNewProduct({
-      name: '',
-      description: '',
-      category: '',
-      attributes: [{ name: '', values: '' }],
-      basePrice: '',
-      baseCost: '',
-      availableOnline: false,
-    });
+    if (editingId) {
+      setProducts(prev => prev.map(p => p.id === editingId ? product : p));
+    } else {
+      setProducts(prev => [...prev, product]);
+    }
+
+    resetForm();
     setIsAddDialogOpen(false);
   };
 
@@ -199,18 +256,21 @@ export default function Products() {
             className="pl-9"
           />
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+          setIsAddDialogOpen(open);
+          if (!open) resetForm();
+        }}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={resetForm}>
               <Plus className="h-4 w-4 mr-2" />
               Add Product
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create New Product</DialogTitle>
+              <DialogTitle>{editingId ? 'Edit Product' : 'Create New Product'}</DialogTitle>
               <DialogDescription>
-                Add a new product with attributes. Variants will be auto-generated based on attributes.
+                {editingId ? 'Update product details and attributes.' : 'Add a new product with attributes. Variants will be auto-generated based on attributes.'}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -272,7 +332,7 @@ export default function Products() {
                   />
                 </div>
               </div>
-              
+
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>Attributes (for variant generation)</Label>
@@ -314,6 +374,50 @@ export default function Products() {
                 </p>
               </div>
 
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Product Images</Label>
+                  <label htmlFor="image-upload">
+                    <Button type="button" variant="outline" size="sm" className="cursor-pointer" asChild>
+                      <span>
+                        <Upload className="h-3 w-3 mr-1" />
+                        Upload Image
+                      </span>
+                    </Button>
+                  </label>
+                  <Input
+                    id="image-upload"
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                  />
+                </div>
+                {newProduct.images.length === 0 ? (
+                  <div className="border border-dashed rounded-lg p-8 text-center text-muted-foreground flex flex-col items-center gap-2">
+                    <ImageIcon className="h-8 w-8 opacity-50" />
+                    <p className="text-sm">No images uploaded</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {newProduct.images.map((img, index) => (
+                      <div key={index} className="relative group border rounded-lg overflow-hidden aspect-square bg-muted">
+                        <img src={img} alt={`Product ${index + 1}`} className="w-full h-full object-cover" />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon"
+                          className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => removeImage(index)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div className="space-y-0.5">
                   <Label htmlFor="availableOnline" className="flex items-center gap-2">
@@ -333,7 +437,9 @@ export default function Products() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateProduct} disabled={!newProduct.name}>Create Product</Button>
+              <Button onClick={handleCreateProduct} disabled={!newProduct.name}>
+                {editingId ? 'Update Product' : 'Create Product'}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -348,8 +454,12 @@ export default function Products() {
               onClick={() => toggleExpand(product.id)}
             >
               <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                  <Package className="h-6 w-6 text-primary" />
+                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 overflow-hidden">
+                  {product.images && product.images.length > 0 ? (
+                    <img src={product.images[0]} alt={product.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <Package className="h-6 w-6 text-primary" />
+                  )}
                 </div>
                 <div>
                   <h3 className="font-medium">{product.name}</h3>
@@ -382,7 +492,7 @@ export default function Products() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleEditProduct(product)}>
                       <Edit className="h-4 w-4 mr-2" />
                       Edit Product
                     </DropdownMenuItem>
