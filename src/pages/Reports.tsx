@@ -1,10 +1,16 @@
+import { useState, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts, mockSales, mockAdjustments } from '@/data/mockData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { TrendingUp, Package, DollarSign, AlertTriangle } from 'lucide-react';
-import { format } from 'date-fns';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye } from 'lucide-react';
+import { format, isAfter, isBefore, isEqual, compareAsc } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { MultiSelect, Option } from '@/components/ui/multi-select';
 
 export default function Reports() {
   // Sales data
@@ -15,7 +21,7 @@ export default function Reports() {
   const allVariants = mockProducts.flatMap(p => p.variants);
   const totalInventoryValue = allVariants.reduce((sum, v) => sum + (v.stock * v.cost), 0);
   const totalRetailValue = allVariants.reduce((sum, v) => sum + (v.stock * v.price), 0);
-  
+
   // Stock status
   const inStock = allVariants.filter(v => v.stock > v.lowStockThreshold).length;
   const lowStock = allVariants.filter(v => v.stock > 0 && v.stock <= v.lowStockThreshold).length;
@@ -53,6 +59,162 @@ export default function Reports() {
     { day: 'Sat', sales: 2100 },
     { day: 'Sun', sales: 890 },
   ];
+
+  // Stock Movement Report State
+  const [selectedProductId, setSelectedProductId] = useState<string>(''); // Product ID
+  const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>([]); // Variant IDs
+
+  const [startDate, setStartDate] = useState<string>(
+    '2024-01-01'
+  );
+  const [endDate, setEndDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+
+  // Helper options
+  const productOptions = mockProducts.map(p => ({
+    id: p.id,
+    label: p.name
+  }));
+
+  const variantOptions: Option[] = useMemo(() => {
+    if (!selectedProductId) return [];
+
+    const product = mockProducts.find(p => p.id === selectedProductId);
+    if (!product) return [];
+
+    return product.variants.map(v => ({
+      value: v.id,
+      label: Object.values(v.attributes).join(' / ')
+    }));
+  }, [selectedProductId]);
+
+
+  // Calculate stock movements for selected variant or product
+  const getStockMovements = () => {
+    if (!selectedProductId) return { movements: [], openingBalance: 0 };
+
+    const product = mockProducts.find(p => p.id === selectedProductId);
+    if (!product) return { movements: [], openingBalance: 0 };
+
+    let targetVariants = [];
+    let initialStock = 0;
+
+    if (selectedVariantIds.length === 0) {
+      // Default to ALL variants if none selected
+      targetVariants = product.variants;
+      initialStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
+    } else {
+      // Specific variants
+      targetVariants = product.variants.filter(v => selectedVariantIds.includes(v.id));
+      initialStock = targetVariants.reduce((sum, v) => sum + v.stock, 0);
+    }
+
+    if (targetVariants.length === 0) return { movements: [], openingBalance: 0 };
+    const targetVariantIds = targetVariants.map(v => v.id);
+
+    // Gather all impact events (sales and adjustments)
+    const movements: {
+      date: Date;
+      type: 'sale' | 'adjustment';
+      quantity: number; // Positive = In, Negative = Out
+      reference: string;
+      runningBalance: number;
+      variantInfo?: string; // To distinguish in full product view
+    }[] = [];
+
+    // 1. Sales (Out)
+    mockSales.forEach(sale => {
+      sale.items.forEach(item => {
+        if (targetVariantIds.includes(item.variantId)) {
+          movements.push({
+            date: sale.timestamp,
+            type: 'sale',
+            quantity: -item.quantity,
+            reference: `Sale #${sale.id.substring(0, 6)}`,
+            runningBalance: 0,
+            variantInfo: Object.values(item.attributes).join('/')
+          });
+        }
+      });
+    });
+
+    // 2. Adjustments (In/Out)
+    mockAdjustments.forEach(adj => {
+      if (targetVariantIds.includes(adj.variantId)) {
+        movements.push({
+          date: adj.timestamp,
+          type: 'adjustment',
+          quantity: adj.adjustment,
+          reference: `Adj: ${adj.reason}`,
+          runningBalance: 0,
+          variantInfo: adj.variantSku // Or lookup attributes if needed
+        });
+      }
+    });
+
+    // Sort by date ascending
+    movements.sort((a, b) => compareAsc(a.date, b.date));
+
+    // Calculate balances
+    // Strategy: reverse-engineer from current stock
+
+    const totalChange = movements.reduce((sum, m) => sum + m.quantity, 0);
+    let openingBalance = initialStock - totalChange;
+
+    // Now calculate running balance forward
+    let running = openingBalance;
+    movements.forEach(m => {
+      running += m.quantity;
+      m.runningBalance = running;
+    });
+
+    // Filter by date range
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999); // End of day
+
+    // Opening balance at start date
+    const firstInRangeIndex = movements.findIndex(m => isAfter(m.date, start) || isEqual(m.date, start));
+
+    if (firstInRangeIndex > 0) {
+      openingBalance = movements[firstInRangeIndex - 1].runningBalance;
+    } else if (firstInRangeIndex === 0) {
+      // openingBalance is initial
+    } else {
+      if (movements.length > 0) {
+        const lastMov = movements[movements.length - 1];
+        if (isBefore(lastMov.date, start)) {
+          openingBalance = lastMov.runningBalance;
+        }
+      }
+    }
+
+    const filteredMovements = movements.filter(m =>
+      (isAfter(m.date, start) || isEqual(m.date, start)) &&
+      (isBefore(m.date, end) || isEqual(m.date, end))
+    );
+
+    return { movements: filteredMovements, openingBalance };
+  };
+
+  const { movements, openingBalance } = getStockMovements();
+
+  // Get current displayed stock
+  const currentDisplayedStock = () => {
+    if (!selectedProductId) return 0;
+    const product = mockProducts.find(p => p.id === selectedProductId);
+    if (!product) return 0;
+
+    if (selectedVariantIds.length === 0) {
+      return product.variants.reduce((sum, v) => sum + v.stock, 0);
+    } else {
+      return product.variants
+        .filter(v => selectedVariantIds.includes(v.id))
+        .reduce((sum, v) => sum + v.stock, 0);
+    }
+  };
+
 
   return (
     <AppLayout title="Reports & Analytics">
@@ -112,7 +274,7 @@ export default function Reports() {
         </Card>
       </div>
 
-      <Tabs defaultValue="sales" className="space-y-6">
+      <Tabs defaultValue="inventory" className="space-y-6">
         <TabsList>
           <TabsTrigger value="sales">Sales</TabsTrigger>
           <TabsTrigger value="inventory">Inventory</TabsTrigger>
@@ -120,67 +282,6 @@ export default function Reports() {
         </TabsList>
 
         <TabsContent value="sales" className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Sales Trend */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Weekly Sales Trend</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={dailySales}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="day" className="text-xs" />
-                      <YAxis className="text-xs" />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px'
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="sales"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={{ fill: 'hsl(var(--primary))' }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Sales by Category */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Sales by Category</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={salesByCategory} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis type="number" className="text-xs" />
-                      <YAxis dataKey="category" type="category" className="text-xs" width={80} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px'
-                        }}
-                        formatter={(value) => [`$${value}`, 'Sales']}
-                      />
-                      <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
           {/* Recent Sales Table */}
           <Card>
             <CardHeader>
@@ -218,6 +319,118 @@ export default function Reports() {
         </TabsContent>
 
         <TabsContent value="inventory" className="space-y-6">
+
+          {/* Detailed Stock Movement - Moved to top of Inventory tab as requested */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>Detailed Stock Movement</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col md:flex-row gap-4 mb-6 items-end">
+
+                {/* Product Select */}
+                <div className="w-full md:w-1/4 space-y-2">
+                  <Label>Product</Label>
+                  <Select value={selectedProductId} onValueChange={(val) => {
+                    setSelectedProductId(val);
+                    setSelectedVariantIds([]); // Reset variants when product changes
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Product" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {productOptions.map(opt => (
+                        <SelectItem key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Variant Select (Multi-Select) */}
+                <div className="w-full md:w-1/4 space-y-2">
+                  <Label>Variant(s) Leave empty to view all variants.</Label>
+                  <MultiSelect
+                    options={variantOptions}
+                    selected={selectedVariantIds}
+                    onChange={setSelectedVariantIds}
+                    placeholder="Select variants..."
+                    className={!selectedProductId ? "opacity-50 pointer-events-none" : ""}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                </div>
+              </div>
+
+              {selectedProductId ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-muted rounded-lg flex gap-8">
+                    <div>
+                      <span className="text-sm text-muted-foreground block">Opening Balance</span>
+                      <span className="font-semibold text-lg">{openingBalance}</span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-muted-foreground block">Current Stock</span>
+                      <span className="font-semibold text-lg">
+                        {currentDisplayedStock()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Variant (Info)</th>
+                        <th>Reference</th>
+                        <th className="text-right">In/Out</th>
+                        <th className="text-right">Running Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {movements.length > 0 ? (
+                        movements.map((move, i) => (
+                          <tr key={i}>
+                            <td>{format(move.date, 'MMM d, yyyy HH:mm')}</td>
+                            <td className="capitalize">{move.type}</td>
+                            <td className="text-sm text-muted-foreground">{move.variantInfo || '-'}</td>
+                            <td className="text-sm text-muted-foreground">{move.reference}</td>
+                            <td className={`text-right font-mono ${move.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {move.quantity > 0 ? '+' : ''}{move.quantity}
+                            </td>
+                            <td className="text-right font-mono font-medium">
+                              {move.runningBalance}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                            No movements found in this period.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
+                  <Eye className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Please select a product to view movement history.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Stock Status */}
             <Card>

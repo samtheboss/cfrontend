@@ -70,6 +70,29 @@ export const mockProducts: Product[] = [
     createdAt: new Date('2024-01-05'),
     updatedAt: new Date('2024-01-22')
   }
+  ,
+  {
+    id: '4',
+    name: 'Running Sneakers Pro',
+    description: 'High-performance running shoes',
+    category: 'Footwearyyy',
+    availableOnline: true,
+    attributes: [
+      { id: 'size', name: 'Size', values: ['8', '9', '10', '11', '12'] },
+      { id: 'color', name: 'Color', values: ['White', 'Black', 'Red'] }
+    ],
+    variants: [
+      { id: 'v11', productId: '3', sku: 'SNK-WHT-9', barcode: '1234567890011', attributes: { size: '9', color: 'White' }, price: 129.99, cost: 55.00, stock: 12, lowStockThreshold: 5 },
+      { id: 'v12', productId: '3', sku: 'SNK-WHT-10', barcode: '1234567890012', attributes: { size: '10', color: 'White' }, price: 129.99, cost: 55.00, stock: 8, lowStockThreshold: 5 },
+      { id: 'v13', productId: '3', sku: 'SNK-BLK-9', barcode: '1234567890013', attributes: { size: '9', color: 'Black' }, price: 129.99, cost: 55.00, stock: 0, lowStockThreshold: 5 },
+      { id: 'v14', productId: '3', sku: 'SNK-RED-10', barcode: '1234567890014', attributes: { size: '10', color: 'Red' }, price: 129.99, cost: 55.00, stock: 6, lowStockThreshold: 5 },
+    ],
+    images: [
+      'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=500'
+    ],
+    createdAt: new Date('2024-01-05'),
+    updatedAt: new Date('2024-01-22')
+  }
 ];
 
 export const mockSales: Sale[] = [
