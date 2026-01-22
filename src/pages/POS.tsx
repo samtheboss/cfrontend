@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { AppLayout } from '@/components/layout/AppLayout';
-import { mockProducts, mockCustomers } from '@/data/mockData';
-import { ProductVariant, SaleItem, Customer } from '@/types/inventory';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { mockProducts, mockCustomers, mockSales } from '@/data/mockData';
+import { ProductVariant, SaleItem, Customer, Sale } from '@/types/inventory';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -32,18 +33,41 @@ import {
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
 
 interface CartItem extends SaleItem {
   maxStock: number;
 }
 
+interface ActiveOrder {
+  id: string;
+  customer: Customer | null;
+  items: CartItem[];
+  timestamp: Date;
+}
+
 export default function POS() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+
+  // Orders Management
+  const [ordersDialogOpen, setOrdersDialogOpen] = useState(false);
+  const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([]);
+  const [salesHistory, setSalesHistory] = useState<Sale[]>(mockSales);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+
+  // Order Filters
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderStartDate, setOrderStartDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [orderEndDate, setOrderEndDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
 
   // Payment methods state
   const [paymentMethods, setPaymentMethods] = useState({
@@ -176,11 +200,25 @@ export default function POS() {
       toast.error('Payment amount is less than total');
       return;
     }
+
+    // Create Sale record
+    const newSale: Sale = {
+      id: `sale-${Date.now()}`,
+      items: cart,
+      subtotal,
+      tax,
+      total,
+      paymentMethod: paymentMethods.card.active ? 'card' : 'cash', // Simplified
+      timestamp: new Date(),
+      userId: 'current-user', // Mock
+    };
+
+    setSalesHistory(prev => [newSale, ...prev]);
+
     const customerInfo = selectedCustomer ? ` for ${selectedCustomer.name}` : '';
     toast.success(`Sale completed successfully${customerInfo}!`);
-    setCart([]);
-    setCheckoutOpen(false);
 
+    // Reset state
     setCart([]);
     setCheckoutOpen(false);
     setPaymentMethods({
@@ -189,6 +227,54 @@ export default function POS() {
       mobile: { active: false, amount: '', reference: '' }
     });
     setSelectedCustomer(null);
+  };
+
+  const handleHoldOrder = () => {
+    if (cart.length === 0) return;
+
+    const order: ActiveOrder = {
+      id: `hold-${Date.now()}`,
+      customer: selectedCustomer,
+      items: cart,
+      timestamp: new Date()
+    };
+
+    setActiveOrders(prev => [order, ...prev]);
+    setCart([]);
+    setSelectedCustomer(null);
+    toast.success('Order held successfully');
+  };
+
+  const handleResumeOrder = (order: ActiveOrder) => {
+    setCart(order.items);
+    setSelectedCustomer(order.customer);
+    setActiveOrders(prev => prev.filter(o => o.id !== order.id));
+    setOrdersDialogOpen(false);
+    toast.success('Order resumed');
+  };
+
+  const handleReorder = (sale: Sale) => {
+    // Convert sale items to cart items (finding current max stock)
+    const newCart: CartItem[] = sale.items.map(item => {
+      // Find current variant info to get max stock
+      const variant = allVariants.find(v => v.id === item.variantId);
+      return {
+        ...item,
+        maxStock: variant ? variant.stock : 0 // Or 0 if discontinued
+      };
+    });
+
+    setCart(newCart);
+    setOrdersDialogOpen(false);
+    toast.success('Items loaded to cart');
+  };
+
+  const toggleExpandOrder = (id: string) => {
+    if (expandedOrderId === id) {
+      setExpandedOrderId(null);
+    } else {
+      setExpandedOrderId(id);
+    }
   };
 
   const handleAddCustomer = () => {
@@ -210,6 +296,27 @@ export default function POS() {
     toast.success('Customer added successfully');
   };
 
+  // Helper to filter orders
+  const filterOrders = (orders: any[]) => {
+    const start = startOfDay(parseISO(orderStartDate));
+    const end = endOfDay(parseISO(orderEndDate));
+
+    return orders.filter(order => {
+      const matchSearch =
+        order.id.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (order.customer && order.customer.name.toLowerCase().includes(orderSearchQuery.toLowerCase())) ||
+        (order.userId && order.userId.toLowerCase().includes(orderSearchQuery.toLowerCase()));
+
+      const orderDate = new Date(order.timestamp);
+      const matchDate = isWithinInterval(orderDate, { start, end });
+
+      return matchSearch && matchDate;
+    });
+  };
+
+  const filteredActiveOrders = filterOrders(activeOrders);
+  const filteredSalesHistory = filterOrders(salesHistory);
+
   return (
     <div className="min-h-screen bg-background">
       <div className="flex h-screen">
@@ -217,15 +324,27 @@ export default function POS() {
         <div className="flex-1 flex flex-col border-r">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b bg-card">
-            <h1 className="text-xl font-semibold">Point of Sale</h1>
-            <div className="relative w-80">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search products, SKU, or barcode..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="icon" onClick={() => navigate('/')} title="Home">
+                <Home className="h-4 w-4" />
+              </Button>
+              <h1 className="text-xl font-semibold">Point of Sale</h1>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="relative w-64 md:w-80">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search products..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Button variant="outline" onClick={() => setOrdersDialogOpen(true)}>
+                <Clock className="h-4 w-4 mr-2" />
+                Orders
+              </Button>
             </div>
           </div>
 
@@ -256,7 +375,7 @@ export default function POS() {
               {filteredVariants.map((variant) => (
                 <div
                   key={variant.id}
-                  className="pos-product-card"
+                  className="pos-product-card cursor-pointer hover:border-primary transition-colors border rounded-lg p-3 bg-card shadow-sm"
                   onClick={() => addToCart(variant)}
                 >
                   <div className="flex flex-col h-full">
@@ -287,13 +406,18 @@ export default function POS() {
         </div>
 
         {/* Right Panel - Cart */}
-        <div className="w-96 flex flex-col bg-card">
+        <div className="w-96 flex flex-col bg-card shadow-xl z-10">
           <div className="p-4 border-b">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
                 Current Sale
               </h2>
+              {cart.length > 0 && (
+                <Button variant="ghost" size="sm" onClick={() => setCart([])} className="text-destructive h-8 px-2">
+                  Clear
+                </Button>
+              )}
             </div>
 
             {/* Customer Selection */}
@@ -454,14 +578,26 @@ export default function POS() {
                 <span>${total.toFixed(2)}</span>
               </div>
             </div>
-            <Button
-              className="w-full"
-              size="lg"
-              disabled={cart.length === 0}
-              onClick={() => setCheckoutOpen(true)}
-            >
-              Checkout
-            </Button>
+
+            <div className="grid grid-cols-4 gap-2">
+              <Button
+                variant="outline"
+                className="col-span-1"
+                disabled={cart.length === 0}
+                onClick={handleHoldOrder}
+                title="Hold Order"
+              >
+                <PauseCircle className="h-4 w-4" />
+              </Button>
+              <Button
+                className="col-span-3"
+                size="lg"
+                disabled={cart.length === 0}
+                onClick={() => setCheckoutOpen(true)}
+              >
+                Checkout
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -577,6 +713,182 @@ export default function POS() {
               Complete Sale
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Orders Manager Dialog */}
+      <Dialog open={ordersDialogOpen} onOpenChange={setOrdersDialogOpen}>
+        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Order Management</DialogTitle>
+            <DialogDescription>
+              Manage active held orders and view past sales history.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Search and Filter */}
+          <div className="flex flex-col md:flex-row gap-3 py-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search orders, customers..."
+                value={orderSearchQuery}
+                onChange={(e) => setOrderSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={orderStartDate}
+                onChange={(e) => setOrderStartDate(e.target.value)}
+                className="w-auto"
+              />
+              <span className="flex items-center text-muted-foreground">-</span>
+              <Input
+                type="date"
+                value={orderEndDate}
+                onChange={(e) => setOrderEndDate(e.target.value)}
+                className="w-auto"
+              />
+            </div>
+          </div>
+
+          <Tabs defaultValue="active" className="flex-1 flex flex-col overflow-hidden">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="active">Active (Held) Orders</TabsTrigger>
+              <TabsTrigger value="posted">Posted (History)</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="active" className="flex-1 overflow-y-auto mt-4">
+              {filteredActiveOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                  <PauseCircle className="h-10 w-10 mb-2 opacity-20" />
+                  <p>No matching held orders</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredActiveOrders.map(order => (
+                    <div key={order.id} className="border rounded-lg bg-card overflow-hidden">
+                      <div className="flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer"
+                        onClick={() => toggleExpandOrder(order.id)}>
+                        <div className="flex gap-4 items-center">
+                          <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
+                            <PauseCircle className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="font-medium">
+                              {order.customer ? order.customer.name : 'Walk-in Customer'}
+                            </div>
+                            <div className="text-sm text-muted-foreground flex gap-2">
+                              <span>{format(order.timestamp, 'HH:mm')}</span>
+                              <span>•</span>
+                              <span>{order.items.length} items</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="font-semibold text-right">
+                            ${order.items.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2)}
+                          </div>
+                          <Button size="sm" onClick={(e) => {
+                            e.stopPropagation();
+                            handleResumeOrder(order);
+                          }}>
+                            <PlayCircle className="h-4 w-4 mr-2" />
+                            Resume
+                          </Button>
+                          {expandedOrderId === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
+                      </div>
+
+                      {expandedOrderId === order.id && (
+                        <div className="p-4 bg-muted/10 border-t space-y-2">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="flex justify-between text-sm">
+                              <div>{item.productName} <span className="text-muted-foreground">x{item.quantity}</span></div>
+                              <div>${(item.price * item.quantity).toFixed(2)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="posted" className="flex-1 overflow-y-auto mt-4">
+              {filteredSalesHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                  <FileText className="h-10 w-10 mb-2 opacity-20" />
+                  <p>No matching sales history</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredSalesHistory.map(sale => (
+                    <div key={sale.id} className="border rounded-lg bg-card overflow-hidden">
+                      <div className="flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer"
+                        onClick={() => toggleExpandOrder(sale.id)}>
+                        <div className="flex gap-4 items-center">
+                          <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+                            <FileText className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="font-medium">
+                              Sale #{sale.id.slice(-6)}
+                            </div>
+                            <div className="text-sm text-muted-foreground flex gap-2">
+                              <span>{format(sale.timestamp, 'MMM d, HH:mm')}</span>
+                              <span>•</span>
+                              <span className="capitalize">{sale.paymentMethod}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="font-semibold text-right">
+                            ${sale.total.toFixed(2)}
+                          </div>
+                          <Button size="sm" variant="outline" onClick={(e) => {
+                            e.stopPropagation();
+                            handleReorder(sale);
+                          }}>
+                            <RotateCcw className="h-4 w-4 mr-2" />
+                            Re-order
+                          </Button>
+                          {expandedOrderId === sale.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
+                      </div>
+
+                      {expandedOrderId === sale.id && (
+                        <div className="p-4 bg-muted/10 border-t space-y-2">
+                          <div className="text-xs font-semibold text-muted-foreground mb-2 flex justify-between">
+                            <span>ITEM</span>
+                            <span>SUBTOTAL</span>
+                          </div>
+                          {sale.items.map((item, idx) => (
+                            <div key={idx} className="flex justify-between text-sm">
+                              <div>
+                                {item.productName}
+                                <span className="text-muted-foreground ml-2">
+                                  ({Object.values(item.attributes).join('/')}) x{item.quantity}
+                                </span>
+                              </div>
+                              <div>${(item.price * item.quantity).toFixed(2)}</div>
+                            </div>
+                          ))}
+                          <div className="border-t pt-2 mt-2 flex justify-between font-medium">
+                            <span>Total</span>
+                            <span>${sale.total.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
