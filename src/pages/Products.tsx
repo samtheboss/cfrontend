@@ -22,10 +22,28 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { StockBadge } from '@/components/inventory/StockBadge';
 import { getStockStatus } from '@/types/inventory';
+
+const CATEGORIES = [
+  'Apparel',
+  'Footwear',
+  'Accessories',
+  'Electronics',
+  'Home & Living',
+  'Sports & Outdoors',
+  'Beauty & Personal Care',
+  'Food & Beverages',
+];
 
 export default function Products() {
   const [products, setProducts] = useState<Product[]>(mockProducts);
@@ -212,12 +230,21 @@ export default function Products() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="category">Category</Label>
-                <Input
-                  id="category"
+                <Select
                   value={newProduct.category}
-                  onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
-                  placeholder="e.g., Apparel"
-                />
+                  onValueChange={(value) => setNewProduct(prev => ({ ...prev, category: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
