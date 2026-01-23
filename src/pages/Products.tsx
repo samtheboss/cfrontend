@@ -306,7 +306,7 @@ export default function Products() {
                 <div>
                   <h3 className="font-medium">{product.name}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {product.category} • {product.variants.length} variants • {product.variants.reduce((sum, v) => sum + v.stock, 0)} total units
+                    {product.category} • {product.variants.length} variants
                   </p>
                 </div>
               </div>
@@ -317,6 +317,9 @@ export default function Products() {
                       {attr.name}: {attr.values.length}
                     </Badge>
                   ))}
+                  <Badge variant="outline" className="text-xs">
+                    Total Qty: {product.variants.reduce((sum, v) => sum + v.stock, 0)}
+                  </Badge>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
