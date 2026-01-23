@@ -1,4 +1,4 @@
-import { Product, Sale, StockAdjustment } from '@/types/inventory';
+import { Product, Sale, StockAdjustment, Customer } from '@/types/inventory';
 
 export const mockProducts: Product[] = [
   {
@@ -112,4 +112,12 @@ export const mockAdjustments: StockAdjustment[] = [
     userId: 'user1',
     timestamp: new Date('2024-01-20T11:30:00')
   }
+];
+
+export const mockCustomers: Customer[] = [
+  { id: 'c1', name: 'John Smith', email: 'john.smith@email.com', phone: '555-0101', createdAt: new Date('2024-01-10') },
+  { id: 'c2', name: 'Sarah Johnson', email: 'sarah.j@email.com', phone: '555-0102', createdAt: new Date('2024-01-12') },
+  { id: 'c3', name: 'Mike Williams', email: 'mike.w@email.com', phone: '555-0103', createdAt: new Date('2024-01-15') },
+  { id: 'c4', name: 'Emily Brown', email: 'emily.b@email.com', phone: '555-0104', createdAt: new Date('2024-01-18') },
+  { id: 'c5', name: 'David Lee', email: 'david.lee@email.com', phone: '555-0105', createdAt: new Date('2024-01-20') },
 ];

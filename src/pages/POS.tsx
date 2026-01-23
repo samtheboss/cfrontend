@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { mockProducts } from '@/data/mockData';
-import { ProductVariant, SaleItem } from '@/types/inventory';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt } from 'lucide-react';
+import { mockProducts, mockCustomers } from '@/data/mockData';
+import { ProductVariant, SaleItem, Customer } from '@/types/inventory';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +16,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -29,6 +43,13 @@ export default function POS() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<'cash' | 'card' | 'mobile' | null>(null);
+  
+  // Customer state
+  const [customers, setCustomers] = useState<Customer[]>(mockCustomers);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
+  const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
 
   // Get all variants with product info
   const allVariants = mockProducts.flatMap(product =>
@@ -111,10 +132,31 @@ export default function POS() {
       toast.error('Please select a payment method');
       return;
     }
-    toast.success('Sale completed successfully!');
+    const customerInfo = selectedCustomer ? ` for ${selectedCustomer.name}` : '';
+    toast.success(`Sale completed successfully${customerInfo}!`);
     setCart([]);
     setCheckoutOpen(false);
     setSelectedPayment(null);
+    setSelectedCustomer(null);
+  };
+
+  const handleAddCustomer = () => {
+    if (!newCustomer.name.trim()) {
+      toast.error('Customer name is required');
+      return;
+    }
+    const customer: Customer = {
+      id: `c${Date.now()}`,
+      name: newCustomer.name.trim(),
+      email: newCustomer.email.trim() || undefined,
+      phone: newCustomer.phone.trim() || undefined,
+      createdAt: new Date(),
+    };
+    setCustomers(prev => [...prev, customer]);
+    setSelectedCustomer(customer);
+    setNewCustomer({ name: '', email: '', phone: '' });
+    setAddCustomerDialogOpen(false);
+    toast.success('Customer added successfully');
   };
 
   return (
@@ -196,10 +238,73 @@ export default function POS() {
         {/* Right Panel - Cart */}
         <div className="w-96 flex flex-col bg-card">
           <div className="p-4 border-b">
-            <h2 className="font-semibold flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />
-              Current Sale
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                Current Sale
+              </h2>
+            </div>
+            
+            {/* Customer Selection */}
+            <div className="flex gap-2">
+              <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="flex-1 justify-start"
+                  >
+                    <User className="h-4 w-4 mr-2" />
+                    {selectedCustomer ? selectedCustomer.name : "Select customer..."}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search customers..." />
+                    <CommandList>
+                      <CommandEmpty>No customer found.</CommandEmpty>
+                      <CommandGroup>
+                        {customers.map((customer) => (
+                          <CommandItem
+                            key={customer.id}
+                            value={customer.name}
+                            onSelect={() => {
+                              setSelectedCustomer(customer);
+                              setCustomerPopoverOpen(false);
+                            }}
+                          >
+                            <div className="flex flex-col">
+                              <span>{customer.name}</span>
+                              {customer.phone && (
+                                <span className="text-xs text-muted-foreground">{customer.phone}</span>
+                              )}
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              
+              {selectedCustomer ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSelectedCustomer(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setAddCustomerDialogOpen(true)}
+                >
+                  <UserPlus className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Cart Items */}
@@ -298,6 +403,9 @@ export default function POS() {
             <DialogTitle>Complete Payment</DialogTitle>
             <DialogDescription>
               Total amount: ${total.toFixed(2)}
+              {selectedCustomer && (
+                <span className="block mt-1">Customer: {selectedCustomer.name}</span>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-3 gap-4 py-4">
@@ -330,6 +438,54 @@ export default function POS() {
             <Button variant="outline" onClick={() => setCheckoutOpen(false)}>Cancel</Button>
             <Button onClick={handleCheckout} disabled={!selectedPayment}>
               Complete Sale
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Customer Dialog */}
+      <Dialog open={addCustomerDialogOpen} onOpenChange={setAddCustomerDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Customer</DialogTitle>
+            <DialogDescription>
+              Create a new customer profile for this sale.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="customerName">Name *</Label>
+              <Input
+                id="customerName"
+                value={newCustomer.name}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Customer name"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="customerEmail">Email</Label>
+              <Input
+                id="customerEmail"
+                type="email"
+                value={newCustomer.email}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="customer@email.com"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="customerPhone">Phone</Label>
+              <Input
+                id="customerPhone"
+                value={newCustomer.phone}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
+                placeholder="555-0100"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddCustomerDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddCustomer} disabled={!newCustomer.name.trim()}>
+              Add Customer
             </Button>
           </DialogFooter>
         </DialogContent>

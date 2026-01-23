@@ -78,6 +78,14 @@ export interface StockTake {
   userId: string;
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  createdAt: Date;
+}
+
 export type StockStatus = 'in-stock' | 'low-stock' | 'out-of-stock';
 
 export function getStockStatus(stock: number, threshold: number): StockStatus {
