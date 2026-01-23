@@ -20,26 +20,31 @@ export default function SignIn() {
     e.preventDefault();
     setIsLoading(true);
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const success = await login(username, password);
 
-    const success = login(username, password);
-    
-    if (success) {
+      if (success) {
+        toast({
+          title: 'Welcome back!',
+          description: 'You have successfully signed in.',
+        });
+        navigate('/');
+      } else {
+        toast({
+          title: 'Sign in failed',
+          description: 'Invalid username or password.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
       toast({
-        title: 'Welcome back!',
-        description: 'You have successfully signed in.',
-      });
-      navigate('/');
-    } else {
-      toast({
-        title: 'Sign in failed',
-        description: 'Invalid username or password.',
+        title: 'Network Error',
+        description: 'Failed to connect to the authentication server.',
         variant: 'destructive',
       });
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
 
   return (

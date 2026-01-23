@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useInventory } from '@/contexts/InventoryContext';
 import { User, UserGroup, UserRights, RightValue, rightLabels, rightCategories, defaultRights } from '@/types/user';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
@@ -24,26 +25,27 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { 
-  Users as UsersIcon, 
-  Shield, 
-  Edit, 
-  Check, 
-  X, 
-  AlertTriangle, 
-  Plus, 
+import {
+  Users as UsersIcon,
+  Shield,
+  Edit,
+  Check,
+  X,
+  AlertTriangle,
+  Plus,
   Trash2,
   UserPlus,
-  FolderPlus
+  FolderPlus,
+  MapPin
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -67,11 +69,11 @@ function RightBadge({ value }: { value: RightValue }) {
   );
 }
 
-function RightsEditor({ 
-  rights, 
-  onChange 
-}: { 
-  rights: UserRights; 
+function RightsEditor({
+  rights,
+  onChange
+}: {
+  rights: UserRights;
   onChange: (right: keyof UserRights, value: RightValue) => void;
 }) {
   return (
@@ -122,19 +124,20 @@ function RightsEditor({
 }
 
 export default function Users() {
-  const { 
-    allUsers, 
-    allGroups, 
-    addUser, 
-    updateUser, 
+  const {
+    allUsers,
+    allGroups,
+    addUser,
+    updateUser,
     deleteUser,
     addGroup,
     updateGroup,
     deleteGroup,
-    getUserRights, 
+    getUserRights,
     getGroupById,
-    user: currentUser 
+    user: currentUser
   } = useAuth();
+  const { locations } = useInventory();
   const { toast } = useToast();
 
   // User dialogs
@@ -146,6 +149,7 @@ export default function Users() {
     name: '',
     email: '',
     groupId: '',
+    locationId: '',
   });
 
   // Group dialogs
@@ -162,22 +166,24 @@ export default function Users() {
   const canManageUsers = currentUserRights?.manageUsers === 'yes';
 
   // User handlers
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     if (!newUser.username || !newUser.password || !newUser.name || !newUser.groupId) {
       toast({ title: 'Missing fields', description: 'Please fill all required fields.', variant: 'destructive' });
       return;
     }
-    
-    // Check for duplicate username
-    if (allUsers.some(u => u.username === newUser.username)) {
-      toast({ title: 'Username exists', description: 'This username is already taken.', variant: 'destructive' });
-      return;
-    }
 
-    addUser(newUser);
-    toast({ title: 'User created', description: `${newUser.name} has been added.` });
-    setNewUser({ username: '', password: '', name: '', email: '', groupId: '' });
-    setIsAddUserOpen(false);
+    try {
+      await addUser(newUser);
+      toast({ title: 'User created', description: `${newUser.name} has been added.` });
+      setNewUser({ username: '', password: '', name: '', email: '', groupId: '', locationId: '' });
+      setIsAddUserOpen(false);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create user',
+        variant: 'destructive'
+      });
+    }
   };
 
   const handleUpdateUser = () => {
@@ -186,6 +192,7 @@ export default function Users() {
       name: editingUser.name,
       email: editingUser.email,
       groupId: editingUser.groupId,
+      locationId: editingUser.locationId,
     });
     toast({ title: 'User updated', description: `${editingUser.name} has been updated.` });
     setEditingUser(null);
@@ -233,10 +240,10 @@ export default function Users() {
   const handleDeleteGroup = (group: UserGroup) => {
     const usersInGroup = allUsers.filter(u => u.groupId === group.id);
     if (usersInGroup.length > 0) {
-      toast({ 
-        title: 'Cannot delete', 
-        description: `${usersInGroup.length} user(s) are in this group. Move them first.`, 
-        variant: 'destructive' 
+      toast({
+        title: 'Cannot delete',
+        description: `${usersInGroup.length} user(s) are in this group. Move them first.`,
+        variant: 'destructive'
       });
       return;
     }
@@ -320,6 +327,7 @@ export default function Users() {
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead>Group</TableHead>
+                      <TableHead>Primary Location</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Rights Summary</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -350,6 +358,12 @@ export default function Users() {
                             <Badge variant="secondary">
                               {group?.name || 'Unknown'}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 text-sm">
+                              <MapPin className="h-3 w-3 text-muted-foreground" />
+                              {locations.find(l => l.id === user.locationId)?.name || 'None'}
+                            </div>
                           </TableCell>
                           <TableCell className="text-muted-foreground">{user.email || '-'}</TableCell>
                           <TableCell>
@@ -542,6 +556,24 @@ export default function Users() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-location">Main Location</Label>
+                <Select
+                  value={newUser.locationId}
+                  onValueChange={(value) => setNewUser(prev => ({ ...prev, locationId: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.map(loc => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddUserOpen(false)}>Cancel</Button>
@@ -598,6 +630,24 @@ export default function Users() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-location">Main Location</Label>
+                  <Select
+                    value={editingUser.locationId}
+                    onValueChange={(value) => setEditingUser(prev => prev ? { ...prev, locationId: value } : null)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map(loc => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )}
             <DialogFooter>
@@ -638,10 +688,10 @@ export default function Users() {
                 <h4 className="font-medium mb-4">Group Permissions</h4>
                 <RightsEditor
                   rights={newGroup.rights}
-                  onChange={(right, value) => 
-                    setNewGroup(prev => ({ 
-                      ...prev, 
-                      rights: { ...prev.rights, [right]: value } 
+                  onChange={(right, value) =>
+                    setNewGroup(prev => ({
+                      ...prev,
+                      rights: { ...prev.rights, [right]: value }
                     }))
                   }
                 />
@@ -684,7 +734,7 @@ export default function Users() {
                   <h4 className="font-medium mb-4">Group Permissions</h4>
                   <RightsEditor
                     rights={editingGroupRights}
-                    onChange={(right, value) => 
+                    onChange={(right, value) =>
                       setEditingGroupRights(prev => prev ? { ...prev, [right]: value } : null)
                     }
                   />

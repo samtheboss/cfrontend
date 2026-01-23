@@ -1,3 +1,10 @@
+export interface Location {
+  id: string;
+  name: string;
+  address?: string;
+  isMain: boolean;
+}
+
 export interface ProductAttribute {
   id: string;
   name: string;
@@ -13,8 +20,10 @@ export interface ProductVariant {
   price: number;
   cost: number;
   wasPrice?: number;
-  stock: number;
+  stock: number; // For backward compatibility or aggregate
+  locationStock: Record<string, number>; // locationId -> quantity
   lowStockThreshold: number;
+  isActive: boolean;
   image?: string;
 }
 
@@ -27,59 +36,51 @@ export interface Product {
   variants: ProductVariant[];
   images: string[];
   availableOnline: boolean;
+  isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface StockAdjustment {
-  id: string;
+export interface TransactionItem {
+  id?: string;
   variantId: string;
+  sku: string;
   productName: string;
-  variantSku: string;
-  previousStock: number;
+  quantityBefore?: number;
+  quantityAfter?: number;
   adjustment: number;
-  newStock: number;
-  reason: string;
-  userId: string;
-  timestamp: Date;
+  price?: number;
+  attributes?: Record<string, string>;
 }
 
-export interface SaleItem {
-  variantId: string;
-  productName: string;
-  variantSku: string;
-  attributes: Record<string, string>;
-  quantity: number;
-  price: number;
-}
+export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE';
+export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED';
 
-export interface Sale {
-  id: string;
-  items: SaleItem[];
-  subtotal: number;
-  tax: number;
-  total: number;
-  paymentMethod: 'cash' | 'card' | 'mobile';
+export interface InventoryTransaction {
+  id?: string;
+  journalNumber: string;
+  type: TransactionType;
+  status: TransactionStatus;
   timestamp: Date;
   userId: string;
+  notes?: string;
+  items: TransactionItem[];
+  subtotal?: number;
+  tax?: number;
+  total?: number;
 }
 
-export interface StockTakeItem {
-  variantId: string;
-  productName: string;
-  variantSku: string;
-  systemStock: number;
-  countedStock: number;
-  variance: number;
+export interface StockAdjustment extends InventoryTransaction {
+  locationId: string;
 }
 
-export interface StockTake {
-  id: string;
-  items: StockTakeItem[];
-  status: 'in-progress' | 'completed' | 'applied';
-  startedAt: Date;
-  completedAt?: Date;
-  userId: string;
+export interface StockTransfer extends InventoryTransaction {
+  fromLocationId: string;
+  toLocationId: string;
+}
+
+export interface StockTake extends InventoryTransaction {
+  locationId: string;
 }
 
 export interface Customer {
@@ -96,4 +97,20 @@ export function getStockStatus(stock: number, threshold: number): StockStatus {
   if (stock === 0) return 'out-of-stock';
   if (stock <= threshold) return 'low-stock';
   return 'in-stock';
+}
+
+export interface SystemSettings {
+  id?: number;
+  businessName: string;
+  businessAddress: string;
+  businessPhone: string;
+  businessEmail: string;
+  taxId: string;
+  taxRate: number;
+  currency: string;
+  autoPrintReceipts: boolean;
+  showStockWarning: boolean;
+  lowStockAlerts: boolean;
+  outOfStockAlerts: boolean;
+  dailySalesSummary: boolean;
 }

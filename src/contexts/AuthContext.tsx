@@ -1,11 +1,24 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User, UserGroup, UserRights, hardcodedUsers, hardcodedUserGroups } from '@/types/user';
+import { apiFetch } from '@/lib/api';
+
+interface LoginResponse {
+  message: string;
+  token: string | null;
+  data: {
+    id: number;
+    username: string;
+    fullName: string;
+    role: string;
+  } | null;
+}
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
+  isLoading: boolean;
   // Users
   allUsers: User[];
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
@@ -23,34 +36,109 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const mapBackendUserToFrontend = (backendUser: any): User => {
+  return {
+    id: String(backendUser.id),
+    username: backendUser.username,
+    password: '', // Don't store password in frontend state
+    name: backendUser.fullName,
+    email: `${backendUser.username}@example.com`, // Placeholder since backend doesn't have email yet
+    groupId: backendUser.role === 'ADMIN' ? 'group-admin' : 'group-inventory',
+    locationId: backendUser.locationId,
+    createdAt: new Date(),
+  };
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>(hardcodedUsers);
+  const [users, setUsers] = useState<User[]>([]);
   const [groups, setGroups] = useState<UserGroup[]>(hardcodedUserGroups);
+  interface ApiResponse<T> {
+    title: string;
+    message: string;
+    data: T;
+  }
 
-  const login = (username: string, password: string): boolean => {
-    const foundUser = users.find(
-      (u) => u.username === username && u.password === password
-    );
-    if (foundUser) {
-      setUser(foundUser);
-      return true;
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchUsers = async () => {
+    try {
+      const response = await apiFetch<ApiResponse<any[]>>('/api/auth/users12');
+      const mappedUsers = response.data.map(mapBackendUserToFrontend);
+      setUsers(mappedUsers);
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+      // Fallback to hardcoded users if API fails during dev
+      setUsers(hardcodedUsers);
     }
-    return false;
+  };
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = localStorage.getItem('token');
+      const storedUser = localStorage.getItem('user');
+
+      if (token && storedUser) {
+        try {
+          setUser(JSON.parse(storedUser));
+          await fetchUsers();
+        } catch (e) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
+      }
+      setIsLoading(false);
+    };
+
+    checkAuth();
+  }, []);
+
+  const login = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const response = await apiFetch<LoginResponse>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (response.token && response.data) {
+        const frontendUser = mapBackendUserToFrontend(response.data);
+        localStorage.setItem('token', response.token);
+        localStorage.setItem('user', JSON.stringify(frontendUser));
+        setUser(frontendUser);
+        await fetchUsers();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
+    }
   };
 
   const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
+    setUsers([]);
   };
 
   // User management
-  const addUser = (newUser: Omit<User, 'id' | 'createdAt'>) => {
-    const user: User = {
-      ...newUser,
-      id: `user-${Date.now()}`,
-      createdAt: new Date(),
-    };
-    setUsers((prev) => [...prev, user]);
+  const addUser = async (newUser: Omit<User, 'id' | 'createdAt'>) => {
+    try {
+      await apiFetch<any>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: newUser.username,
+          password: newUser.password,
+          fullName: newUser.name,
+          role: newUser.groupId === 'group-admin' ? 'ADMIN' : 'USER',
+        }),
+      });
+      await fetchUsers();
+    } catch (error) {
+      console.error('Failed to add user:', error);
+      throw error;
+    }
   };
 
   const updateUser = (userId: string, updates: Partial<User>) => {
@@ -58,7 +146,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       prev.map((u) => (u.id === userId ? { ...u, ...updates } : u))
     );
     if (user?.id === userId) {
-      setUser((prev) => (prev ? { ...prev, ...updates } : null));
+      const updatedUser = { ...user, ...updates };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
     }
   };
 
@@ -97,7 +187,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const getUserRights = (targetUser: User): UserRights => {
     const group = getGroupById(targetUser.groupId);
     if (!group) {
-      // Return all 'no' if group not found
       return {
         posAccess: 'no',
         processRefunds: 'no',
@@ -124,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         isAuthenticated: !!user,
+        isLoading,
         allUsers: users,
         addUser,
         updateUser,

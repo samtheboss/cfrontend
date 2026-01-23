@@ -5,21 +5,21 @@ export interface UserRights {
   posAccess: RightValue;
   processRefunds: RightValue;
   applyDiscounts: RightValue;
-  
+
   // Inventory
   viewInventory: RightValue;
   stockAdjustment: RightValue;
   stockTake: RightValue;
-  
+
   // Products
   addProduct: RightValue;
   editProduct: RightValue;
   deleteProduct: RightValue;
-  
+
   // Reports
   viewReports: RightValue;
   exportData: RightValue;
-  
+
   // Admin
   manageUsers: RightValue;
   manageSettings: RightValue;
@@ -40,6 +40,8 @@ export interface User {
   name: string;
   email: string;
   groupId: string; // Reference to user group
+  locationId?: string; // Main location
+  assignedLocations?: string[]; // Allowed locations
   createdAt: Date;
 }
 
@@ -157,6 +159,8 @@ export const hardcodedUsers: User[] = [
     name: 'System Administrator',
     email: 'admin@stockflow.com',
     groupId: 'group-admin',
+    locationId: 'loc-1',
+    assignedLocations: ['loc-1', 'loc-2'],
     createdAt: new Date('2024-01-01'),
   },
   {
@@ -166,6 +170,8 @@ export const hardcodedUsers: User[] = [
     name: 'Store Manager',
     email: 'manager@stockflow.com',
     groupId: 'group-manager',
+    locationId: 'loc-1',
+    assignedLocations: ['loc-1'],
     createdAt: new Date('2024-01-15'),
   },
   {
@@ -175,6 +181,8 @@ export const hardcodedUsers: User[] = [
     name: 'John Cashier',
     email: 'cashier@stockflow.com',
     groupId: 'group-cashier',
+    locationId: 'loc-2',
+    assignedLocations: ['loc-2'],
     createdAt: new Date('2024-02-01'),
   },
 ];

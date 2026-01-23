@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { mockProducts } from '@/data/mockData';
-import { StockTakeItem } from '@/types/inventory';
-import { ClipboardList, Search, Check, AlertTriangle, Package } from 'lucide-react';
+import { useInventory } from '@/contexts/InventoryContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { StockTakeItem, Location } from '@/types/inventory';
+import { ClipboardList, Search, Check, AlertTriangle, Package, ChevronDown, ChevronRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,27 +11,50 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 export default function StockTake() {
+  const { products, locations, applyStockTake } = useInventory();
+  const { user } = useAuth();
+
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(
+    user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id
+  );
   const [isCountingMode, setIsCountingMode] = useState(false);
   const [stockTakeItems, setStockTakeItems] = useState<StockTakeItem[]>([]);
   const [countedItems, setCountedItems] = useState<Set<string>>(new Set());
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
 
-  // Initialize stock take
+  // Initialize stock take (Active only)
   const startStockTake = () => {
-    const items: StockTakeItem[] = mockProducts.flatMap(product =>
-      product.variants.map(variant => ({
-        variantId: variant.id,
-        productName: product.name,
-        variantSku: variant.sku,
-        systemStock: variant.stock,
-        countedStock: 0,
-        variance: 0
-      }))
-    );
+    const items: StockTakeItem[] = products
+      .filter(p => p.isActive !== false)
+      .flatMap(product =>
+        product.variants
+          .filter(v => v.isActive !== false)
+          .map(variant => {
+            const stock = variant.locationStock[selectedLocationId] || 0;
+            return {
+              variantId: variant.id,
+              productName: product.name,
+              variantSku: variant.sku,
+              systemStock: stock,
+              countedStock: 0,
+              variance: 0
+            };
+          })
+      );
     setStockTakeItems(items);
     setCountedItems(new Set());
+    setExpandedProducts(new Set());
     setIsCountingMode(true);
     toast.success('Stock take started');
   };
@@ -55,21 +79,52 @@ export default function StockTake() {
     ? (countedItems.size / stockTakeItems.length) * 100
     : 0;
 
-  const itemsWithVariance = stockTakeItems.filter(item => 
+  const itemsWithVariance = stockTakeItems.filter(item =>
     countedItems.has(item.variantId) && item.variance !== 0
+  );
+
+  // Group items by product for display
+  const groupedItems = stockTakeItems.reduce((acc, item) => {
+    if (!acc[item.productName]) acc[item.productName] = [];
+    acc[item.productName].push(item);
+    return acc;
+  }, {} as Record<string, StockTakeItem[]>);
+
+  const filteredGroupNames = Object.keys(groupedItems).filter(name =>
+    name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    groupedItems[name].some(v => v.variantSku.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const totalVariance = itemsWithVariance.reduce((sum, item) => sum + item.variance, 0);
 
-  const applyAdjustments = () => {
-    if (itemsWithVariance.length === 0) {
-      toast.info('No variances to apply');
+  const submitStockTake = async () => {
+    const countedItemsList = stockTakeItems.filter(item => countedItems.has(item.variantId));
+
+    if (countedItemsList.length === 0) {
+      toast.info('No items counted yet');
       return;
     }
-    toast.success(`Applied ${itemsWithVariance.length} stock adjustments`);
-    setIsCountingMode(false);
-    setStockTakeItems([]);
-    setCountedItems(new Set());
+
+    try {
+      await applyStockTake({
+        locationId: selectedLocationId,
+        notes: `Physical inventory count at ${locations.find(l => l.id === selectedLocationId)?.name}`,
+        items: countedItemsList.map(item => ({
+          variantId: item.variantId,
+          sku: item.variantSku,
+          productName: item.productName,
+          quantityBefore: item.systemStock,
+          quantityAfter: item.countedStock,
+          adjustment: item.variance
+        }))
+      });
+
+      setIsCountingMode(false);
+      setStockTakeItems([]);
+      setCountedItems(new Set());
+    } catch (error) {
+      // Error handled by context
+    }
   };
 
   const cancelStockTake = () => {
@@ -87,10 +142,26 @@ export default function StockTake() {
             <ClipboardList className="h-10 w-10 text-primary" />
           </div>
           <h2 className="text-2xl font-semibold mb-4">Physical Inventory Count</h2>
-          <p className="text-muted-foreground mb-8 max-w-md mx-auto">
+          <p className="text-muted-foreground mb-6 max-w-md mx-auto">
             Start a stock take to compare your physical inventory with system records.
             Any variances can be applied as stock adjustments.
           </p>
+
+          <div className="max-w-xs mx-auto mb-8">
+            <Label className="mb-2 block text-left">Select location to count:</Label>
+            <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+              <SelectTrigger>
+                <Package className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Select location" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.map(loc => (
+                  <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <Button size="lg" onClick={startStockTake}>
             Start Stock Take
           </Button>
@@ -118,7 +189,7 @@ export default function StockTake() {
                 </Badge>
               )}
               <Button variant="outline" onClick={cancelStockTake}>Cancel</Button>
-              <Button onClick={applyAdjustments} disabled={countedItems.size === 0}>
+              <Button onClick={submitStockTake} disabled={countedItems.size === 0}>
                 <Check className="h-4 w-4 mr-2" />
                 Complete & Apply
               </Button>
@@ -140,70 +211,111 @@ export default function StockTake() {
       </div>
 
       {/* Items Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filteredItems.map((item) => {
-          const isCounted = countedItems.has(item.variantId);
-          const hasVariance = isCounted && item.variance !== 0;
+      <div className="space-y-6">
+        {filteredGroupNames.map((productName) => {
+          const productItems = groupedItems[productName];
+          const allCounted = productItems.every(i => countedItems.has(i.variantId));
+          const someCounted = productItems.some(i => countedItems.has(i.variantId));
+          const hasAnyVariance = productItems.some(i => countedItems.has(i.variantId) && i.variance !== 0);
+          const isExpanded = expandedProducts.has(productName);
+
+          const toggleExpand = () => {
+            const next = new Set(expandedProducts);
+            if (next.has(productName)) next.delete(productName);
+            else next.add(productName);
+            setExpandedProducts(next);
+          };
 
           return (
-            <Card
-              key={item.variantId}
-              className={cn(
-                'transition-all',
-                isCounted && 'border-success/50',
-                hasVariance && 'border-warning/50'
-              )}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                      <Package className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{item.productName}</p>
-                      <p className="text-sm text-muted-foreground">{item.variantSku}</p>
-                    </div>
-                  </div>
-                  {isCounted && (
-                    <Badge variant={hasVariance ? 'secondary' : 'default'} className="shrink-0">
-                      {hasVariance ? (
-                        <><AlertTriangle className="h-3 w-3 mr-1" /> Variance</>
-                      ) : (
-                        <><Check className="h-3 w-3 mr-1" /> Counted</>
-                      )}
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">System</p>
-                    <p className="font-semibold">{item.systemStock}</p>
+            <Card key={productName} className={cn(
+              'overflow-hidden transition-all border-l-4',
+              allCounted ? 'border-l-success' : someCounted ? 'border-l-warning' : 'border-l-muted'
+            )}>
+              <div
+                className="p-4 cursor-pointer hover:bg-muted/30 flex items-center justify-between"
+                onClick={toggleExpand}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                    <Package className="h-6 w-6 text-primary" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Counted</p>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={item.countedStock || ''}
-                      onChange={(e) => updateCount(item.variantId, parseInt(e.target.value) || 0)}
-                      className="text-center h-8"
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Variance</p>
-                    <p className={cn(
-                      'font-semibold',
-                      item.variance > 0 && 'text-success',
-                      item.variance < 0 && 'text-destructive'
-                    )}>
-                      {item.variance > 0 ? '+' : ''}{isCounted ? item.variance : '-'}
+                    <h3 className="font-semibold">{productName}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {productItems.length} variant{productItems.length !== 1 ? 's' : ''} •
+                      {productItems.filter(i => countedItems.has(i.variantId)).length} counted
                     </p>
                   </div>
                 </div>
-              </CardContent>
+                <div className="flex items-center gap-3">
+                  {hasAnyVariance && (
+                    <Badge variant="secondary" className="bg-warning/10 text-warning-foreground border-warning/20">
+                      <AlertTriangle className="h-3 w-3 mr-1" /> Variance
+                    </Badge>
+                  )}
+                  {allCounted && !hasAnyVariance && (
+                    <Badge variant="secondary" className="bg-success/10 text-success-foreground border-success/20">
+                      <Check className="h-3 w-3 mr-1" /> All Counted
+                    </Badge>
+                  )}
+                  {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                </div>
+              </div>
+
+              {isExpanded && (
+                <CardContent className="p-0 border-t bg-muted/10">
+                  <div className="divide-y">
+                    {productItems.map(item => {
+                      const isCounted = countedItems.has(item.variantId);
+                      return (
+                        <div key={item.variantId} className="p-4 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                          <div>
+                            <p className="text-sm font-medium">{item.variantSku}</p>
+                            <p className="text-[10px] text-muted-foreground uppercase">SKU</p>
+                          </div>
+
+                          <div className="text-center">
+                            <p className="text-xs text-muted-foreground mb-1 font-medium">System</p>
+                            <p className="font-semibold text-sm">{item.systemStock}</p>
+                          </div>
+
+                          <div className="flex flex-col items-center">
+                            <p className="text-xs text-muted-foreground mb-1 font-medium">Physical Count</p>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={item.countedStock || ''}
+                              onChange={(e) => updateCount(item.variantId, parseInt(e.target.value) || 0)}
+                              className="text-center h-8 w-24"
+                              placeholder="0"
+                            />
+                          </div>
+
+                          <div className="text-right flex flex-col items-end">
+                            <p className="text-xs text-muted-foreground mb-1 font-medium">Variance</p>
+                            <div className="flex items-center gap-2">
+                              <p className={cn(
+                                'font-bold text-sm',
+                                item.variance > 0 && 'text-success',
+                                item.variance < 0 && 'text-destructive',
+                                item.variance === 0 && isCounted && 'text-muted-foreground'
+                              )}>
+                                {item.variance > 0 ? '+' : ''}{isCounted ? item.variance : '-'}
+                              </p>
+                              {isCounted && (
+                                <div className={cn(
+                                  "h-2 w-2 rounded-full",
+                                  item.variance === 0 ? "bg-success" : "bg-warning"
+                                )} />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              )}
             </Card>
           );
         })}

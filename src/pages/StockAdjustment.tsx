@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { mockProducts, mockAdjustments } from '@/data/mockData';
-import { StockAdjustment as StockAdjustmentType } from '@/types/inventory';
-import { Search, Plus, Minus, Check, History, Package } from 'lucide-react';
+import { useInventory } from '@/contexts/InventoryContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { Product, ProductVariant, StockAdjustment as StockAdjustmentType, Location } from '@/types/inventory';
+import { Search, Plus, Minus, Check, History, Package, ChevronRight, ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +13,21 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 
 interface PendingAdjustment {
   variantId: string;
@@ -22,39 +38,72 @@ interface PendingAdjustment {
 }
 
 export default function StockAdjustment() {
+  const { products, locations, createAdjustment, transactions } = useInventory();
+  const { user } = useAuth();
+
+  const adjustmentHistory = transactions.filter(t => t.type === 'ADJUSTMENT');
+
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(
+    user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id
+  );
   const [pendingAdjustments, setPendingAdjustments] = useState<PendingAdjustment[]>([]);
   const [reason, setReason] = useState('');
-  const [adjustmentHistory] = useState<StockAdjustmentType[]>(mockAdjustments);
+  const [expandedJournals, setExpandedJournals] = useState<Set<string>>(new Set());
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
 
-  // Get all variants with product info
-  const allVariants = mockProducts.flatMap(product =>
-    product.variants.map(variant => ({
-      ...variant,
-      productName: product.name,
-      category: product.category,
-    }))
-  );
+  const toggleJournal = (id: string) => {
+    const next = new Set(expandedJournals);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setExpandedJournals(next);
+  };
 
-  // Filter variants for search
-  const filteredVariants = allVariants.filter(variant =>
-    variant.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    variant.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    variant.barcode.includes(searchQuery)
-  );
+  const toggleProduct = (journalId: string, productName: string) => {
+    const key = `${journalId}-${productName}`;
+    const next = new Set(expandedProducts);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setExpandedProducts(next);
+  };
 
-  const addToAdjustment = (variant: typeof allVariants[0]) => {
+  // UI State for variant selection
+  const [variantDialogOpen, setVariantDialogOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  // Filter products for search (Active only)
+  const filteredProductsBySearch = products
+    .filter(product => product.isActive !== false)
+    .filter(product =>
+      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.variants
+        .filter(v => v.isActive !== false)
+        .some(v => v.sku.toLowerCase().includes(searchQuery.toLowerCase()) || v.barcode.includes(searchQuery))
+    );
+
+  const handleProductSelect = (product: Product) => {
+    setSelectedProduct(product);
+    setVariantDialogOpen(true);
+  };
+
+  const addToAdjustment = (variant: ProductVariant, productName: string) => {
     if (pendingAdjustments.find(p => p.variantId === variant.id)) {
       toast.error('Item already in adjustment list');
       return;
     }
+
+    const stock = variant.locationStock[selectedLocationId] || 0;
+
     setPendingAdjustments(prev => [...prev, {
       variantId: variant.id,
-      productName: variant.productName,
+      productName: productName,
       sku: variant.sku,
-      currentStock: variant.stock,
+      currentStock: stock,
       adjustment: 0
     }]);
+
+    setVariantDialogOpen(false);
+    setSelectedProduct(null);
     setSearchQuery('');
   };
 
@@ -90,32 +139,101 @@ export default function StockAdjustment() {
     setPendingAdjustments(prev => prev.filter(item => item.variantId !== variantId));
   };
 
-  const submitAdjustments = () => {
+  const submitAdjustments = async () => {
     if (!reason.trim()) {
       toast.error('Please provide a reason for the adjustment');
       return;
     }
-    if (pendingAdjustments.every(p => p.adjustment === 0)) {
+    const itemsToSubmit = pendingAdjustments.filter(p => p.adjustment !== 0);
+    if (itemsToSubmit.length === 0) {
       toast.error('No adjustments to submit');
       return;
     }
-    
-    // In a real app, this would save to the database
-    toast.success(`Submitted ${pendingAdjustments.filter(p => p.adjustment !== 0).length} stock adjustments`);
-    setPendingAdjustments([]);
-    setReason('');
+
+    try {
+      await createAdjustment({
+        locationId: selectedLocationId,
+        notes: reason,
+        items: itemsToSubmit.map(p => ({
+          variantId: p.variantId,
+          sku: p.sku,
+          productName: p.productName,
+          adjustment: p.adjustment
+        }))
+      });
+
+      setPendingAdjustments([]);
+      setReason('');
+    } catch (error) {
+      // Error handled by context
+    }
   };
 
   return (
     <AppLayout title="Stock Adjustment">
+
+      {/* Variant Selection Dialog */}
+      <Dialog open={variantDialogOpen} onOpenChange={setVariantDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Variant</DialogTitle>
+            <DialogDescription>
+              Choose a specific variant of {selectedProduct?.name} to adjust.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-4">
+            {selectedProduct?.variants
+              .filter(v => v.isActive !== false)
+              .map(variant => {
+                const stock = variant.locationStock[selectedLocationId] || 0;
+                return (
+                  <Button
+                    key={variant.id}
+                    variant="outline"
+                    className="w-full justify-between h-auto py-3 px-4"
+                    onClick={() => addToAdjustment(variant, selectedProduct.name)}
+                  >
+                    <div className="text-left">
+                      <p className="font-medium">
+                        {Object.values(variant.attributes).join(' / ')}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{variant.sku}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase text-muted-foreground">Stock</p>
+                      <p className="font-semibold">{stock}</p>
+                    </div>
+                  </Button>
+                )
+              })}
+          </div>
+        </DialogContent>
+      </Dialog>
       <Tabs defaultValue="adjust" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="adjust">New Adjustment</TabsTrigger>
-          <TabsTrigger value="history">
-            <History className="h-4 w-4 mr-2" />
-            History
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="adjust">New Adjustment</TabsTrigger>
+            <TabsTrigger value="history">
+              <History className="h-4 w-4 mr-2" />
+              History
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="flex items-center gap-3">
+            <Label className="text-sm font-medium">Adjustment Location:</Label>
+            <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+              <SelectTrigger className="w-56">
+                <Package className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Select location" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.map(loc => (
+                  <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         <TabsContent value="adjust" className="space-y-6">
           {/* Search */}
@@ -133,37 +251,39 @@ export default function StockAdjustment() {
                   className="pl-9"
                 />
               </div>
-              
+
               {/* Search Results */}
               {searchQuery && (
                 <div className="mt-4 border rounded-lg max-h-64 overflow-y-auto">
-                  {filteredVariants.slice(0, 10).map((variant) => (
+                  {filteredProductsBySearch.slice(0, 10).map((product) => (
                     <div
-                      key={variant.id}
+                      key={product.id}
                       className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b last:border-0"
-                      onClick={() => addToAdjustment(variant)}
+                      onClick={() => handleProductSelect(product)}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                          <Package className="h-5 w-5 text-muted-foreground" />
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted overflow-hidden">
+                          {product.images[0] ? (
+                            <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <Package className="h-5 w-5 text-muted-foreground" />
+                          )}
                         </div>
                         <div>
-                          <p className="font-medium">{variant.productName}</p>
-                          <p className="text-sm text-muted-foreground">{variant.sku}</p>
+                          <p className="font-medium">{product.name}</p>
+                          <p className="text-sm text-muted-foreground">{product.category}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <p className="text-sm">Current Stock</p>
-                          <p className="font-semibold">{variant.stock}</p>
+                          <p className="text-[10px] uppercase text-muted-foreground">Variants</p>
+                          <p className="font-semibold text-sm">{product.variants.length}</p>
                         </div>
-                        <Button size="sm" variant="outline">
-                          <Plus className="h-4 w-4" />
-                        </Button>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </div>
                     </div>
                   ))}
-                  {filteredVariants.length === 0 && (
+                  {filteredProductsBySearch.length === 0 && (
                     <p className="p-4 text-center text-muted-foreground">No products found</p>
                   )}
                 </div>
@@ -178,9 +298,15 @@ export default function StockAdjustment() {
             </CardHeader>
             <CardContent>
               {pendingAdjustments.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">
-                  Search and add products to adjust their stock levels
-                </p>
+                <div className="text-center py-12 flex flex-col items-center gap-2">
+                  <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-2">
+                    <Search className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p className="font-medium">No items selected</p>
+                  <p className="text-sm text-muted-foreground max-w-xs">
+                    Search and select products to adjust their stock levels for {locations.find(l => l.id === selectedLocationId)?.name}
+                  </p>
+                </div>
               ) : (
                 <div className="space-y-4">
                   <div className="border rounded-lg divide-y">
@@ -272,35 +398,85 @@ export default function StockAdjustment() {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th className="w-10"></th>
+                    <th>Ref #</th>
                     <th>Date & Time</th>
-                    <th>Product</th>
-                    <th>SKU</th>
-                    <th>Previous</th>
-                    <th>Adjustment</th>
-                    <th>New Stock</th>
                     <th>Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {adjustmentHistory.map((adj) => (
-                    <tr key={adj.id}>
-                      <td className="text-sm">
-                        {format(adj.timestamp, 'MMM d, yyyy HH:mm')}
-                      </td>
-                      <td className="font-medium">{adj.productName}</td>
-                      <td className="font-mono text-sm">{adj.variantSku}</td>
-                      <td>{adj.previousStock}</td>
-                      <td>
-                        <Badge variant={adj.adjustment > 0 ? 'default' : 'destructive'}>
-                          {adj.adjustment > 0 ? '+' : ''}{adj.adjustment}
-                        </Badge>
-                      </td>
-                      <td className="font-semibold">{adj.newStock}</td>
-                      <td className="text-sm text-muted-foreground max-w-xs truncate">
-                        {adj.reason}
-                      </td>
-                    </tr>
-                  ))}
+                  {adjustmentHistory.map((adj) => {
+                    const isExpanded = expandedJournals.has(adj.id!);
+                    const groupedItems = adj.items.reduce((acc, item) => {
+                      if (!acc[item.productName]) acc[item.productName] = [];
+                      acc[item.productName].push(item);
+                      return acc;
+                    }, {} as Record<string, any[]>);
+
+                    return (
+                      <Fragment key={adj.id}>
+                        <tr
+                          className={cn("cursor-pointer hover:bg-muted/50 transition-colors", isExpanded && "bg-muted/30")}
+                          onClick={() => toggleJournal(adj.id!)}
+                        >
+                          <td className="text-center">
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </td>
+                          <td className="font-mono text-sm font-semibold text-primary">{adj.journalNumber}</td>
+                          <td className="text-sm">
+                            {format(new Date(adj.timestamp), 'MMM d, yyyy HH:mm')}
+                          </td>
+                          <td className="text-sm text-muted-foreground whitespace-pre-wrap truncate max-w-md">
+                            {adj.notes}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-muted/5">
+                            <td colSpan={4} className="p-0">
+                              <div className="px-14 py-4 space-y-3">
+                                {Object.entries(groupedItems).map(([productName, variants]) => {
+                                  const productKey = `${adj.id}-${productName}`;
+                                  const isProductExpanded = expandedProducts.has(productKey);
+                                  return (
+                                    <div key={productName} className="border rounded-md overflow-hidden bg-white shadow-sm">
+                                      <div
+                                        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-muted/50"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleProduct(adj.id!, productName);
+                                        }}
+                                      >
+                                        <div className="flex items-center gap-2 text-sm font-semibold">
+                                          <Package className="h-4 w-4 text-primary" />
+                                          {productName}
+                                          <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-2">
+                                            {variants.length} items
+                                          </Badge>
+                                        </div>
+                                        {isProductExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                      </div>
+                                      {isProductExpanded && (
+                                        <div className="border-t bg-muted/5 divide-y divide-dashed">
+                                          {variants.map((v, idx) => (
+                                            <div key={idx} className="flex justify-between px-8 py-2 text-sm">
+                                              <span className="font-mono text-xs text-muted-foreground">{v.sku}</span>
+                                              <Badge variant={v.adjustment > 0 ? 'default' : 'destructive'} className="h-4 text-[9px] px-1 font-bold">
+                                                {v.adjustment > 0 ? '+' : ''}{v.adjustment}
+                                              </Badge>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </CardContent>

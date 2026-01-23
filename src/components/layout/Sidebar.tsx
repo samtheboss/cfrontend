@@ -8,7 +8,10 @@ import {
   BarChart3,
   Settings,
   SlidersHorizontal,
-  Users
+  Users,
+  ArrowRightLeft,
+  History,
+  MapPin
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -19,7 +22,11 @@ const navigation = [
   { name: 'Stock Adjustment', href: '/adjustments', icon: SlidersHorizontal },
   { name: 'Point of Sale', href: '/pos', icon: ShoppingCart },
   { name: 'Stock Take', href: '/stock-take', icon: ClipboardList },
+  { name: 'Stock Transfer', href: '/transfers', icon: ArrowRightLeft },
   { name: 'Reports', href: '/reports', icon: BarChart3 },
+  { name: 'Stock Journal', href: '/journal', icon: History },
+  { name: 'Customers', href: '/customers', icon: Users },
+  { name: 'Locations', href: '/locations', icon: MapPin },
   { name: 'Users', href: '/users', icon: Users },
 ];
 

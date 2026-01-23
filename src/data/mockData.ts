@@ -1,4 +1,9 @@
-import { Product, Sale, StockAdjustment, Customer } from '@/types/inventory';
+import { Product, Sale, StockAdjustment, Customer, Location } from '@/types/inventory';
+
+export const mockLocations: Location[] = [
+  { id: 'loc-1', name: 'Main Warehouse', address: '123 Logistics Way', isMain: true },
+  { id: 'loc-2', name: 'Downtown Retail', address: '456 Main St', isMain: false },
+];
 
 export const mockProducts: Product[] = [
   {
@@ -12,12 +17,12 @@ export const mockProducts: Product[] = [
       { id: 'color', name: 'Color', values: ['Black', 'White', 'Navy'] }
     ],
     variants: [
-      { id: 'v1', productId: '1', sku: 'TSH-BLK-S', barcode: '1234567890001', attributes: { size: 'S', color: 'Black' }, price: 29.99, cost: 12.00, stock: 45, lowStockThreshold: 10 },
-      { id: 'v2', productId: '1', sku: 'TSH-BLK-M', barcode: '1234567890002', attributes: { size: 'M', color: 'Black' }, price: 29.99, cost: 12.00, stock: 8, lowStockThreshold: 10 },
-      { id: 'v3', productId: '1', sku: 'TSH-BLK-L', barcode: '1234567890003', attributes: { size: 'L', color: 'Black' }, price: 29.99, cost: 12.00, stock: 0, lowStockThreshold: 10 },
-      { id: 'v4', productId: '1', sku: 'TSH-WHT-S', barcode: '1234567890004', attributes: { size: 'S', color: 'White' }, price: 29.99, cost: 12.00, stock: 32, lowStockThreshold: 10 },
-      { id: 'v5', productId: '1', sku: 'TSH-WHT-M', barcode: '1234567890005', attributes: { size: 'M', color: 'White' }, price: 29.99, cost: 12.00, stock: 28, lowStockThreshold: 10 },
-      { id: 'v6', productId: '1', sku: 'TSH-NVY-L', barcode: '1234567890006', attributes: { size: 'L', color: 'Navy' }, price: 29.99, cost: 12.00, stock: 5, lowStockThreshold: 10 },
+      { id: 'v1', productId: '1', sku: 'TSH-BLK-S', barcode: '1234567890001', attributes: { size: 'S', color: 'Black' }, price: 29.99, cost: 12.00, stock: 45, locationStock: { 'loc-1': 30, 'loc-2': 15 }, lowStockThreshold: 10 },
+      { id: 'v2', productId: '1', sku: 'TSH-BLK-M', barcode: '1234567890002', attributes: { size: 'M', color: 'Black' }, price: 29.99, cost: 12.00, stock: 8, locationStock: { 'loc-1': 5, 'loc-2': 3 }, lowStockThreshold: 10 },
+      { id: 'v3', productId: '1', sku: 'TSH-BLK-L', barcode: '1234567890003', attributes: { size: 'L', color: 'Black' }, price: 29.99, cost: 12.00, stock: 0, locationStock: { 'loc-1': 0, 'loc-2': 0 }, lowStockThreshold: 10 },
+      { id: 'v4', productId: '1', sku: 'TSH-WHT-S', barcode: '1234567890004', attributes: { size: 'S', color: 'White' }, price: 29.99, cost: 12.00, stock: 32, locationStock: { 'loc-1': 20, 'loc-2': 12 }, lowStockThreshold: 10 },
+      { id: 'v5', productId: '1', sku: 'TSH-WHT-M', barcode: '1234567890005', attributes: { size: 'M', color: 'White' }, price: 29.99, cost: 12.00, stock: 28, locationStock: { 'loc-1': 14, 'loc-2': 14 }, lowStockThreshold: 10 },
+      { id: 'v6', productId: '1', sku: 'TSH-NVY-L', barcode: '1234567890006', attributes: { size: 'L', color: 'Navy' }, price: 29.99, cost: 12.00, stock: 5, locationStock: { 'loc-1': 2, 'loc-2': 3 }, lowStockThreshold: 10 },
     ],
     images: [
       'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=500',
@@ -37,10 +42,10 @@ export const mockProducts: Product[] = [
       { id: 'color', name: 'Color', values: ['Blue', 'Black'] }
     ],
     variants: [
-      { id: 'v7', productId: '2', sku: 'JNS-BLU-28', barcode: '1234567890007', attributes: { waist: '28', color: 'Blue' }, price: 79.99, cost: 35.00, stock: 15, lowStockThreshold: 5 },
-      { id: 'v8', productId: '2', sku: 'JNS-BLU-30', barcode: '1234567890008', attributes: { waist: '30', color: 'Blue' }, price: 79.99, cost: 35.00, stock: 22, lowStockThreshold: 5 },
-      { id: 'v9', productId: '2', sku: 'JNS-BLU-32', barcode: '1234567890009', attributes: { waist: '32', color: 'Blue' }, price: 79.99, cost: 35.00, stock: 3, lowStockThreshold: 5 },
-      { id: 'v10', productId: '2', sku: 'JNS-BLK-30', barcode: '1234567890010', attributes: { waist: '30', color: 'Black' }, price: 79.99, cost: 35.00, stock: 18, lowStockThreshold: 5 },
+      { id: 'v7', productId: '2', sku: 'JNS-BLU-28', barcode: '1234567890007', attributes: { waist: '28', color: 'Blue' }, price: 79.99, cost: 35.00, stock: 15, locationStock: { 'loc-1': 10, 'loc-2': 5 }, lowStockThreshold: 5 },
+      { id: 'v8', productId: '2', sku: 'JNS-BLU-30', barcode: '1234567890008', attributes: { waist: '30', color: 'Blue' }, price: 79.99, cost: 35.00, stock: 22, locationStock: { 'loc-1': 12, 'loc-2': 10 }, lowStockThreshold: 5 },
+      { id: 'v9', productId: '2', sku: 'JNS-BLU-32', barcode: '1234567890009', attributes: { waist: '32', color: 'Blue' }, price: 79.99, cost: 35.00, stock: 3, locationStock: { 'loc-1': 1, 'loc-2': 2 }, lowStockThreshold: 5 },
+      { id: 'v10', productId: '2', sku: 'JNS-BLK-30', barcode: '1234567890010', attributes: { waist: '30', color: 'Black' }, price: 79.99, cost: 35.00, stock: 18, locationStock: { 'loc-1': 8, 'loc-2': 10 }, lowStockThreshold: 5 },
     ],
     images: [
       'https://images.unsplash.com/photo-1542272454315-4c01d7abdf4a?auto=format&fit=crop&q=80&w=500'
@@ -59,10 +64,10 @@ export const mockProducts: Product[] = [
       { id: 'color', name: 'Color', values: ['White', 'Black', 'Red'] }
     ],
     variants: [
-      { id: 'v11', productId: '3', sku: 'SNK-WHT-9', barcode: '1234567890011', attributes: { size: '9', color: 'White' }, price: 129.99, cost: 55.00, stock: 12, lowStockThreshold: 5 },
-      { id: 'v12', productId: '3', sku: 'SNK-WHT-10', barcode: '1234567890012', attributes: { size: '10', color: 'White' }, price: 129.99, cost: 55.00, stock: 8, lowStockThreshold: 5 },
-      { id: 'v13', productId: '3', sku: 'SNK-BLK-9', barcode: '1234567890013', attributes: { size: '9', color: 'Black' }, price: 129.99, cost: 55.00, stock: 0, lowStockThreshold: 5 },
-      { id: 'v14', productId: '3', sku: 'SNK-RED-10', barcode: '1234567890014', attributes: { size: '10', color: 'Red' }, price: 129.99, cost: 55.00, stock: 6, lowStockThreshold: 5 },
+      { id: 'v11', productId: '3', sku: 'SNK-WHT-9', barcode: '1234567890011', attributes: { size: '9', color: 'White' }, price: 129.99, cost: 55.00, stock: 12, locationStock: { 'loc-1': 6, 'loc-2': 6 }, lowStockThreshold: 5 },
+      { id: 'v12', productId: '3', sku: 'SNK-WHT-10', barcode: '1234567890012', attributes: { size: '10', color: 'White' }, price: 129.99, cost: 55.00, stock: 8, locationStock: { 'loc-1': 4, 'loc-2': 4 }, lowStockThreshold: 5 },
+      { id: 'v13', productId: '3', sku: 'SNK-BLK-9', barcode: '1234567890013', attributes: { size: '9', color: 'Black' }, price: 129.99, cost: 55.00, stock: 0, locationStock: { 'loc-1': 0, 'loc-2': 0 }, lowStockThreshold: 5 },
+      { id: 'v14', productId: '3', sku: 'SNK-RED-10', barcode: '1234567890014', attributes: { size: '10', color: 'Red' }, price: 129.99, cost: 55.00, stock: 6, locationStock: { 'loc-1': 3, 'loc-2': 3 }, lowStockThreshold: 5 },
     ],
     images: [
       'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=500'
@@ -82,10 +87,10 @@ export const mockProducts: Product[] = [
       { id: 'color', name: 'Color', values: ['White', 'Black', 'Red'] }
     ],
     variants: [
-      { id: 'v11', productId: '3', sku: 'SNK-WHT-9', barcode: '1234567890011', attributes: { size: '9', color: 'White' }, price: 129.99, cost: 55.00, stock: 12, lowStockThreshold: 5 },
-      { id: 'v12', productId: '3', sku: 'SNK-WHT-10', barcode: '1234567890012', attributes: { size: '10', color: 'White' }, price: 129.99, cost: 55.00, stock: 8, lowStockThreshold: 5 },
-      { id: 'v13', productId: '3', sku: 'SNK-BLK-9', barcode: '1234567890013', attributes: { size: '9', color: 'Black' }, price: 129.99, cost: 55.00, stock: 0, lowStockThreshold: 5 },
-      { id: 'v14', productId: '3', sku: 'SNK-RED-10', barcode: '1234567890014', attributes: { size: '10', color: 'Red' }, price: 129.99, cost: 55.00, stock: 6, lowStockThreshold: 5 },
+      { id: 'v15', productId: '4', sku: 'SNK-WHT-9-PRO', barcode: '1234567890015', attributes: { size: '9', color: 'White' }, price: 129.99, cost: 55.00, stock: 12, locationStock: { 'loc-1': 10, 'loc-2': 2 }, lowStockThreshold: 5 },
+      { id: 'v16', productId: '4', sku: 'SNK-WHT-10-PRO', barcode: '1234567890016', attributes: { size: '10', color: 'White' }, price: 129.99, cost: 55.00, stock: 8, locationStock: { 'loc-1': 4, 'loc-2': 4 }, lowStockThreshold: 5 },
+      { id: 'v17', productId: '4', sku: 'SNK-BLK-9-PRO', barcode: '1234567890017', attributes: { size: '9', color: 'Black' }, price: 129.99, cost: 55.00, stock: 0, locationStock: { 'loc-1': 0, 'loc-2': 0 }, lowStockThreshold: 5 },
+      { id: 'v18', productId: '4', sku: 'SNK-RED-10-PRO', barcode: '1234567890018', attributes: { size: '10', color: 'Red' }, price: 129.99, cost: 55.00, stock: 6, locationStock: { 'loc-1': 3, 'loc-2': 3 }, lowStockThreshold: 5 },
     ],
     images: [
       'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=500'
@@ -134,6 +139,7 @@ export const mockAdjustments: StockAdjustment[] = [
     newStock: 0,
     reason: 'Damaged goods - water damage in storage',
     userId: 'user1',
+    locationId: 'loc-1',
     timestamp: new Date('2024-01-21T09:00:00')
   },
   {
@@ -146,6 +152,7 @@ export const mockAdjustments: StockAdjustment[] = [
     newStock: 28,
     reason: 'New shipment received',
     userId: 'user1',
+    locationId: 'loc-1',
     timestamp: new Date('2024-01-20T11:30:00')
   }
 ];

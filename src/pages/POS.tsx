@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { mockProducts, mockCustomers, mockSales } from '@/data/mockData';
-import { ProductVariant, SaleItem, Customer, Sale } from '@/types/inventory';
+import { useInventory } from '@/contexts/InventoryContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { mockCustomers, mockSales } from '@/data/mockData';
+import { Product, ProductVariant, SaleItem, Customer, Sale } from '@/types/inventory';
 import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -49,15 +51,35 @@ interface ActiveOrder {
 
 export default function POS() {
   const navigate = useNavigate();
+  const { products, locations, processSale, settings, customers: contextCustomers, transactions } = useInventory();
+  const { user } = useAuth();
+
+  // Current location
+  const currentLocationId = user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id;
+  const currentLocation = locations.find(l => l.id === currentLocationId);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [variantDialogOpen, setVariantDialogOpen] = useState(false);
 
   // Orders Management
   const [ordersDialogOpen, setOrdersDialogOpen] = useState(false);
   const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([]);
-  const [salesHistory, setSalesHistory] = useState<Sale[]>(mockSales);
+  const [salesHistory, setSalesHistory] = useState<Sale[]>(
+    transactions.filter(t => t.type === 'SALE').map(t => ({
+      id: t.id || '',
+      items: t.items as any,
+      subtotal: t.subtotal || 0,
+      tax: t.tax || 0,
+      total: t.total || 0,
+      paymentMethod: 'cash', // Default
+      timestamp: new Date(t.timestamp),
+      userId: t.userId,
+    }))
+  );
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Order Filters
@@ -77,43 +99,53 @@ export default function POS() {
   });
 
   // Customer state
-  const [customers, setCustomers] = useState<Customer[]>(mockCustomers);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
 
-  // Get all variants with product info
-  const allVariants = mockProducts.flatMap(product =>
-    product.variants
-      .filter(v => v.stock > 0)
-      .map(variant => ({
-        ...variant,
-        productName: product.name,
-        category: product.category,
-      }))
-  );
+  // Get all variants with product info (Active only)
+  const allVariants = products
+    .filter(p => p.isActive !== false)
+    .flatMap(product =>
+      product.variants
+        .filter(v => v.isActive !== false)
+        .map(variant => ({
+          ...variant,
+          productName: product.name,
+          category: product.category,
+          stock: variant.locationStock[currentLocationId] || 0
+        }))
+    );
 
-  // Get unique categories
-  const categories = Array.from(new Set(mockProducts.map(p => p.category)));
+  // Get unique categories (Active only)
+  const categories = Array.from(new Set(products.filter(p => p.isActive !== false).map(p => p.category)));
 
-  // Filter variants
-  const filteredVariants = allVariants.filter(variant => {
-    const matchesSearch =
-      variant.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      variant.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      variant.barcode.includes(searchQuery);
+  // Filter products (Active only)
+  const filteredProducts = products
+    .filter(p => p.isActive !== false)
+    .filter(product => {
+      const matchesSearch =
+        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.variants
+          .filter(v => v.isActive !== false)
+          .some(v =>
+            v.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            v.barcode.includes(searchQuery)
+          );
 
-    const matchesCategory = !selectedCategory || variant.category === selectedCategory;
+      const matchesCategory = !selectedCategory || product.category === selectedCategory;
 
-    return matchesSearch && matchesCategory;
-  });
+      return matchesSearch && matchesCategory;
+    });
 
-  const addToCart = (variant: typeof allVariants[0]) => {
+  const addToCart = (variant: ProductVariant, productName: string) => {
+    const availableStock = variant.locationStock[currentLocationId] || 0;
+
     setCart(prev => {
       const existing = prev.find(item => item.variantId === variant.id);
       if (existing) {
-        if (existing.quantity >= variant.stock) {
+        if (existing.quantity >= availableStock) {
           toast.error('Cannot add more than available stock');
           return prev;
         }
@@ -125,15 +157,16 @@ export default function POS() {
       }
       return [...prev, {
         variantId: variant.id,
-        productName: variant.productName,
+        productName: productName,
         variantSku: variant.sku,
         attributes: variant.attributes,
         quantity: 1,
         price: variant.price,
-        maxStock: variant.stock
+        maxStock: availableStock
       }];
     });
-    toast.success(`Added ${variant.productName} to cart`);
+    setVariantDialogOpen(false);
+    toast.success(`Added ${productName} (${Object.values(variant.attributes).join(' / ')}) to cart`);
   };
 
   const updateQuantity = (variantId: string, delta: number) => {
@@ -166,7 +199,8 @@ export default function POS() {
   };
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = subtotal * 0.08; // 8% tax
+  const taxRate = settings?.taxRate || 0;
+  const tax = subtotal * (taxRate / 100);
   const total = subtotal + tax;
 
   const totalPaid = Object.values(paymentMethods)
@@ -210,9 +244,10 @@ export default function POS() {
       total,
       paymentMethod: paymentMethods.card.active ? 'card' : 'cash', // Simplified
       timestamp: new Date(),
-      userId: 'current-user', // Mock
+      userId: user?.id || 'anonymous',
     };
 
+    processSale(cart, currentLocationId);
     setSalesHistory(prev => [newSale, ...prev]);
 
     const customerInfo = selectedCustomer ? ` for ${selectedCustomer.name}` : '';
@@ -277,20 +312,18 @@ export default function POS() {
     }
   };
 
-  const handleAddCustomer = () => {
+  const handleAddCustomer = async () => {
     if (!newCustomer.name.trim()) {
       toast.error('Customer name is required');
       return;
     }
-    const customer: Customer = {
-      id: `c${Date.now()}`,
+
+    await addCustomer({
       name: newCustomer.name.trim(),
       email: newCustomer.email.trim() || undefined,
       phone: newCustomer.phone.trim() || undefined,
-      createdAt: new Date(),
-    };
-    setCustomers(prev => [...prev, customer]);
-    setSelectedCustomer(customer);
+    });
+
     setNewCustomer({ name: '', email: '', phone: '' });
     setAddCustomerDialogOpen(false);
     toast.success('Customer added successfully');
@@ -371,32 +404,47 @@ export default function POS() {
 
           {/* Products Grid */}
           <div className="flex-1 p-4 overflow-y-auto">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {filteredVariants.map((variant) => (
+            <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {filteredProducts.map((product) => (
                 <div
-                  key={variant.id}
-                  className="pos-product-card cursor-pointer hover:border-primary transition-colors border rounded-lg p-3 bg-card shadow-sm"
-                  onClick={() => addToCart(variant)}
+                  key={product.id}
+                  className="pos-product-card cursor-pointer group hover:border-primary transition-all border rounded-lg overflow-hidden bg-card shadow-sm"
+                  onClick={() => {
+                    setSelectedProduct(product);
+                    setVariantDialogOpen(true);
+                  }}
                 >
-                  <div className="flex flex-col h-full">
-                    <h4 className="font-medium text-sm line-clamp-1">{variant.productName}</h4>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {Object.entries(variant.attributes).map(([key, value]) => (
-                        <Badge key={key} variant="secondary" className="text-[10px]">
-                          {value}
-                        </Badge>
-                      ))}
+                  <div className="aspect-square relative bg-muted overflow-hidden">
+                    {product.images[0] ? (
+                      <img
+                        src={product.images[0]}
+                        alt={product.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No image</div>
+                    )}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Plus className="text-white h-8 w-8" />
                     </div>
-                    <div className="mt-auto pt-2 flex items-center justify-between">
-                      <span className="font-semibold text-primary">${variant.price.toFixed(2)}</span>
-                      <span className="text-xs text-muted-foreground">{variant.stock} left</span>
+                  </div>
+                  <div className="p-3">
+                    <h4 className="font-medium text-sm line-clamp-1">{product.name}</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">{product.category}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="font-semibold text-primary">
+                        {settings?.currency || '$'}{Math.min(...product.variants.map(v => v.price)).toFixed(2)}+
+                      </span>
+                      <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                        {product.variants.length} var
+                      </span>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
 
-            {filteredVariants.length === 0 && (
+            {filteredProducts.length === 0 && (
               <div className="flex flex-col items-center justify-center h-64 text-center">
                 <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">No products found</p>
@@ -439,7 +487,7 @@ export default function POS() {
                     <CommandList>
                       <CommandEmpty>No customer found.</CommandEmpty>
                       <CommandGroup>
-                        {customers.map((customer) => (
+                        {contextCustomers.map((customer) => (
                           <CommandItem
                             key={customer.id}
                             value={customer.name}
@@ -509,7 +557,7 @@ export default function POS() {
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button variant="ghost" className="h-auto p-0 hover:bg-transparent font-semibold text-primary">
-                            ${(item.price * item.quantity).toFixed(2)}
+                            {settings?.currency || '$'}{(item.price * item.quantity).toFixed(2)}
                             <Edit className="ml-1 h-3 w-3 opacity-50" />
                           </Button>
                         </PopoverTrigger>
@@ -566,16 +614,16 @@ export default function POS() {
             <div className="space-y-2 mb-4">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{settings?.currency || '$'}{subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Tax (8%)</span>
-                <span>${tax.toFixed(2)}</span>
+                <span className="text-muted-foreground">Tax ({taxRate}%)</span>
+                <span>{settings?.currency || '$'}{tax.toFixed(2)}</span>
               </div>
               <Separator />
               <div className="flex justify-between text-lg font-semibold">
                 <span>Total</span>
-                <span>${total.toFixed(2)}</span>
+                <span>{settings?.currency || '$'}{total.toFixed(2)}</span>
               </div>
             </div>
 
@@ -713,6 +761,59 @@ export default function POS() {
               Complete Sale
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Variant Selection Dialog */}
+      <Dialog open={variantDialogOpen} onOpenChange={setVariantDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedProduct?.name}</DialogTitle>
+            <DialogDescription>
+              Select a variant to add to the sale.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+            <div className="aspect-square bg-muted rounded-lg overflow-hidden">
+              {selectedProduct?.images[0] ? (
+                <img src={selectedProduct.images[0]} alt={selectedProduct.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-muted-foreground">No image available</div>
+              )}
+            </div>
+            <div className="flex flex-col gap-3 h-[400px] overflow-y-auto pr-2">
+              {selectedProduct?.variants
+                .filter(v => v.isActive !== false)
+                .map((variant) => (
+                  <div
+                    key={variant.id}
+                    className={`p-3 border rounded-lg cursor-pointer transition-all hover:border-primary flex flex-col gap-2 ${variant.stock === 0 ? 'opacity-50 grayscale cursor-not-allowed' : 'bg-card'}`}
+                    onClick={() => variant.stock > 0 && selectedProduct && addToCart(variant, selectedProduct.name)}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium text-sm">SKU: {variant.sku}</p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Object.entries(variant.attributes).map(([key, value]) => (
+                            <Badge key={key} variant="secondary" className="text-[10px]">
+                              {value}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <span className="font-bold text-primary">${variant.price.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className={variant.stock <= variant.lowStockThreshold ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
+                        {variant.stock} in stock
+                      </span>
+                      {variant.stock === 0 && <Badge variant="destructive" className="text-[9px]">Out of Stock</Badge>}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

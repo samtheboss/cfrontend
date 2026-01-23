@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { mockProducts, mockSales, mockAdjustments } from '@/data/mockData';
+import { useInventory } from '@/contexts/InventoryContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -13,19 +13,24 @@ import { Label } from '@/components/ui/label';
 import { MultiSelect, Option } from '@/components/ui/multi-select';
 
 export default function Reports() {
+  const { products, transactions, locations } = useInventory();
+
   // Sales data
-  const totalSales = mockSales.reduce((sum, s) => sum + s.total, 0);
-  const totalItems = mockSales.reduce((sum, s) => sum + s.items.reduce((iSum, i) => iSum + i.quantity, 0), 0);
+  const sales = transactions.filter(t => t.type === 'SALE');
+  const totalSales = sales.reduce((sum, s) => sum + (s.total || 0), 0);
+  const totalItems = sales.reduce((sum, s) => sum + s.items.reduce((iSum, i) => iSum + i.adjustment, 0), 0);
 
-  // Inventory data
-  const allVariants = mockProducts.flatMap(p => p.variants);
-  const totalInventoryValue = allVariants.reduce((sum, v) => sum + (v.stock * v.cost), 0);
-  const totalRetailValue = allVariants.reduce((sum, v) => sum + (v.stock * v.price), 0);
+  // Inventory data (Active only for current status)
+  const activeProducts = products.filter(p => p.isActive !== false);
+  const activeVariants = activeProducts.flatMap(p => p.variants.filter(v => v.isActive !== false));
 
-  // Stock status
-  const inStock = allVariants.filter(v => v.stock > v.lowStockThreshold).length;
-  const lowStock = allVariants.filter(v => v.stock > 0 && v.stock <= v.lowStockThreshold).length;
-  const outOfStock = allVariants.filter(v => v.stock === 0).length;
+  const totalInventoryValue = activeVariants.reduce((sum, v) => sum + (v.stock * v.cost), 0);
+  const totalRetailValue = activeVariants.reduce((sum, v) => sum + (v.stock * v.price), 0);
+
+  // Stock status (Active only)
+  const inStock = activeVariants.filter(v => v.stock > v.lowStockThreshold).length;
+  const lowStock = activeVariants.filter(v => v.stock > 0 && v.stock <= v.lowStockThreshold).length;
+  const outOfStock = activeVariants.filter(v => v.stock === 0).length;
 
   const stockStatusData = [
     { name: 'In Stock', value: inStock, color: 'hsl(var(--success))' },
@@ -33,36 +38,59 @@ export default function Reports() {
     { name: 'Out of Stock', value: outOfStock, color: 'hsl(var(--destructive))' },
   ];
 
-  // Best selling products (mock data)
-  const bestSellers = [
-    { name: 'Classic T-Shirt', sales: 156 },
-    { name: 'Denim Jeans', sales: 89 },
-    { name: 'Running Sneakers', sales: 67 },
-    { name: 'Hoodie', sales: 45 },
-    { name: 'Cap', sales: 34 },
-  ];
+  // Calculate Best Sellers from real sales
+  const bestSellers = useMemo(() => {
+    const productSales: Record<string, number> = {};
+    sales.forEach(s => {
+      s.items.forEach(item => {
+        productSales[item.productName] = (productSales[item.productName] || 0) + item.adjustment;
+      });
+    });
+    return Object.entries(productSales)
+      .map(([name, count]) => ({ name, sales: count }))
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 5);
+  }, [sales]);
 
-  // Sales by category
-  const salesByCategory = [
-    { category: 'Apparel', sales: 4520 },
-    { category: 'Footwear', sales: 2890 },
-    { category: 'Accessories', sales: 1230 },
-  ];
+  // Calculate Sales by Category
+  const salesByCategory = useMemo(() => {
+    const catSales: Record<string, number> = {};
+    sales.forEach(s => {
+      s.items.forEach(item => {
+        // Find category from products since it's not in transaction item
+        const product = products.find(p => p.name === item.productName);
+        const category = product?.category || 'Uncategorized';
+        catSales[category] = (catSales[category] || 0) + (item.adjustment * (item.price || 0));
+      });
+    });
+    return Object.entries(catSales).map(([category, sales]) => ({ category, sales }));
+  }, [sales, products]);
 
-  // Daily sales trend (mock)
-  const dailySales = [
-    { day: 'Mon', sales: 1200 },
-    { day: 'Tue', sales: 980 },
-    { day: 'Wed', sales: 1450 },
-    { day: 'Thu', sales: 1100 },
-    { day: 'Fri', sales: 1780 },
-    { day: 'Sat', sales: 2100 },
-    { day: 'Sun', sales: 890 },
-  ];
+  // Daily sales trend (last 7 days)
+  const dailySales = useMemo(() => {
+    const trend: Record<string, number> = {};
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    // Initialize last 7 days
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      trend[days[d.getDay()]] = 0;
+    }
+
+    sales.forEach(s => {
+      const day = days[new Date(s.timestamp).getDay()];
+      if (trend[day] !== undefined) {
+        trend[day] += (s.total || 0);
+      }
+    });
+
+    return Object.entries(trend).map(([day, sales]) => ({ day, sales }));
+  }, [sales]);
 
   // Stock Movement Report State
   const [selectedProductId, setSelectedProductId] = useState<string>(''); // Product ID
   const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>([]); // Variant IDs
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('all');
 
   const [startDate, setStartDate] = useState<string>(
     '2024-01-01'
@@ -71,8 +99,8 @@ export default function Reports() {
     new Date().toISOString().split('T')[0]
   );
 
-  // Helper options
-  const productOptions = mockProducts.map(p => ({
+  // Helper options (Active only)
+  const productOptions = activeProducts.map(p => ({
     id: p.id,
     label: p.name
   }));
@@ -80,43 +108,51 @@ export default function Reports() {
   const variantOptions: Option[] = useMemo(() => {
     if (!selectedProductId) return [];
 
-    const product = mockProducts.find(p => p.id === selectedProductId);
+    const product = activeProducts.find(p => p.id === selectedProductId);
     if (!product) return [];
 
-    return product.variants.map(v => ({
-      value: v.id,
-      label: Object.values(v.attributes).join(' / ')
-    }));
-  }, [selectedProductId]);
+    return product.variants
+      .filter(v => v.isActive !== false)
+      .map(v => ({
+        value: v.id,
+        label: Object.values(v.attributes).join(' / ')
+      }));
+  }, [selectedProductId, activeProducts]);
 
 
   // Calculate stock movements for selected variant or product
   const getStockMovements = () => {
     if (!selectedProductId) return { movements: [], openingBalance: 0 };
 
-    const product = mockProducts.find(p => p.id === selectedProductId);
+    const product = products.find(p => p.id === selectedProductId);
     if (!product) return { movements: [], openingBalance: 0 };
 
     let targetVariants = [];
-    let initialStock = 0;
+    let initialTotalStock = 0;
 
     if (selectedVariantIds.length === 0) {
       // Default to ALL variants if none selected
       targetVariants = product.variants;
-      initialStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
+      initialTotalStock = product.variants.reduce((sum, v) => {
+        if (selectedLocationId === 'all') return sum + v.stock;
+        return sum + (v.locationStock[selectedLocationId] || 0);
+      }, 0);
     } else {
       // Specific variants
       targetVariants = product.variants.filter(v => selectedVariantIds.includes(v.id));
-      initialStock = targetVariants.reduce((sum, v) => sum + v.stock, 0);
+      initialTotalStock = targetVariants.reduce((sum, v) => {
+        if (selectedLocationId === 'all') return sum + v.stock;
+        return sum + (v.locationStock[selectedLocationId] || 0);
+      }, 0);
     }
 
     if (targetVariants.length === 0) return { movements: [], openingBalance: 0 };
     const targetVariantIds = targetVariants.map(v => v.id);
 
-    // Gather all impact events (sales and adjustments)
+    // Filter relevant transactions (Active and within location if selected)
     const movements: {
       date: Date;
-      type: 'sale' | 'adjustment';
+      type: 'sale' | 'adjustment' | 'transfer' | 'audit';
       quantity: number; // Positive = In, Negative = Out
       reference: string;
       runningBalance: number;
@@ -124,43 +160,92 @@ export default function Reports() {
     }[] = [];
 
     // 1. Sales (Out)
-    mockSales.forEach(sale => {
+    sales.forEach(sale => {
+      // @ts-ignore - Assuming sale has locationId or we filter generically if 'all'
+      const isRelevantLocation = selectedLocationId === 'all' || (sale as any).locationId === selectedLocationId;
+      if (!isRelevantLocation) return;
+
       sale.items.forEach(item => {
         if (targetVariantIds.includes(item.variantId)) {
           movements.push({
-            date: sale.timestamp,
+            date: new Date(sale.timestamp),
             type: 'sale',
-            quantity: -item.quantity,
-            reference: `Sale #${sale.id.substring(0, 6)}`,
+            quantity: -item.adjustment,
+            reference: `Sale #${sale.journalNumber}`,
             runningBalance: 0,
-            variantInfo: Object.values(item.attributes).join('/')
+            variantInfo: Object.values(item.attributes || {}).join('/')
           });
         }
       });
     });
 
-    // 2. Adjustments (In/Out)
-    mockAdjustments.forEach(adj => {
-      if (targetVariantIds.includes(adj.variantId)) {
-        movements.push({
-          date: adj.timestamp,
-          type: 'adjustment',
-          quantity: adj.adjustment,
-          reference: `Adj: ${adj.reason}`,
-          runningBalance: 0,
-          variantInfo: adj.variantSku // Or lookup attributes if needed
-        });
-      }
+    // 2. Adjustments & Transfers & Audits
+    transactions.forEach(t => {
+      if (t.type === 'SALE') return; // Handled above
+
+      t.items.forEach(item => {
+        if (!targetVariantIds.includes(item.variantId)) return;
+
+        if (t.type === 'ADJUSTMENT') {
+          const isRelevant = selectedLocationId === 'all' || (t as any).locationId === selectedLocationId;
+          if (isRelevant) {
+            movements.push({
+              date: new Date(t.timestamp),
+              type: 'adjustment',
+              quantity: item.adjustment,
+              reference: `Adj: ${t.notes || 'No reason'}`,
+              runningBalance: 0,
+              variantInfo: item.sku
+            });
+          }
+        }
+        else if (t.type === 'TRANSFER') {
+          const transfer = t as any;
+          // Outflow from source
+          if (selectedLocationId === 'all' || transfer.fromLocationId === selectedLocationId) {
+            movements.push({
+              date: new Date(t.timestamp),
+              type: 'transfer',
+              quantity: -item.adjustment,
+              reference: `Trf Out: ${locations.find(l => l.id === transfer.toLocationId)?.name || 'Other'}`,
+              runningBalance: 0,
+              variantInfo: item.sku
+            });
+          }
+          // Inflow to destination
+          if (selectedLocationId === 'all' || transfer.toLocationId === selectedLocationId) {
+            movements.push({
+              date: new Date(t.timestamp),
+              type: 'transfer',
+              quantity: item.adjustment,
+              reference: `Trf In: ${locations.find(l => l.id === transfer.fromLocationId)?.name || 'Other'}`,
+              runningBalance: 0,
+              variantInfo: item.sku
+            });
+          }
+        }
+        else if (t.type === 'STOCK_TAKE') {
+          const isRelevant = selectedLocationId === 'all' || (t as any).locationId === selectedLocationId;
+          if (isRelevant) {
+            movements.push({
+              date: new Date(t.timestamp),
+              type: 'audit',
+              quantity: item.adjustment,
+              reference: `Audit: ${t.notes || 'Stock Take'}`,
+              runningBalance: 0,
+              variantInfo: item.sku
+            });
+          }
+        }
+      });
     });
 
     // Sort by date ascending
     movements.sort((a, b) => compareAsc(a.date, b.date));
 
     // Calculate balances
-    // Strategy: reverse-engineer from current stock
-
     const totalChange = movements.reduce((sum, m) => sum + m.quantity, 0);
-    let openingBalance = initialStock - totalChange;
+    let openingBalance = initialTotalStock - totalChange;
 
     // Now calculate running balance forward
     let running = openingBalance;
@@ -203,16 +288,17 @@ export default function Reports() {
   // Get current displayed stock
   const currentDisplayedStock = () => {
     if (!selectedProductId) return 0;
-    const product = mockProducts.find(p => p.id === selectedProductId);
+    const product = products.find(p => p.id === selectedProductId);
     if (!product) return 0;
 
-    if (selectedVariantIds.length === 0) {
-      return product.variants.reduce((sum, v) => sum + v.stock, 0);
-    } else {
-      return product.variants
-        .filter(v => selectedVariantIds.includes(v.id))
-        .reduce((sum, v) => sum + v.stock, 0);
-    }
+    const activeVars = product.variants.filter(v =>
+      selectedVariantIds.length === 0 || selectedVariantIds.includes(v.id)
+    );
+
+    return activeVars.reduce((sum, v) => {
+      if (selectedLocationId === 'all') return sum + v.stock;
+      return sum + (v.locationStock[selectedLocationId] || 0);
+    }, 0);
   };
 
 
@@ -300,16 +386,16 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mockSales.map((sale) => (
+                  {sales.map((sale) => (
                     <tr key={sale.id}>
-                      <td>{format(sale.timestamp, 'MMM d, yyyy HH:mm')}</td>
+                      <td>{format(new Date(sale.timestamp), 'MMM d, yyyy HH:mm')}</td>
                       <td>
-                        {sale.items.map(i => `${i.productName} (${i.quantity})`).join(', ')}
+                        {sale.items.map(i => `${i.productName} (${i.adjustment})`).join(', ')}
                       </td>
-                      <td className="capitalize">{sale.paymentMethod}</td>
-                      <td>${sale.subtotal.toFixed(2)}</td>
-                      <td>${sale.tax.toFixed(2)}</td>
-                      <td className="font-semibold">${sale.total.toFixed(2)}</td>
+                      <td className="capitalize">{sale.status === 'COMPLETED' ? 'Paid' : sale.status.toLowerCase()}</td>
+                      <td>${(sale.subtotal || 0).toFixed(2)}</td>
+                      <td>${(sale.tax || 0).toFixed(2)}</td>
+                      <td className="font-semibold">${(sale.total || 0).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -327,6 +413,24 @@ export default function Reports() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col md:flex-row gap-4 mb-6 items-end">
+
+                {/* Location Select */}
+                <div className="w-full md:w-1/4 space-y-2">
+                  <Label>Location</Label>
+                  <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Locations" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Locations</SelectItem>
+                      {locations.map(loc => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 {/* Product Select */}
                 <div className="w-full md:w-1/4 space-y-2">
@@ -477,12 +581,12 @@ export default function Reports() {
                 <div className="space-y-6">
                   <div className="flex justify-between items-center p-4 bg-muted/50 rounded-lg">
                     <span className="text-muted-foreground">Total SKUs</span>
-                    <span className="text-2xl font-bold">{allVariants.length}</span>
+                    <span className="text-2xl font-bold">{activeVariants.length}</span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-muted/50 rounded-lg">
                     <span className="text-muted-foreground">Total Units</span>
                     <span className="text-2xl font-bold">
-                      {allVariants.reduce((sum, v) => sum + v.stock, 0).toLocaleString()}
+                      {activeVariants.reduce((sum, v) => sum + v.stock, 0).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-muted/50 rounded-lg">
@@ -508,25 +612,31 @@ export default function Reports() {
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Product</th>
-                    <th>SKU</th>
-                    <th>Adjustment</th>
+                    <th>Ref #</th>
+                    <th>Items</th>
                     <th>Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {mockAdjustments.map((adj) => (
+                  {transactions.filter(t => t.type === 'ADJUSTMENT').slice(0, 10).map((adj) => (
                     <tr key={adj.id}>
-                      <td>{format(adj.timestamp, 'MMM d, yyyy HH:mm')}</td>
-                      <td>{adj.productName}</td>
-                      <td className="font-mono text-sm">{adj.variantSku}</td>
+                      <td>{format(new Date(adj.timestamp), 'MMM d, HH:mm')}</td>
+                      <td className="font-mono text-xs font-bold text-primary">{adj.journalNumber}</td>
                       <td>
-                        <span className={adj.adjustment > 0 ? 'text-success' : 'text-destructive'}>
-                          {adj.adjustment > 0 ? '+' : ''}{adj.adjustment}
-                        </span>
-                        <span className="text-muted-foreground"> ({adj.previousStock} → {adj.newStock})</span>
+                        <div className="space-y-1">
+                          {adj.items.map((item, i) => (
+                            <div key={i} className="text-[11px] flex justify-between gap-4">
+                              <span>{item.productName} ({item.sku})</span>
+                              <span className={item.adjustment > 0 ? 'text-success font-bold' : 'text-destructive font-bold'}>
+                                {item.adjustment > 0 ? '+' : ''}{item.adjustment}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </td>
-                      <td className="text-sm text-muted-foreground">{adj.reason}</td>
+                      <td className="text-xs text-muted-foreground italic truncate max-w-[150px]">
+                        {adj.notes || '---'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -579,16 +689,19 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mockProducts.map((product) => {
-                    const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
-                    const avgPrice = product.variants.reduce((sum, v) => sum + v.price, 0) / product.variants.length;
+                  {activeProducts.map((product) => {
+                    const activeVariants = product.variants.filter(v => v.isActive !== false);
+                    const totalStock = activeVariants.reduce((sum, v) => sum + v.stock, 0);
+                    const avgPrice = activeVariants.length > 0
+                      ? activeVariants.reduce((sum, v) => sum + v.price, 0) / activeVariants.length
+                      : 0;
                     return (
                       <tr key={product.id}>
                         <td className="font-medium">{product.name}</td>
                         <td>{product.category}</td>
-                        <td>{product.variants.length}</td>
-                        <td>{totalStock}</td>
-                        <td>${avgPrice.toFixed(2)}</td>
+                        <td className="text-muted-foreground">{activeVariants.length}</td>
+                        <td className="font-semibold">{totalStock}</td>
+                        <td className="font-medium text-primary">${avgPrice.toFixed(2)}</td>
                       </tr>
                     );
                   })}
