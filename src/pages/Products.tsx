@@ -306,7 +306,7 @@ export default function Products() {
                 <div>
                   <h3 className="font-medium">{product.name}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {product.category} • {product.variants.length} variants
+                    {product.category} • {product.variants.length} variants • {product.variants.reduce((sum, v) => sum + v.stock, 0)} total units
                   </p>
                 </div>
               </div>
