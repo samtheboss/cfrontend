@@ -6,6 +6,7 @@ export const mockProducts: Product[] = [
     name: 'Classic Cotton T-Shirt',
     description: 'Premium cotton t-shirt with comfortable fit',
     category: 'Apparel',
+    availableOnline: true,
     attributes: [
       { id: 'size', name: 'Size', values: ['S', 'M', 'L', 'XL'] },
       { id: 'color', name: 'Color', values: ['Black', 'White', 'Navy'] }
@@ -26,6 +27,7 @@ export const mockProducts: Product[] = [
     name: 'Denim Jeans Slim Fit',
     description: 'Modern slim fit denim jeans',
     category: 'Apparel',
+    availableOnline: false,
     attributes: [
       { id: 'waist', name: 'Waist', values: ['28', '30', '32', '34'] },
       { id: 'color', name: 'Color', values: ['Blue', 'Black'] }
@@ -44,6 +46,7 @@ export const mockProducts: Product[] = [
     name: 'Running Sneakers Pro',
     description: 'High-performance running shoes',
     category: 'Footwear',
+    availableOnline: true,
     attributes: [
       { id: 'size', name: 'Size', values: ['8', '9', '10', '11', '12'] },
       { id: 'color', name: 'Color', values: ['White', 'Black', 'Red'] }

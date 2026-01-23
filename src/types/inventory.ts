@@ -23,6 +23,7 @@ export interface Product {
   category: string;
   attributes: ProductAttribute[];
   variants: ProductVariant[];
+  availableOnline: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

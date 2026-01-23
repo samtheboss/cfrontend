@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
-import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { StockBadge } from '@/components/inventory/StockBadge';
 import { getStockStatus } from '@/types/inventory';
@@ -59,6 +60,7 @@ export default function Products() {
     attributes: [{ name: '', values: '' }] as { name: string; values: string }[],
     basePrice: '',
     baseCost: '',
+    availableOnline: false,
   });
 
   const filteredProducts = products.filter(p => 
@@ -166,6 +168,7 @@ export default function Products() {
       category: newProduct.category,
       attributes: parsedAttributes,
       variants,
+      availableOnline: newProduct.availableOnline,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -178,6 +181,7 @@ export default function Products() {
       attributes: [{ name: '', values: '' }],
       basePrice: '',
       baseCost: '',
+      availableOnline: false,
     });
     setIsAddDialogOpen(false);
   };
@@ -309,6 +313,23 @@ export default function Products() {
                   Variants will be automatically generated from all attribute combinations.
                 </p>
               </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="availableOnline" className="flex items-center gap-2">
+                    <Globe className="h-4 w-4 text-primary" />
+                    Available for E-commerce
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Enable this product for online sales and future e-commerce integration.
+                  </p>
+                </div>
+                <Switch
+                  id="availableOnline"
+                  checked={newProduct.availableOnline}
+                  onCheckedChange={(checked) => setNewProduct(prev => ({ ...prev, availableOnline: checked }))}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
@@ -339,6 +360,12 @@ export default function Products() {
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex gap-2">
+                  {product.availableOnline && (
+                    <Badge variant="default" className="text-xs bg-primary/20 text-primary hover:bg-primary/30">
+                      <Globe className="h-3 w-3 mr-1" />
+                      E-commerce
+                    </Badge>
+                  )}
                   {product.attributes.map(attr => (
                     <Badge key={attr.id} variant="secondary" className="text-xs">
                       {attr.name}: {attr.values.length}
