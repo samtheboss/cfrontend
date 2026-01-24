@@ -25,26 +25,47 @@ export interface UserRights {
   manageSettings: RightValue;
 }
 
+export interface UserGroup {
+  id: string;
+  name: string;
+  description: string;
+  rights: UserRights;
+  createdAt: Date;
+}
+
 export interface User {
   id: string;
   username: string;
   password: string; // In real app, this would be hashed
   name: string;
   email: string;
-  role: 'admin' | 'manager' | 'cashier';
-  rights: UserRights;
+  groupId: string; // Reference to user group
   createdAt: Date;
 }
 
-// Hardcoded users for development
-export const hardcodedUsers: User[] = [
+// Default rights (all no)
+export const defaultRights: UserRights = {
+  posAccess: 'no',
+  processRefunds: 'no',
+  applyDiscounts: 'no',
+  viewInventory: 'no',
+  stockAdjustment: 'no',
+  stockTake: 'no',
+  addProduct: 'no',
+  editProduct: 'no',
+  deleteProduct: 'no',
+  viewReports: 'no',
+  exportData: 'no',
+  manageUsers: 'no',
+  manageSettings: 'no',
+};
+
+// Hardcoded user groups
+export const hardcodedUserGroups: UserGroup[] = [
   {
-    id: '1',
-    username: 'admin',
-    password: 'admin123',
-    name: 'System Administrator',
-    email: 'admin@stockflow.com',
-    role: 'admin',
+    id: 'group-admin',
+    name: 'Administrator',
+    description: 'Full system access with all permissions',
     rights: {
       posAccess: 'yes',
       processRefunds: 'yes',
@@ -63,12 +84,9 @@ export const hardcodedUsers: User[] = [
     createdAt: new Date('2024-01-01'),
   },
   {
-    id: '2',
-    username: 'manager',
-    password: 'manager123',
+    id: 'group-manager',
     name: 'Store Manager',
-    email: 'manager@stockflow.com',
-    role: 'manager',
+    description: 'Manage inventory, sales, and staff operations',
     rights: {
       posAccess: 'yes',
       processRefunds: 'yes',
@@ -84,15 +102,12 @@ export const hardcodedUsers: User[] = [
       manageUsers: 'supervised',
       manageSettings: 'supervised',
     },
-    createdAt: new Date('2024-01-15'),
+    createdAt: new Date('2024-01-01'),
   },
   {
-    id: '3',
-    username: 'cashier',
-    password: 'cashier123',
-    name: 'John Cashier',
-    email: 'cashier@stockflow.com',
-    role: 'cashier',
+    id: 'group-cashier',
+    name: 'Cashier',
+    description: 'Point of sale operations and basic inventory viewing',
     rights: {
       posAccess: 'yes',
       processRefunds: 'supervised',
@@ -108,6 +123,58 @@ export const hardcodedUsers: User[] = [
       manageUsers: 'no',
       manageSettings: 'no',
     },
+    createdAt: new Date('2024-01-01'),
+  },
+  {
+    id: 'group-inventory',
+    name: 'Inventory Staff',
+    description: 'Stock management and inventory operations',
+    rights: {
+      posAccess: 'no',
+      processRefunds: 'no',
+      applyDiscounts: 'no',
+      viewInventory: 'yes',
+      stockAdjustment: 'yes',
+      stockTake: 'yes',
+      addProduct: 'supervised',
+      editProduct: 'yes',
+      deleteProduct: 'no',
+      viewReports: 'supervised',
+      exportData: 'no',
+      manageUsers: 'no',
+      manageSettings: 'no',
+    },
+    createdAt: new Date('2024-01-01'),
+  },
+];
+
+// Hardcoded users for development
+export const hardcodedUsers: User[] = [
+  {
+    id: '1',
+    username: 'admin',
+    password: 'admin123',
+    name: 'System Administrator',
+    email: 'admin@stockflow.com',
+    groupId: 'group-admin',
+    createdAt: new Date('2024-01-01'),
+  },
+  {
+    id: '2',
+    username: 'manager',
+    password: 'manager123',
+    name: 'Store Manager',
+    email: 'manager@stockflow.com',
+    groupId: 'group-manager',
+    createdAt: new Date('2024-01-15'),
+  },
+  {
+    id: '3',
+    username: 'cashier',
+    password: 'cashier123',
+    name: 'John Cashier',
+    email: 'cashier@stockflow.com',
+    groupId: 'group-cashier',
     createdAt: new Date('2024-02-01'),
   },
 ];
