@@ -7,7 +7,8 @@ import {
   ClipboardList,
   BarChart3,
   Settings,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Point of Sale', href: '/pos', icon: ShoppingCart },
   { name: 'Stock Take', href: '/stock-take', icon: ClipboardList },
   { name: 'Reports', href: '/reports', icon: BarChart3 },
+  { name: 'Users', href: '/users', icon: Users },
 ];
 
 export function Sidebar() {
