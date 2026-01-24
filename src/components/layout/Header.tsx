@@ -18,7 +18,7 @@ interface HeaderProps {
 }
 
 export function Header({ title }: HeaderProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, getGroupById } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -62,9 +62,11 @@ export function Header({ title }: HeaderProps) {
               <div className="flex flex-col gap-1">
                 <span>{user?.name}</span>
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-xs">
-                    {user?.role}
-                  </Badge>
+                  {user && (
+                    <Badge variant="secondary" className="text-xs">
+                      {getGroupById(user.groupId)?.name || 'Unknown'}
+                    </Badge>
+                  )}
                   <span className="text-xs text-muted-foreground">@{user?.username}</span>
                 </div>
               </div>
