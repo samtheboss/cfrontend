@@ -14,8 +14,6 @@ export interface ProductVariant {
   cost: number;
   wasPrice?: number;
   stock: number;
-  cost: number;
-  stock: number;
   lowStockThreshold: number;
   image?: string;
 }
@@ -25,7 +23,6 @@ export interface Product {
   name: string;
   description: string;
   category: string;
-  attributes: ProductAttribute[];
   attributes: ProductAttribute[];
   variants: ProductVariant[];
   images: string[];
