@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction } from '@/types/inventory';
+import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale } from '@/types/inventory';
 import { mockProducts, mockLocations, mockAdjustments, mockCustomers } from '@/data/mockData';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -41,9 +41,17 @@ interface InventoryContextType {
     // Settings
     updateSettings: (settings: SystemSettings) => Promise<void>;
 
+    // Sales & Orders
+    createSale: (saleData: any) => Promise<{ id: number; journalNumber: string }>;
+    activeOrders: ActiveOrder[];
+    holdOrder: (order: ActiveOrder) => void;
+    discardOrder: (orderId: string) => void;
+    salesHistory: Sale[];
+
     // High-level actions
     processSale: (items: { variantId: string; quantity: number }[], locationId: string) => void;
     updateStock: (variantId: string, locationId: string, delta: number) => void;
+    refreshData: () => Promise<void>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -64,14 +72,37 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const [settings, setSettings] = useState<SystemSettings | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Active (Held) Orders - Persisted in LocalStorage
+    const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>(() => {
+        const saved = localStorage.getItem('activeOrders');
+        return saved ? JSON.parse(saved) : [];
+    });
+
+    // Save active orders to localStorage whenever they change
+    useEffect(() => {
+        localStorage.setItem('activeOrders', JSON.stringify(activeOrders));
+    }, [activeOrders]);
+
+    const holdOrder = (order: ActiveOrder) => {
+        setActiveOrders(prev => [order, ...prev]);
+    };
+
+    const discardOrder = (orderId: string) => {
+        setActiveOrders(prev => prev.filter(o => o.id !== orderId));
+    };
+
+    // Sales history state
+    const [salesHistory, setSalesHistory] = useState<Sale[]>([]);
+
     const fetchInventoryData = async () => {
         if (!isAuthenticated) return;
         setIsLoading(true);
         try {
-            const [productsRes, categoriesRes, transactionsRes, locationsRes, customersRes, settingsRes] = await Promise.all([
+            const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, settingsRes] = await Promise.all([
                 apiFetch<ApiResponse<Product[]>>('/api/products'),
                 apiFetch<ApiResponse<{ name: string }[]>>('/api/categories'),
                 apiFetch<ApiResponse<InventoryTransaction[]>>('/api/transactions'),
+                apiFetch<ApiResponse<Sale[]>>('/api/transactions?type=SALE'),
                 apiFetch<ApiResponse<Location[]>>('/api/locations'),
                 apiFetch<ApiResponse<Customer[]>>('/api/customers'),
                 apiFetch<ApiResponse<SystemSettings>>('/api/system-settings'),
@@ -79,6 +110,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             setProducts(productsRes.data);
             setCategories(categoriesRes.data.map(c => c.name));
             setTransactions(transactionsRes.data);
+            setSalesHistory(salesRes.data || []);
             setLocations(locationsRes.data);
             setCustomers(customersRes.data);
             setSettings(settingsRes.data);
@@ -351,6 +383,27 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                         toast.error('Failed to update settings');
                     }
                 },
+                createSale: async (saleData: any) => {
+                    try {
+                        const response = await apiFetch<ApiResponse<{ id: number; journalNumber: string }>>('/api/transactions/sale', {
+                            method: 'POST',
+                            body: JSON.stringify(saleData),
+                        });
+                        await fetchInventoryData();
+                        toast.success(`Sale ${response.data.journalNumber} completed!`);
+                        return response.data;
+                    } catch (error: any) {
+                        toast.error(error.message || 'Failed to process sale');
+                        throw error;
+                    }
+                },
+                activeOrders,
+                holdOrder,
+                discardOrder,
+                holdOrder,
+                discardOrder,
+                salesHistory,
+                refreshData: fetchInventoryData,
             }}
         >
             {children}

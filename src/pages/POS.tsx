@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { mockCustomers, mockSales } from '@/data/mockData';
-import { Product, ProductVariant, SaleItem, Customer, Sale } from '@/types/inventory';
+import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
+import { BASE_URL, apiFetch } from '@/lib/api';
 import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -38,26 +39,19 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
 
-interface CartItem extends SaleItem {
-  maxStock: number;
-}
 
-interface ActiveOrder {
-  id: string;
-  customer: Customer | null;
-  items: CartItem[];
-  timestamp: Date;
-}
 
 export default function POS() {
   const navigate = useNavigate();
-  const { products, locations, processSale, settings, customers: contextCustomers, transactions } = useInventory();
+  const { products, locations, settings, customers: contextCustomers, transactions, createSale, addCustomer, activeOrders, holdOrder, discardOrder, salesHistory, refreshData } = useInventory();
   const { user } = useAuth();
 
-  // Current location
-  const currentLocationId = user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id;
-  const currentLocation = locations.find(l => l.id === currentLocationId);
+  // Location selector - default to user's location or main location
+  const defaultLocationId = (user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString();
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(defaultLocationId);
+  const selectedLocation = locations.find(l => l.id.toString() === selectedLocationId);
 
+  const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -67,25 +61,13 @@ export default function POS() {
 
   // Orders Management
   const [ordersDialogOpen, setOrdersDialogOpen] = useState(false);
-  const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([]);
-  const [salesHistory, setSalesHistory] = useState<Sale[]>(
-    transactions.filter(t => t.type === 'SALE').map(t => ({
-      id: t.id || '',
-      items: t.items as any,
-      subtotal: t.subtotal || 0,
-      tax: t.tax || 0,
-      total: t.total || 0,
-      paymentMethod: 'cash', // Default
-      timestamp: new Date(t.timestamp),
-      userId: t.userId,
-    }))
-  );
+  // Removed local state: activeOrders and salesHistory now come from context
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Order Filters
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStartDate, setOrderStartDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
   const [orderEndDate, setOrderEndDate] = useState<string>(
     new Date().toISOString().split('T')[0]
@@ -104,6 +86,23 @@ export default function POS() {
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
 
+  // M-Pesa Integration States
+  const [completedMpesaPayments, setCompletedMpesaPayments] = useState<{ amount: number, reference: string }[]>([]);
+  const [mpesaPhone, setMpesaPhone] = useState('');
+  const [isPollingMpesa, setIsPollingMpesa] = useState(false);
+  const [mpesaStatus, setMpesaStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'>('IDLE');
+  const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
+
+  // Receipt Preview States
+  const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
+  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
+  const receiptIframeRef = useRef<HTMLIFrameElement>(null);
+  const autoPrintIframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Reference to track if we should stop polling
+  const stopPollingRef = useRef(false);
+  const pollSessionRef = useRef(0);
+
   // Get all variants with product info (Active only)
   const allVariants = products
     .filter(p => p.isActive !== false)
@@ -114,12 +113,127 @@ export default function POS() {
           ...variant,
           productName: product.name,
           category: product.category,
-          stock: variant.locationStock[currentLocationId] || 0
+          stock: variant.locationStock[selectedLocationId] || 0
         }))
     );
 
   // Get unique categories (Active only)
   const categories = Array.from(new Set(products.filter(p => p.isActive !== false).map(p => p.category)));
+
+  async function pollMpesaStatus(requestId: string, sessionId?: number) {
+    // If we've been told to stop, or this is a ghost session, just exit
+    if (stopPollingRef.current) return;
+    if (sessionId !== undefined && sessionId !== pollSessionRef.current) return;
+
+    try {
+      const data = await apiFetch<any>(`/api/mpesa/stkpush/status/${requestId}`);
+
+      if (data.status === 'SUCCESS') {
+        setIsPollingMpesa(false);
+        setMpesaStatus('SUCCESS');
+
+        const receipt = data.mpesaReceiptNumber || data.MpesaReceiptNumber;
+        if (receipt) {
+          // Add to the list of completed payments
+          setCompletedMpesaPayments(prev => {
+            // Check if already added to avoid duplicates if polling overlap
+            if (prev.some(p => p.reference === receipt)) return prev;
+            return [...prev, { amount: data.amount, reference: receipt }];
+          });
+
+          toast.success(`M-Pesa payment of $${data.amount} confirmed!`);
+        }
+
+        if (data.recordedSaleId) {
+          toast.success('Sale completed and recorded!');
+          discardOrder(`stk-${requestId}`);
+          const receiptUrl = `${BASE_URL}/api/transactions/sale/${data.recordedSaleId}/receipt`;
+          handleReceiptAction(receiptUrl);
+
+          setTimeout(() => {
+            resetPOSState();
+            setCheckoutOpen(false);
+            refreshData();
+          }, 1000);
+        } else {
+          // If not auto-recorded, just reset polling state so another push can be made
+          setTimeout(() => {
+            setMpesaStatus('IDLE');
+            setCheckoutRequestId(null);
+            setMpesaPhone('');
+            // Optional: Reduce the mobile payment field by the amount just paid
+            setPaymentMethods(prev => {
+              const currentMobile = parseFloat(prev.mobile.amount) || 0;
+              const newAmount = Math.max(0, currentMobile - data.amount);
+              return {
+                ...prev,
+                mobile: { ...prev.mobile, amount: newAmount > 0.01 ? newAmount.toFixed(2) : '' }
+              };
+            });
+          }, 2000);
+        }
+      } else if (data.status === 'FAILED') {
+        setIsPollingMpesa(false);
+        setMpesaStatus('FAILED');
+        toast.error('M-Pesa payment failed.');
+        discardOrder(`stk-${requestId}`);
+      } else if (data.status === 'CANCELLED') {
+        setIsPollingMpesa(false);
+        setMpesaStatus('CANCELLED');
+        toast.error('M-Pesa payment was cancelled.');
+        discardOrder(`stk-${requestId}`);
+      } else {
+        if (!stopPollingRef.current && (sessionId === undefined || sessionId === pollSessionRef.current)) {
+          setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current), 3000);
+        }
+      }
+    } catch (error) {
+      console.error('Polling error:', error);
+      if (!stopPollingRef.current && (sessionId === undefined || sessionId === pollSessionRef.current)) {
+        setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current), 5000);
+      }
+    }
+  }
+
+  async function manualQueryMpesa(requestId: string) {
+    setIsPollingMpesa(true);
+    setMpesaStatus('PENDING');
+    pollSessionRef.current += 1; // Start new session
+    const currentSession = pollSessionRef.current;
+
+    try {
+      await apiFetch(`/api/mpesa/stkpush/query/${requestId}`);
+      await pollMpesaStatus(requestId, currentSession);
+    } catch (error) {
+      console.error('Manual query error:', error);
+    } finally {
+      setIsPollingMpesa(false);
+      // Ensure UI is reset even if user closes while checking
+      setPaymentMethods({
+        cash: { active: false, amount: '', reference: '' },
+        card: { active: false, amount: '', reference: '' },
+        mobile: { active: false, amount: '', reference: '' }
+      });
+    }
+  }
+
+
+  // Fix: Set default location when locations load
+  useEffect(() => {
+    if ((!selectedLocationId || selectedLocationId === '') && locations.length > 0) {
+      const defaultId = (user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString();
+      if (defaultId) setSelectedLocationId(defaultId);
+    }
+  }, [locations, user]);
+
+  // Cleanup effect for receipt preview URL
+  useEffect(() => {
+    return () => {
+      if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(receiptPreviewUrl);
+      }
+    };
+  }, [receiptPreviewUrl]);
 
   // Filter products (Active only)
   const filteredProducts = products
@@ -140,13 +254,19 @@ export default function POS() {
     });
 
   const addToCart = (variant: ProductVariant, productName: string) => {
-    const availableStock = variant.locationStock[currentLocationId] || 0;
+    // Force string lookup for map key
+    const availableStock = variant.locationStock[selectedLocationId.toString()] || 0;
+
+    if (availableStock <= 0) {
+      toast.error(`No stock available at ${selectedLocation?.name || 'selected location'}`);
+      return;
+    }
 
     setCart(prev => {
       const existing = prev.find(item => item.variantId === variant.id);
       if (existing) {
         if (existing.quantity >= availableStock) {
-          toast.error('Cannot add more than available stock');
+          toast.error(`Cannot add more. Only ${availableStock} in stock at ${selectedLocation?.name}`);
           return prev;
         }
         return prev.map(item =>
@@ -204,7 +324,8 @@ export default function POS() {
   const total = subtotal + tax;
 
   const totalPaid = Object.values(paymentMethods)
-    .reduce((sum, method) => method.active ? sum + (parseFloat(method.amount) || 0) : sum, 0);
+    .reduce((sum, method) => method.active ? sum + (parseFloat(method.amount) || 0) : sum, 0)
+    + completedMpesaPayments.reduce((sum, p) => sum + p.amount, 0);
 
   const handlePaymentMethodToggle = (method: 'cash' | 'card' | 'mobile', active: boolean) => {
     setPaymentMethods(prev => {
@@ -229,39 +350,237 @@ export default function POS() {
     }));
   };
 
-  const handleCheckout = () => {
-    if (totalPaid < total) {
-      toast.error('Payment amount is less than total');
-      return;
-    }
-
-    // Create Sale record
-    const newSale: Sale = {
-      id: `sale-${Date.now()}`,
-      items: cart,
-      subtotal,
-      tax,
-      total,
-      paymentMethod: paymentMethods.card.active ? 'card' : 'cash', // Simplified
-      timestamp: new Date(),
-      userId: user?.id || 'anonymous',
-    };
-
-    processSale(cart, currentLocationId);
-    setSalesHistory(prev => [newSale, ...prev]);
-
-    const customerInfo = selectedCustomer ? ` for ${selectedCustomer.name}` : '';
-    toast.success(`Sale completed successfully${customerInfo}!`);
-
-    // Reset state
+  const resetPOSState = () => {
     setCart([]);
-    setCheckoutOpen(false);
     setPaymentMethods({
       cash: { active: false, amount: '', reference: '' },
       card: { active: false, amount: '', reference: '' },
       mobile: { active: false, amount: '', reference: '' }
     });
     setSelectedCustomer(null);
+    setMpesaPhone('');
+    setMpesaStatus('IDLE');
+    setCheckoutRequestId(null);
+    setIsPollingMpesa(false);
+    setCompletedMpesaPayments([]); // Clear the list of payments
+  };
+
+  const handlePreviewReceipt = (url: string) => {
+    setReceiptPreviewUrl(url);
+    setReceiptPreviewOpen(true);
+  };
+
+  const handleReceiptAction = async (url: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      // Fetch the PDF blob using auth token
+      const response = await fetch(url, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch receipt preview');
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+
+      // Cleanup previous blob URL if any
+      if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(receiptPreviewUrl);
+      }
+
+      setReceiptPreviewUrl(blobUrl);
+
+      // If auto-print is enabled, we bypass the modal and use a hidden iframe
+      if (settings?.autoPrintReceipts) {
+        toast.info('Sending receipt to printer...');
+      } else {
+        setReceiptPreviewOpen(true);
+      }
+    } catch (error) {
+      console.error('Error loading receipt preview:', error);
+      toast.error('Failed to load receipt preview');
+      // Fallback only if we can't even fetch it
+      window.open(url, '_blank');
+    }
+  };
+
+  const handlePrint = () => {
+    if (receiptIframeRef.current) {
+      try {
+        receiptIframeRef.current.contentWindow?.print();
+      } catch (e) {
+        console.error("Failed to print iframe directly:", e);
+        // Fallback to window.open if iframe printing is blocked (e.g. cross-origin)
+        if (receiptPreviewUrl) {
+          window.open(receiptPreviewUrl, '_blank');
+        }
+      }
+    }
+  };
+
+  const handleCheckout = async () => {
+    if (totalPaid < total - 0.01) {
+      toast.error('Payment amount is less than total');
+      return;
+    }
+
+    // Determine payment methods list - Cap at total (exclude change)
+    const payments: { method: string; amount: number; reference?: string }[] = [];
+    let remaining = total;
+
+    // 1. Process M-Pesa/Mobile (Confirmed & UI)
+    completedMpesaPayments.forEach(p => {
+      const amt = Math.min(p.amount, remaining);
+      if (amt > 0) {
+        payments.push({ method: 'MOBILE', amount: amt, reference: p.reference });
+        remaining -= amt;
+      }
+    });
+
+    if (paymentMethods.mobile.active && parseFloat(paymentMethods.mobile.amount) > 0) {
+      const amt = Math.min(parseFloat(paymentMethods.mobile.amount), remaining);
+      if (amt > 0) {
+        payments.push({ method: 'MOBILE', amount: amt, reference: paymentMethods.mobile.reference });
+        remaining -= amt;
+      }
+    }
+
+    // 2. Process Card
+    if (paymentMethods.card.active && parseFloat(paymentMethods.card.amount) > 0) {
+      const amt = Math.min(parseFloat(paymentMethods.card.amount), remaining);
+      if (amt > 0) {
+        payments.push({ method: 'CARD', amount: amt, reference: paymentMethods.card.reference });
+        remaining -= amt;
+      }
+    }
+
+    // 3. Process Cash (Any remaining bill goes here)
+    if (paymentMethods.cash.active && parseFloat(paymentMethods.cash.amount) > 0) {
+      const amt = Math.min(parseFloat(paymentMethods.cash.amount), remaining);
+      if (amt > 0) {
+        payments.push({ method: 'CASH', amount: amt, reference: paymentMethods.cash.reference });
+        remaining -= amt;
+      }
+    }
+
+    // Build sale data for backend
+    const saleData = {
+      locationId: parseInt(selectedLocationId),
+      customerId: selectedCustomer?.id ? parseInt(selectedCustomer.id) : null,
+      paymentMethod: payments.map(p => p.method).join(', '),
+      payments,
+      subtotal,
+      taxAmount: tax,
+      totalAmount: total,
+      amountPaid: totalPaid,
+      changeAmount: Math.max(0, totalPaid - total),
+      items: cart.map(item => ({
+        variantId: parseInt(item.variantId),
+        sku: item.variantSku,
+        productName: item.productName,
+        adjustment: -item.quantity,
+        price: item.price,
+      })),
+    };
+
+    setIsProcessing(true);
+    try {
+      const saved = await createSale(saleData);
+
+      // Show receipt preview instead of opening new window
+      const receiptUrl = `${BASE_URL}/api/transactions/sale/${saved.id}/receipt`;
+      handleReceiptAction(receiptUrl);
+
+      resetPOSState();
+      setCheckoutOpen(false);
+      refreshData();
+    } catch (error) {
+      // Error already shown by createSale
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  const handleMpesaPush = async () => {
+    if (!mpesaPhone) {
+      toast.error('Please enter a phone number');
+      return;
+    }
+
+    const amount = parseFloat(paymentMethods.mobile.amount);
+    if (!amount || amount <= 0) {
+      toast.error('Invalid mobile payment amount');
+      return;
+    }
+
+    // Build sale data for payload
+    const payments = [];
+    if (paymentMethods.cash.active) {
+      payments.push({ method: 'CASH', amount: parseFloat(paymentMethods.cash.amount) || 0, reference: paymentMethods.cash.reference });
+    }
+    if (paymentMethods.card.active) {
+      payments.push({ method: 'CARD', amount: parseFloat(paymentMethods.card.amount) || 0, reference: paymentMethods.card.reference });
+    }
+    // Mobile is being paid via Mpesa STK
+    payments.push({ method: 'MOBILE', amount: amount, reference: 'MPESA-STK' });
+
+    const saleData = {
+      locationId: selectedLocationId,
+      customerId: selectedCustomer?.id ? parseInt(selectedCustomer.id) : null,
+      paymentMethod: payments.map(p => p.method).join(', '),
+      payments,
+      subtotal,
+      taxAmount: tax,
+      totalAmount: total,
+      amountPaid: totalPaid,
+      changeAmount: Math.max(0, totalPaid - total),
+      items: cart.map(item => ({
+        variantId: parseInt(item.variantId),
+        sku: item.variantSku,
+        productName: item.productName,
+        adjustment: -item.quantity,
+        price: item.price,
+      })),
+    };
+
+    setIsPollingMpesa(true);
+    setMpesaStatus('PENDING');
+    stopPollingRef.current = false;
+    pollSessionRef.current += 1;
+    const currentSession = pollSessionRef.current;
+    const isFullPayment = amount >= total - 0.01;
+
+    try {
+      const data = await apiFetch<any>(`/api/mpesa/stkpush`, {
+        method: 'POST',
+        body: JSON.stringify({
+          phoneNumber: mpesaPhone,
+          amount: amount,
+          // Only send payload if it's a full payment to trigger auto-posting
+          salePayload: isFullPayment ? JSON.stringify(saleData) : ""
+        })
+      });
+
+      const requestId = data.CheckoutRequestID || data.checkoutRequestID;
+      setCheckoutRequestId(requestId);
+
+      // Hold the order locally so it's not lost if user cancels/app crashes
+      const heldOrder: ActiveOrder = {
+        id: `stk-${requestId}`,
+        customer: selectedCustomer,
+        items: cart,
+        timestamp: new Date()
+      };
+      holdOrder(heldOrder);
+
+      // Start polling
+      pollMpesaStatus(requestId, currentSession);
+    } catch (error) {
+      setIsPollingMpesa(false);
+      setMpesaStatus('FAILED');
+      toast.error('Failed to initiate STK push');
+    }
   };
 
   const handleHoldOrder = () => {
@@ -274,7 +593,7 @@ export default function POS() {
       timestamp: new Date()
     };
 
-    setActiveOrders(prev => [order, ...prev]);
+    holdOrder(order);
     setCart([]);
     setSelectedCustomer(null);
     toast.success('Order held successfully');
@@ -283,7 +602,7 @@ export default function POS() {
   const handleResumeOrder = (order: ActiveOrder) => {
     setCart(order.items);
     setSelectedCustomer(order.customer);
-    setActiveOrders(prev => prev.filter(o => o.id !== order.id));
+    discardOrder(order.id);
     setOrdersDialogOpen(false);
     toast.success('Order resumed');
   };
@@ -335,10 +654,15 @@ export default function POS() {
     const end = endOfDay(parseISO(orderEndDate));
 
     return orders.filter(order => {
+      const orderId = order.id ? order.id.toString().toLowerCase() : '';
+      const customerName = order.customer?.name?.toLowerCase() || '';
+      const userId = order.userId?.toString().toLowerCase() || '';
+      const query = orderSearchQuery.toLowerCase();
+
       const matchSearch =
-        order.id.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
-        (order.customer && order.customer.name.toLowerCase().includes(orderSearchQuery.toLowerCase())) ||
-        (order.userId && order.userId.toLowerCase().includes(orderSearchQuery.toLowerCase()));
+        orderId.includes(query) ||
+        customerName.includes(query) ||
+        userId.includes(query);
 
       const orderDate = new Date(order.timestamp);
       const matchDate = isWithinInterval(orderDate, { start, end });
@@ -374,6 +698,21 @@ export default function POS() {
                   className="pl-9"
                 />
               </div>
+              <select
+                value={selectedLocationId}
+                onChange={(e) => {
+                  setSelectedLocationId(e.target.value);
+                  setCart([]); // Clear cart when location changes
+                  toast.info('Location changed. Cart cleared.');
+                }}
+                className="h-10 px-3 py-2 rounded-md border border-input bg-background text-sm"
+              >
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name} {loc.isMain ? '(Main)' : ''}
+                  </option>
+                ))}
+              </select>
               <Button variant="outline" onClick={() => setOrdersDialogOpen(true)}>
                 <Clock className="h-4 w-4 mr-2" />
                 Orders
@@ -417,7 +756,7 @@ export default function POS() {
                   <div className="aspect-square relative bg-muted overflow-hidden">
                     {product.images[0] ? (
                       <img
-                        src={product.images[0]}
+                        src={product.images[0].startsWith('http') ? product.images[0] : `${BASE_URL}${product.images[0]}`}
                         alt={product.name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
@@ -641,7 +980,14 @@ export default function POS() {
                 className="col-span-3"
                 size="lg"
                 disabled={cart.length === 0}
-                onClick={() => setCheckoutOpen(true)}
+                onClick={() => {
+                  if (!selectedCustomer) {
+                    toast.error("Please select a customer to proceed");
+                    setCustomerPopoverOpen(true);
+                    return;
+                  }
+                  setCheckoutOpen(true);
+                }}
               >
                 Checkout
               </Button>
@@ -652,14 +998,29 @@ export default function POS() {
 
       {/* Checkout Dialog */}
       <Dialog open={checkoutOpen} onOpenChange={(open) => {
-        setCheckoutOpen(open);
-        if (open) {
-          // Reset payment state when opening
-          setPaymentMethods({
-            cash: { active: false, amount: '', reference: '' },
-            card: { active: false, amount: '', reference: '' },
-            mobile: { active: false, amount: '', reference: '' }
-          });
+        if (!isProcessing) {
+          setCheckoutOpen(open);
+          if (!open) {
+            // Signal to stop polling when dialog closes
+            stopPollingRef.current = true;
+            setIsPollingMpesa(false);
+            setMpesaStatus('IDLE');
+            setCheckoutRequestId(null);
+          } else {
+            // Opening dialog
+            setPaymentMethods({
+              cash: { active: false, amount: '', reference: '' },
+              card: { active: false, amount: '', reference: '' },
+              mobile: { active: false, amount: '', reference: '' }
+            });
+
+            // Reset M-Pesa states
+            setMpesaPhone('');
+            setMpesaStatus('IDLE');
+            setCheckoutRequestId(null);
+            setIsPollingMpesa(false);
+            stopPollingRef.current = false;
+          }
         }
       }}>
         <DialogContent className="max-w-md">
@@ -725,40 +1086,105 @@ export default function POS() {
                           onChange={(e) => updatePaymentDetail(method, 'amount', e.target.value)}
                           placeholder="0.00"
                           className="h-8"
+                          disabled={isPollingMpesa && method === 'mobile'}
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label htmlFor={`ref-${method}`} className="text-xs">Reference (Optional)</Label>
-                        <Input
-                          id={`ref-${method}`}
-                          type="text"
-                          value={paymentMethods[method].reference}
-                          onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
-                          placeholder="Ref #"
-                          className="h-8"
-                        />
+                        <Label htmlFor={`ref-${method}`} className="text-xs">
+                          {method === 'mobile' ? 'M-Pesa Phone' : 'Reference (Optional)'}
+                        </Label>
+                        {method === 'mobile' ? (
+                          <div className="flex gap-2">
+                            <Input
+                              id="mpesa-phone"
+                              type="text"
+                              value={mpesaPhone}
+                              onChange={(e) => setMpesaPhone(e.target.value)}
+                              placeholder="07..."
+                              className="h-8 flex-1"
+                              disabled={isPollingMpesa}
+                            />
+                            <Button
+                              size="sm"
+                              className="h-8"
+                              onClick={handleMpesaPush}
+                              disabled={isPollingMpesa}
+                            >
+                              {isPollingMpesa ? '...' : 'Push'}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Input
+                            id={`ref-${method}`}
+                            type="text"
+                            value={paymentMethods[method].reference}
+                            onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
+                            placeholder="Ref #"
+                            className="h-8"
+                          />
+                        )}
                       </div>
+                      {method === 'mobile' && (isPollingMpesa || mpesaStatus !== 'IDLE') && (
+                        <div className="col-span-2 space-y-2 py-2">
+                          <div className={`flex items-center justify-center gap-2 text-xs font-medium ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
+                            mpesaStatus === 'SUCCESS' ? 'text-green-600' :
+                              mpesaStatus === 'CANCELLED' ? 'text-amber-600' :
+                                'text-red-600'
+                            }`}>
+                            <span>
+                              {mpesaStatus === 'PENDING' && 'Waiting for M-Pesa confirmation...'}
+                              {mpesaStatus === 'SUCCESS' && 'Payment Successful!'}
+                              {mpesaStatus === 'CANCELLED' && 'Payment Cancelled.'}
+                              {mpesaStatus === 'FAILED' && 'Payment Failed.'}
+                            </span>
+                            {mpesaStatus !== 'SUCCESS' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={() => checkoutRequestId && manualQueryMpesa(checkoutRequestId)}
+                                disabled={isPollingMpesa}
+                              >
+                                {isPollingMpesa ? 'Checking...' : 'Check Again'}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               ))}
             </div>
 
+            {completedMpesaPayments.length > 0 && (
+              <div className="space-y-1 py-1">
+                <Label className="text-[10px] text-muted-foreground uppercase font-semibold">Confirmed M-Pesa Payments</Label>
+                {completedMpesaPayments.map((p, i) => (
+                  <div key={i} className="flex justify-between items-center bg-green-50 px-2 py-1 rounded text-xs border border-green-100">
+                    <span className="font-mono text-[10px]">{p.reference}</span>
+                    <span className="font-semibold text-green-700">${p.amount.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {(totalPaid < total) && (
               <div className="text-xs text-red-500 text-center font-medium">
                 Balance remaining: ${(total - totalPaid).toFixed(2)}
               </div>
             )}
+
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckoutOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setCheckoutOpen(false)} disabled={isProcessing}>Cancel</Button>
             <Button
               onClick={handleCheckout}
-              disabled={totalPaid < total - 0.01} // Small epsilon for float comparison
+              disabled={totalPaid < total - 0.01 || isProcessing} // Small epsilon for float comparison
               className={totalPaid >= total - 0.01 ? 'bg-green-600 hover:bg-green-700' : ''}
             >
-              Complete Sale
+              {isProcessing ? 'Processing...' : 'Complete Sale'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -777,7 +1203,7 @@ export default function POS() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
             <div className="aspect-square bg-muted rounded-lg overflow-hidden">
               {selectedProduct?.images[0] ? (
-                <img src={selectedProduct.images[0]} alt={selectedProduct.name} className="w-full h-full object-cover" />
+                <img src={selectedProduct.images[0].startsWith('http') ? selectedProduct.images[0] : `${BASE_URL}${selectedProduct.images[0]}`} alt={selectedProduct.name} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-muted-foreground">No image available</div>
               )}
@@ -785,33 +1211,38 @@ export default function POS() {
             <div className="flex flex-col gap-3 h-[400px] overflow-y-auto pr-2">
               {selectedProduct?.variants
                 .filter(v => v.isActive !== false)
-                .map((variant) => (
-                  <div
-                    key={variant.id}
-                    className={`p-3 border rounded-lg cursor-pointer transition-all hover:border-primary flex flex-col gap-2 ${variant.stock === 0 ? 'opacity-50 grayscale cursor-not-allowed' : 'bg-card'}`}
-                    onClick={() => variant.stock > 0 && selectedProduct && addToCart(variant, selectedProduct.name)}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium text-sm">SKU: {variant.sku}</p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {Object.entries(variant.attributes).map(([key, value]) => (
-                            <Badge key={key} variant="secondary" className="text-[10px]">
-                              {value}
-                            </Badge>
-                          ))}
+                .map((variant) => {
+                  // correct stock check
+                  const locationStock = variant.locationStock[selectedLocationId.toString()] || 0;
+
+                  return (
+                    <div
+                      key={variant.id}
+                      className={`p-3 border rounded-lg cursor-pointer transition-all hover:border-primary flex flex-col gap-2 ${locationStock === 0 ? 'opacity-50 grayscale cursor-not-allowed' : 'bg-card'}`}
+                      onClick={() => locationStock > 0 && selectedProduct && addToCart(variant, selectedProduct.name)}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-medium text-sm">SKU: {variant.sku}</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {Object.entries(variant.attributes).map(([key, value]) => (
+                              <Badge key={key} variant="secondary" className="text-[10px]">
+                                {value}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
+                        <span className="font-bold text-primary">${variant.price.toFixed(2)}</span>
                       </div>
-                      <span className="font-bold text-primary">${variant.price.toFixed(2)}</span>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className={locationStock <= variant.lowStockThreshold ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
+                          {locationStock} in stock
+                        </span>
+                        {locationStock === 0 && <Badge variant="destructive" className="text-[9px]">Out of Stock</Badge>}
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className={variant.stock <= variant.lowStockThreshold ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
-                        {variant.stock} in stock
-                      </span>
-                      {variant.stock === 0 && <Badge variant="destructive" className="text-[9px]">Out of Stock</Badge>}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
             </div>
           </div>
         </DialogContent>
@@ -821,7 +1252,13 @@ export default function POS() {
       <Dialog open={ordersDialogOpen} onOpenChange={setOrdersDialogOpen}>
         <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Order Management</DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle>Order Management</DialogTitle>
+              <Button variant="outline" size="sm" onClick={() => refreshData()} title="Refresh Orders">
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
             <DialogDescription>
               Manage active held orders and view past sales history.
             </DialogDescription>
@@ -937,7 +1374,7 @@ export default function POS() {
                           </div>
                           <div>
                             <div className="font-medium">
-                              Sale #{sale.id.slice(-6)}
+                              Sale #{sale.id.toString().slice(-6)}
                             </div>
                             <div className="text-sm text-muted-foreground flex gap-2">
                               <span>{format(sale.timestamp, 'MMM d, HH:mm')}</span>
@@ -948,8 +1385,14 @@ export default function POS() {
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="font-semibold text-right">
-                            ${sale.total.toFixed(2)}
+                            ${(sale.total || (sale as any).totalAmount || 0).toFixed(2)}
                           </div>
+                          <Button size="sm" variant="outline" onClick={(e) => {
+                            e.stopPropagation();
+                            handleReceiptAction(`${BASE_URL}/api/transactions/sale/${sale.id}/receipt`);
+                          }} title="View/Print Receipt">
+                            <Receipt className="h-4 w-4" />
+                          </Button>
                           <Button size="sm" variant="outline" onClick={(e) => {
                             e.stopPropagation();
                             handleReorder(sale);
@@ -972,15 +1415,15 @@ export default function POS() {
                               <div>
                                 {item.productName}
                                 <span className="text-muted-foreground ml-2">
-                                  ({Object.values(item.attributes).join('/')}) x{item.quantity}
+                                  ({Object.values(item.attributes || {}).join('/')}) x{Math.abs(item.adjustment || item.quantity || 0)}
                                 </span>
                               </div>
-                              <div>${(item.price * item.quantity).toFixed(2)}</div>
+                              <div>${(item.price * Math.abs(item.adjustment || item.quantity || 0)).toFixed(2)}</div>
                             </div>
                           ))}
                           <div className="border-t pt-2 mt-2 flex justify-between font-medium">
                             <span>Total</span>
-                            <span>${sale.total.toFixed(2)}</span>
+                            <span>${(sale.total || (sale as any).totalAmount || 0).toFixed(2)}</span>
                           </div>
                         </div>
                       )}
@@ -1040,6 +1483,63 @@ export default function POS() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Receipt Preview Dialog */}
+      <Dialog open={receiptPreviewOpen} onOpenChange={setReceiptPreviewOpen}>
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5" />
+              Receipt Preview
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 w-full bg-muted">
+            {receiptPreviewUrl && (
+              <iframe
+                ref={receiptIframeRef}
+                src={receiptPreviewUrl}
+                className="w-full h-full border-none"
+                title="Receipt Preview"
+                onLoad={() => {
+                  if (settings?.autoPrintReceipts) {
+                    handlePrint();
+                  }
+                }}
+              />
+            )}
+          </div>
+          <DialogFooter className="p-4 border-t bg-card flex justify-between">
+            <Button variant="outline" onClick={() => setReceiptPreviewOpen(false)}>Close</Button>
+            {receiptPreviewUrl && (
+              <Button onClick={handlePrint}>
+                <Receipt className="h-4 w-4 mr-2" />
+                Print Receipt
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hidden iframe for background auto-printing */}
+      <div style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none', visibility: 'hidden' }}>
+        {settings?.autoPrintReceipts && receiptPreviewUrl && (
+          <iframe
+            key={receiptPreviewUrl} // Key identifies new print jobs
+            ref={autoPrintIframeRef}
+            src={receiptPreviewUrl}
+            onLoad={() => {
+              if (autoPrintIframeRef.current) {
+                try {
+                  autoPrintIframeRef.current.contentWindow?.focus();
+                  autoPrintIframeRef.current.contentWindow?.print();
+                } catch (e) {
+                  console.error("Background print failed:", e);
+                }
+              }
+            }}
+            title="Auto Print Iframe"
+          />
+        )}
+      </div>
     </div>
   );
 }

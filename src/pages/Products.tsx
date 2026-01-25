@@ -183,17 +183,32 @@ export default function Products() {
       newProduct.name || 'Product'
     );
 
+    const areAttributesEqual = (a: Record<string, string>, b: Record<string, string>) => {
+      const keysA = Object.keys(a).sort();
+      const keysB = Object.keys(b).sort();
+      if (keysA.length !== keysB.length) return false;
+      return keysA.every((key, i) => key === keysB[i] && a[key] === b[key]);
+    };
+
     return newVariants.map(nv => {
-      const existing = currentVariants.find(ev =>
-        JSON.stringify(ev.attributes) === JSON.stringify(nv.attributes)
-      );
+      // Priority 1: Match by attributes (most accurate)
+      let existing = currentVariants.find(ev => areAttributesEqual(ev.attributes, nv.attributes));
+
+      // Priority 2: Match by SKU if attributes don't match (prevents ID loss on SKU edits)
+      if (!existing && nv.sku) {
+        existing = currentVariants.find(ev => ev.sku === nv.sku);
+      }
+
       if (existing) {
         return {
           ...nv,
-          price: existing.price,
-          cost: existing.cost,
+          id: existing.id,
+          price: (nv.price === 0 && existing.price > 0) ? existing.price : nv.price,
+          cost: (nv.cost === 0 && existing.cost > 0) ? existing.cost : nv.cost,
           wasPrice: existing.wasPrice,
           stock: existing.stock,
+          locationStock: existing.locationStock,
+          lowStockThreshold: existing.lowStockThreshold || nv.lowStockThreshold,
           isActive: existing.isActive !== undefined ? existing.isActive : true
         };
       }
@@ -333,9 +348,13 @@ export default function Products() {
         values: a.values.split(',').map(v => v.trim())
       }));
 
-    const isNumeric = (val: any) => val !== null && val !== undefined && !isNaN(Number(val)) && typeof val !== 'string' || (typeof val === 'string' && /^\d+$/.test(val));
+    const isNumeric = (val: any) => {
+      if (val === null || val === undefined) return false;
+      const num = Number(val);
+      return !isNaN(num) && num > 0; // Backend IDs are positive Longs
+    };
 
-    const sanitizeId = (id: any) => isNumeric(id) ? id : undefined;
+    const sanitizeId = (id: any) => isNumeric(id) ? (typeof id === 'string' ? parseInt(id) : id) : undefined;
 
     const variants = (newProduct.variants?.length || 0) > 0 ? newProduct.variants.map((v, i) => ({
       ...v,

@@ -112,5 +112,33 @@ export interface SystemSettings {
   showStockWarning: boolean;
   lowStockAlerts: boolean;
   outOfStockAlerts: boolean;
+  outOfStockAlerts: boolean;
   dailySalesSummary: boolean;
+}
+
+export interface Sale extends InventoryTransaction {
+  id: string; // Override for frontend
+  locationId: number;
+  customerId?: number;
+  salePayments: { method: string; amount: number; reference?: string }[];
+  amountPaid: number;
+  changeAmount: number;
+}
+
+export interface CartItem {
+  variantId: string;
+  productName: string;
+  variantSku: string;
+  attributes: Record<string, string>;
+  quantity: number;
+  price: number;
+  maxStock: number;
+}
+
+export interface ActiveOrder {
+  id: string;
+  customer: Customer | null;
+  items: CartItem[];
+  timestamp: Date;
+  note?: string;
 }
