@@ -17,7 +17,7 @@ export default function Reports() {
 
   // Sales data
   const sales = transactions.filter(t => t.type === 'SALE');
-  const totalSales = sales.reduce((sum, s) => sum + (s.total || 0), 0);
+  const totalSales = sales.reduce((sum, s) => sum + (s.total || s.totalAmount || 0), 0);
   const totalItems = sales.reduce((sum, s) => sum + s.items.reduce((iSum, i) => iSum + i.adjustment, 0), 0);
 
   // Inventory data (Active only for current status)
@@ -80,7 +80,7 @@ export default function Reports() {
     sales.forEach(s => {
       const day = days[new Date(s.timestamp).getDay()];
       if (trend[day] !== undefined) {
-        trend[day] += (s.total || 0);
+        trend[day] += (s.total || s.totalAmount || 0);
       }
     });
 
@@ -394,8 +394,8 @@ export default function Reports() {
                       </td>
                       <td className="capitalize">{sale.status === 'COMPLETED' ? 'Paid' : sale.status.toLowerCase()}</td>
                       <td>${(sale.subtotal || 0).toFixed(2)}</td>
-                      <td>${(sale.tax || 0).toFixed(2)}</td>
-                      <td className="font-semibold">${(sale.total || 0).toFixed(2)}</td>
+                      <td>${(sale.tax || sale.taxAmount || 0).toFixed(2)}</td>
+                      <td className="font-semibold">${(sale.total || sale.totalAmount || 0).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>

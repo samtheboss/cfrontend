@@ -102,14 +102,14 @@ export default function SignIn() {
             </form>
 
             {/* Demo credentials */}
-            <div className="mt-6 p-4 bg-muted/50 rounded-lg">
+            {/* <div className="mt-6 p-4 bg-muted/50 rounded-lg">
               <p className="text-sm font-medium mb-2">Demo Accounts:</p>
               <div className="space-y-1 text-xs text-muted-foreground">
                 <p><strong>Admin:</strong> admin / admin123</p>
                 <p><strong>Manager:</strong> manager / manager123</p>
                 <p><strong>Cashier:</strong> cashier / cashier123</p>
               </div>
-            </div>
+            </div> */}
           </CardContent>
         </Card>
       </div>

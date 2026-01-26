@@ -68,8 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUsers(mappedUsers);
     } catch (error) {
       console.error('Failed to fetch users:', error);
-      // Fallback to hardcoded users if API fails during dev
-      setUsers(hardcodedUsers);
+      setUsers([]);
     }
   };
 

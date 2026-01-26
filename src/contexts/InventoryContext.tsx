@@ -116,12 +116,12 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             setSettings(settingsRes.data);
         } catch (error) {
             console.error('Failed to fetch inventory data:', error);
-            // Fallback to mock data in development if API fails
-            setProducts(mockProducts);
-            setCategories(['Apparel', 'Footwear', 'Accessories', 'Electronics']);
+            toast.error('Connection failed: Could not fetch inventory data');
+            setProducts([]);
+            setCategories([]);
             setTransactions([]);
-            setLocations(mockLocations);
-            setCustomers(mockCustomers);
+            setLocations([]);
+            setCustomers([]);
         } finally {
             setIsLoading(false);
         }
@@ -398,8 +398,6 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                     }
                 },
                 activeOrders,
-                holdOrder,
-                discardOrder,
                 holdOrder,
                 discardOrder,
                 salesHistory,

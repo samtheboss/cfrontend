@@ -476,7 +476,7 @@ export default function Products() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="price">Base Price ($)</Label>
+                    <Label htmlFor="price">Sell Price</Label>
                     <Input
                       id="price"
                       type="number"
@@ -486,7 +486,7 @@ export default function Products() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="cost">Base Cost ($)</Label>
+                    <Label htmlFor="cost">Buy Price</Label>
                     <Input
                       id="cost"
                       type="number"

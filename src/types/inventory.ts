@@ -67,7 +67,9 @@ export interface InventoryTransaction {
   items: TransactionItem[];
   subtotal?: number;
   tax?: number;
+  taxAmount?: number;
   total?: number;
+  totalAmount?: number;
 }
 
 export interface StockAdjustment extends InventoryTransaction {
@@ -111,7 +113,6 @@ export interface SystemSettings {
   autoPrintReceipts: boolean;
   showStockWarning: boolean;
   lowStockAlerts: boolean;
-  outOfStockAlerts: boolean;
   outOfStockAlerts: boolean;
   dailySalesSummary: boolean;
 }
