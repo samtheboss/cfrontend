@@ -5,6 +5,12 @@ export interface Location {
   isMain: boolean;
 }
 
+export interface Category {
+  id: number;
+  name: string;
+  image?: string;
+}
+
 export interface ProductAttribute {
   id: string;
   name: string;
@@ -53,8 +59,19 @@ export interface TransactionItem {
   attributes?: Record<string, string>;
 }
 
+export interface StockTakeItem {
+  variantId: string;
+  productName: string;
+  variantSku: string;
+  systemStock: number;
+  countedStock: number;
+  variance: number;
+  unit?: string;
+  attributes?: Record<string, string>;
+}
+
 export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE';
-export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED';
+export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED' | 'DRAFT';
 
 export interface InventoryTransaction {
   id?: string;

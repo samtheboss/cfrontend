@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale } from '@/types/inventory';
+import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category } from '@/types/inventory';
 import { mockProducts, mockLocations, mockAdjustments, mockCustomers } from '@/data/mockData';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -8,7 +8,7 @@ import { useAuth } from './AuthContext';
 interface InventoryContextType {
     products: Product[];
     locations: Location[];
-    categories: string[];
+    categories: Category[];
     customers: Customer[];
     transactions: InventoryTransaction[];
     settings: SystemSettings | null;
@@ -18,14 +18,17 @@ interface InventoryContextType {
     addProduct: (product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
     updateProduct: (product: Product) => Promise<void>;
     deleteProduct: (productId: string) => Promise<void>;
+    deleteProducts: (productIds: string[]) => Promise<void>;
 
     createAdjustment: (adjustment: Partial<StockAdjustment>) => Promise<void>;
     createTransfer: (transfer: Partial<StockTransfer>) => Promise<void>;
     confirmTransfer: (transferId: string) => Promise<void>;
     applyStockTake: (stockTake: Partial<StockTake>) => Promise<void>;
+    updateTransaction: (id: string, transaction: Partial<InventoryTransaction>) => Promise<void>;
 
     // Categories
-    addCategory: (name: string) => Promise<void>;
+    addCategory: (name: string, image?: string) => Promise<void>;
+    updateCategory: (id: number, name: string, image?: string) => Promise<void>;
     deleteCategory: (category: string) => Promise<void>;
 
     // Locations
@@ -66,7 +69,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const { isAuthenticated } = useAuth();
     const [products, setProducts] = useState<Product[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
-    const [categories, setCategories] = useState<string[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
     const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -100,7 +103,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         try {
             const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, settingsRes] = await Promise.all([
                 apiFetch<ApiResponse<Product[]>>('/api/products'),
-                apiFetch<ApiResponse<{ name: string }[]>>('/api/categories'),
+                apiFetch<ApiResponse<Category[]>>('/api/categories'),
                 apiFetch<ApiResponse<InventoryTransaction[]>>('/api/transactions'),
                 apiFetch<ApiResponse<Sale[]>>('/api/transactions?type=SALE'),
                 apiFetch<ApiResponse<Location[]>>('/api/locations'),
@@ -108,7 +111,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 apiFetch<ApiResponse<SystemSettings>>('/api/system-settings'),
             ]);
             setProducts(productsRes.data);
-            setCategories(categoriesRes.data.map(c => c.name));
+            setCategories(categoriesRes.data);
             setTransactions(transactionsRes.data);
             setSalesHistory(salesRes.data || []);
             setLocations(locationsRes.data);
@@ -160,18 +163,40 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     };
 
     const deleteProduct = async (productId: string) => {
-        // Backend doesn't have delete yet, but let's assume it will
-        toast.error('Delete product not yet implemented in backend');
+        try {
+            await apiFetch(`/api/products/${productId}`, {
+                method: 'DELETE',
+            });
+            await fetchInventoryData();
+            toast.success('Product disabled successfully');
+        } catch (error) {
+            toast.error('Failed to disable product');
+            throw error;
+        }
+    };
+
+    const deleteProducts = async (productIds: string[]) => {
+        try {
+            await apiFetch('/api/products/bulk-delete', {
+                method: 'POST',
+                body: JSON.stringify(productIds),
+            });
+            await fetchInventoryData();
+            toast.success('Selected products disabled successfully');
+        } catch (error) {
+            toast.error('Failed to disable selected products');
+            throw error;
+        }
     };
 
     const createAdjustment = async (adjustment: Partial<StockAdjustment>) => {
         try {
-            await apiFetch('/api/transactions/adjustment', {
+            const response = await apiFetch<ApiResponse<StockAdjustment>>('/api/transactions/adjustment', {
                 method: 'POST',
                 body: JSON.stringify(adjustment),
             });
             await fetchInventoryData();
-            toast.success('Stock adjustment completed');
+            toast.success(response.message || 'Stock adjustment processed');
         } catch (error) {
             toast.error('Failed to process adjustment');
             throw error;
@@ -207,23 +232,42 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
     const applyStockTake = async (stockTake: Partial<StockTake>) => {
         try {
-            await apiFetch('/api/transactions/stock-take', {
+            const response = await apiFetch<ApiResponse<StockTake>>('/api/transactions/stock-take', {
                 method: 'POST',
                 body: JSON.stringify(stockTake),
             });
             await fetchInventoryData();
-            toast.success('Stock take applied successfully');
+            toast.success(response.message || 'Stock take processed');
         } catch (error) {
             toast.error('Failed to apply stock take');
             throw error;
         }
     };
 
-    const addCategory = async (name: string) => {
+    const updateTransaction = async (id: string, transaction: Partial<InventoryTransaction>) => {
+        try {
+            const response = await apiFetch<ApiResponse<InventoryTransaction>>(`/api/transactions/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify(transaction),
+            });
+            await fetchInventoryData();
+            toast.success(response.message || 'Transaction updated');
+        } catch (error) {
+            toast.error('Failed to update transaction');
+            throw error;
+        }
+    };
+
+    // Expose updateTransaction to window for easier access in components
+    useEffect(() => {
+        (window as any).updateTransaction = updateTransaction;
+    }, [updateTransaction]);
+
+    const addCategory = async (name: string, image?: string) => {
         try {
             await apiFetch('/api/categories', {
                 method: 'POST',
-                body: JSON.stringify({ name }),
+                body: JSON.stringify({ name, image }),
             });
             await fetchInventoryData();
             toast.success('Category added');
@@ -232,14 +276,38 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const deleteCategory = async (category: string) => {
-        const inUse = products.some(p => p.category === category);
+    const updateCategory = async (id: number, name: string, image?: string) => {
+        try {
+            await apiFetch(`/api/categories/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ name, image }),
+            });
+            await fetchInventoryData();
+            toast.success('Category updated successfully');
+        } catch (error) {
+            toast.error('Failed to update category');
+        }
+    };
+
+    const deleteCategory = async (categoryName: string) => {
+        const category = categories.find(c => c.name === categoryName);
+        if (!category) return;
+
+        const inUse = products.some(p => p.category === categoryName);
         if (inUse) {
             toast.error('Cannot delete: Category is in use by products');
             return;
         }
-        // Backend doesn't have delete yet
-        toast.error('Delete category not yet implemented in backend');
+
+        try {
+            await apiFetch(`/api/categories/${category.id}`, {
+                method: 'DELETE',
+            });
+            await fetchInventoryData();
+            toast.success('Category deleted successfully');
+        } catch (error) {
+            toast.error('Failed to delete category');
+        }
     };
 
     const addLocation = async (locationData: Partial<Location>) => {
@@ -356,11 +424,14 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 addProduct,
                 updateProduct,
                 deleteProduct,
+                deleteProducts,
                 createAdjustment,
                 createTransfer,
                 confirmTransfer,
                 applyStockTake,
+                updateTransaction,
                 addCategory,
+                updateCategory,
                 deleteCategory,
                 addLocation,
                 updateLocation,

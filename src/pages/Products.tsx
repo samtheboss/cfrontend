@@ -37,7 +37,18 @@ import { cn } from '@/lib/utils';
 import { StockBadge } from '@/components/inventory/StockBadge';
 import { getStockStatus } from '@/types/inventory';
 import { useInventory } from '@/contexts/InventoryContext';
-import { Settings, Tag } from 'lucide-react';
+import { ImportProductsDialog } from '@/components/inventory/ImportProductsDialog';
+import { Settings, Tag, AlertTriangle } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Categories are now managed in InventoryContext
 
@@ -46,9 +57,12 @@ export default function Products() {
     products: contextProducts,
     categories,
     addCategory,
+    updateCategory,
     deleteCategory,
     addProduct: contextAddProduct,
-    updateProduct: contextUpdateProduct
+    updateProduct: contextUpdateProduct,
+    deleteProduct: contextDeleteProduct,
+    deleteProducts: contextDeleteProducts
   } = useInventory();
   const { toast } = useToast();
 
@@ -58,10 +72,21 @@ export default function Products() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryImage, setNewCategoryImage] = useState('');
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [showDisabled, setShowDisabled] = useState(false);
+
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+
+  // ... (existing code omitted) ...
+
+
 
   // Sync with context products if they change
   useEffect(() => {
@@ -268,6 +293,33 @@ export default function Products() {
     }
   };
 
+  const handleVariantImageUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await apiFetch<{ url: string }>('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      setNewProduct(prev => ({
+        ...prev,
+        variants: prev.variants.map((v, i) => i === index ? { ...v, image: response.url } : v)
+      }));
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: "Could not upload variant image.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -394,6 +446,56 @@ export default function Products() {
     }
   };
 
+  const handleDeleteProduct = async () => {
+    if (!productToDelete) return;
+    try {
+      await contextDeleteProduct(productToDelete.id);
+      setIsDeleteDialogOpen(false);
+      setProductToDelete(null);
+    } catch (error) {
+      console.error('Delete error:', error);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      await contextDeleteProducts(Array.from(selectedProductIds));
+      setIsBulkDeleteDialogOpen(false);
+      setSelectedProductIds(new Set());
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+    }
+  };
+
+  const handleCategoryParamsReset = () => {
+    setNewCategoryName('');
+    setNewCategoryImage('');
+    setEditingCategoryId(null);
+  }
+
+  const handleCategoryImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await apiFetch<{ url: string }>('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      setNewCategoryImage(response.url);
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: "Could not upload category image.",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <AppLayout title="Products">
       <div className="flex items-center justify-between mb-6">
@@ -416,6 +518,7 @@ export default function Products() {
               className="scale-75"
             />
           </div>
+          <ImportProductsDialog />
           <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
             <Tag className="h-4 w-4 mr-2" />
             Categories
@@ -467,8 +570,8 @@ export default function Products() {
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {category}
+                        <SelectItem key={category.id} value={category.name}>
+                          {category.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -542,7 +645,8 @@ export default function Products() {
                             <th className="p-2 text-left">Variant</th>
                             <th className="p-2 w-24">Price</th>
                             <th className="p-2 w-24">Cost</th>
-                            <th className="p-2 w-24">Was Price</th>
+                            <th className="p-2 w-24">Stock</th>
+                            <th className="p-2 w-20">Image</th>
                             <th className="p-2 w-10"></th>
                           </tr>
                         </thead>
@@ -584,18 +688,54 @@ export default function Products() {
                                 <Input
                                   type="number"
                                   className="h-8"
-                                  placeholder="Optional"
-                                  value={variant.wasPrice || ''}
+                                  value={variant.stock}
                                   onChange={(e) => {
-                                    const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                                    const val = parseInt(e.target.value) || 0;
                                     setNewProduct(prev => ({
                                       ...prev,
-                                      variants: prev.variants.map((v, i) => i === index ? { ...v, wasPrice: val } : v)
+                                      variants: prev.variants.map((v, i) => i === index ? { ...v, stock: val } : v)
                                     }));
                                   }}
                                 />
                               </td>
                               <td className="p-2">
+                                <div className="flex items-center gap-2">
+                                  {variant.image ? (
+                                    <div className="relative h-8 w-8 rounded border overflow-hidden group">
+                                      <img
+                                        src={variant.image.startsWith('http') ? variant.image : `${BASE_URL}${variant.image}`}
+                                        className="h-full w-full object-cover"
+                                        alt=""
+                                      />
+                                      <button
+                                        type="button"
+                                        className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={() => {
+                                          setNewProduct(prev => ({
+                                            ...prev,
+                                            variants: prev.variants.map((v, i) => i === index ? { ...v, image: undefined } : v)
+                                          }));
+                                        }}
+                                      >
+                                        <X className="h-3 w-3 text-white" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <label className="cursor-pointer">
+                                      <div className="h-8 w-8 rounded border border-dashed flex items-center justify-center hover:bg-muted transition-colors">
+                                        <Upload className="h-3 w-3 text-muted-foreground" />
+                                      </div>
+                                      <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*"
+                                        onChange={(e) => handleVariantImageUpload(index, e)}
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-2 text-right">
                                 <Switch
                                   checked={variant.isActive !== false}
                                   onCheckedChange={(checked) => {
@@ -749,44 +889,118 @@ export default function Products() {
         </div>
       </div>
 
-      <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
+      <Dialog open={isCategoryDialogOpen} onOpenChange={(open) => {
+        setIsCategoryDialogOpen(open);
+        if (!open) handleCategoryParamsReset();
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Manage Categories</DialogTitle>
-            <DialogDescription>Add or remove product categories.</DialogDescription>
+            <DialogTitle>{editingCategoryId ? 'Edit Category' : 'Manage Categories'}</DialogTitle>
+            <DialogDescription>Add, update or remove product categories.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="New category name..."
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-              />
-              <Button onClick={async () => {
-                if (newCategoryName.trim()) {
-                  await addCategory(newCategoryName.trim());
-                  setNewCategoryName('');
-                }
-              }}>Add</Button>
-            </div>
-            <div className="border rounded-md divide-y max-h-60 overflow-y-auto">
-              {categories.map(cat => (
-                <div key={cat} className="p-3 flex items-center justify-between bg-card">
-                  <span>{cat}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive"
-                    onClick={() => deleteCategory(cat)}
-                  >
-                    <Trash2 className="h-4 w-4" />
+            <div className="flex flex-col gap-3 border p-4 rounded-md bg-muted/20">
+              <Label className="text-sm font-medium">
+                {editingCategoryId ? 'Update Category' : 'New Category'}
+              </Label>
+              <div className="flex gap-2">
+                <div className="relative h-10 w-10 flex-shrink-0 rounded overflow-hidden border bg-background">
+                  {newCategoryImage ? (
+                    <img
+                      src={newCategoryImage.startsWith('http') ? newCategoryImage : `${BASE_URL}${newCategoryImage}`}
+                      alt="Category"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                      <ImageIcon className="h-4 w-4" />
+                    </div>
+                  )}
+
+                  <label htmlFor="cat-image-upload" className="absolute inset-0 cursor-pointer opacity-0" title="Upload Image">
+                    <span className="sr-only">Upload</span>
+                  </label>
+                  <Input
+                    id="cat-image-upload"
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleCategoryImageUpload}
+                  />
+                </div>
+                <Input
+                  placeholder="Category name..."
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="flex-1"
+                />
+                <Button onClick={async () => {
+                  if (newCategoryName.trim()) {
+                    if (editingCategoryId) {
+                      await updateCategory(editingCategoryId, newCategoryName.trim(), newCategoryImage);
+                      toast({ title: "Updated", description: "Category updated successfully." });
+                    } else {
+                      await addCategory(newCategoryName.trim(), newCategoryImage);
+                      toast({ title: "Added", description: "Category added successfully." });
+                    }
+                    handleCategoryParamsReset();
+                  }
+                }}>{editingCategoryId ? 'Save' : 'Add'}</Button>
+                {editingCategoryId && (
+                  <Button variant="ghost" size="icon" onClick={handleCategoryParamsReset}>
+                    <X className="h-4 w-4" />
                   </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-2 max-h-60 overflow-y-auto pr-1">
+              {categories.map(cat => (
+                <div key={cat.id} className="p-2 flex items-center justify-between bg-card border rounded-md group hover:border-primary/50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded overflow-hidden bg-muted flex-shrink-0">
+                      {cat.image ? (
+                        <img
+                          src={cat.image.startsWith('http') ? cat.image : `${BASE_URL}${cat.image}`}
+                          alt={cat.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center">
+                          <Tag className="h-4 w-4 text-muted-foreground/50" />
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-medium text-sm">{cat.name}</span>
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => {
+                        setNewCategoryName(cat.name);
+                        setNewCategoryImage(cat.image || '');
+                        setEditingCategoryId(cat.id);
+                      }}
+                    >
+                      <Edit className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => deleteCategory(cat.name)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => setIsCategoryDialogOpen(false)}>Close</Button>
+            <Button variant="outline" onClick={() => setIsCategoryDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -797,12 +1011,9 @@ export default function Products() {
             <span className="text-sm font-medium px-2">{selectedProductIds.size} items selected</span>
             <Button variant="ghost" size="sm" onClick={() => setSelectedProductIds(new Set())}>Clear</Button>
             <div className="flex-1" />
-            <Button variant="outline" size="sm" className="text-destructive border-destructive" onClick={() => {
-              toast({ title: "Bulk action", description: `Deleting ${selectedProductIds.size} products (mock)` });
-              setSelectedProductIds(new Set());
-            }}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete Selected
+            <Button variant="outline" size="sm" className="text-destructive border-destructive" onClick={() => setIsBulkDeleteDialogOpen(true)}>
+              <Settings className="h-4 w-4 mr-2" />
+              Disable Selected
             </Button>
           </div>
         )}
@@ -857,7 +1068,7 @@ export default function Products() {
                 <div>
                   <h3 className="font-medium">{product.name}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {product.category} • {product.variants.filter(v => showDisabled || v.isActive !== false).length} variants
+                    {product.category} • {(product.variants || []).filter(v => showDisabled || v.isActive !== false).length} variants
                   </p>
                 </div>
               </div>
@@ -875,7 +1086,7 @@ export default function Products() {
                     </Badge>
                   ))}
                   <Badge variant="outline" className="text-xs">
-                    Total Qty: {product.variants.reduce((sum, v) => sum + v.stock, 0)}
+                    Total Qty: {(product.variants || []).reduce((sum, v) => sum + v.stock, 0)}
                   </Badge>
                   <Badge
                     variant={product.isActive !== false ? "success" : "destructive"}
@@ -898,9 +1109,16 @@ export default function Products() {
                       <Edit className="h-4 w-4 mr-2" />
                       Edit Product
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive">
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete Product
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setProductToDelete(product);
+                        setIsDeleteDialogOpen(true);
+                      }}
+                    >
+                      <Settings className="h-4 w-4 mr-2" />
+                      Disable Product
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -928,7 +1146,7 @@ export default function Products() {
                     </tr>
                   </thead>
                   <tbody>
-                    {product.variants
+                    {(product.variants || [])
                       .filter(v => showDisabled || v.isActive !== false)
                       .map((variant) => (
                         <tr key={variant.id}>
@@ -968,6 +1186,46 @@ export default function Products() {
           </Card>
         ))}
       </div>
-    </AppLayout>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2 text-warning mb-2">
+              <AlertTriangle className="h-5 w-5" />
+              <AlertDialogTitle>Disable Product?</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription>
+              Are you sure you want to disable <span className="font-semibold">{productToDelete?.name}</span>? Disabled products will be hidden from the store and sale screens, but can be re-enabled later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setProductToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteProduct} className="bg-warning text-warning-foreground hover:bg-warning/90">
+              Disable Product
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2 text-warning mb-2">
+              <AlertTriangle className="h-5 w-5" />
+              <AlertDialogTitle>Disable Multiple Products</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription>
+              Are you sure you want to disable <span className="font-semibold">{selectedProductIds.size}</span> selected products? This will hide them from the store, but they can be re-enabled later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-warning text-warning-foreground hover:bg-warning/90">
+              Disable All Selected
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </AppLayout >
   );
 }

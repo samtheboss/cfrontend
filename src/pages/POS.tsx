@@ -883,14 +883,14 @@ export default function POS() {
                   <div key={item.variantId} className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{item.productName}</p>
-                      <p className="text-xs text-muted-foreground">{item.variantSku}</p>
-                      <div className="flex gap-1 mt-1">
-                        {Object.entries(item.attributes).map(([key, value]) => (
-                          <Badge key={key} variant="outline" className="text-[10px]">
-                            {value}
-                          </Badge>
-                        ))}
-                      </div>
+                      <p className="text-xs text-muted-foreground font-medium">
+                        {item.attributes && Object.keys(item.attributes).length > 0
+                          ? Object.values(item.attributes).join(' / ')
+                          : item.variantSku}
+                      </p>
+                      {item.attributes && Object.keys(item.attributes).length > 0 && (
+                        <p className="text-[10px] text-muted-foreground uppercase">{item.variantSku}</p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <Popover>
@@ -1223,14 +1223,14 @@ export default function POS() {
                     >
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="font-medium text-sm">SKU: {variant.sku}</p>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {Object.entries(variant.attributes).map(([key, value]) => (
-                              <Badge key={key} variant="secondary" className="text-[10px]">
-                                {value}
-                              </Badge>
-                            ))}
-                          </div>
+                          <p className="font-medium text-sm">
+                            {Object.keys(variant.attributes).length > 0
+                              ? Object.values(variant.attributes).join(' / ')
+                              : `SKU: ${variant.sku}`}
+                          </p>
+                          {Object.keys(variant.attributes).length > 0 && (
+                            <p className="text-[10px] text-muted-foreground uppercase">{variant.sku}</p>
+                          )}
                         </div>
                         <span className="font-bold text-primary">${variant.price.toFixed(2)}</span>
                       </div>
