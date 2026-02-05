@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Bell, Search, User, LogOut, Settings } from 'lucide-react';
+import { Bell, Search, User, LogOut, Settings, Menu } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,9 +15,10 @@ import { Badge } from '@/components/ui/badge';
 
 interface HeaderProps {
   title: string;
+  onMenuClick?: () => void;
 }
 
-export function Header({ title }: HeaderProps) {
+export function Header({ title, onMenuClick }: HeaderProps) {
   const { user, logout, getGroupById } = useAuth();
   const navigate = useNavigate();
 
@@ -27,8 +28,18 @@ export function Header({ title }: HeaderProps) {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
-      <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6">
+      <div className="flex items-center gap-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onMenuClick}
+          className="lg:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+        <h1 className="text-lg md:text-xl font-semibold text-foreground truncate max-w-[150px] sm:max-w-none">{title}</h1>
+      </div>
 
       <div className="flex items-center gap-4">
         {/* Search */}

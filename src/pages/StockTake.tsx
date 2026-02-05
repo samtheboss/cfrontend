@@ -34,7 +34,7 @@ export default function StockTake() {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedLocationId, setSelectedLocationId] = useState<string>(
-        user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id
+        (user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString()
     );
     const [isCountingMode, setIsCountingMode] = useState(false);
     const [stockTakeItems, setStockTakeItems] = useState<StockTakeItem[]>([]);
@@ -137,9 +137,33 @@ export default function StockTake() {
     const totalVariance = itemsWithVariance.reduce((sum, item) => sum + item.variance, 0);
 
     const loadDraft = (draft: InventoryTransaction) => {
+        console.log('Loading draft:', draft);
         setCurrentTransactionId(draft.id || null);
-        const locId = draft.locationId || locations[0]?.id || '';
+
+        // Ensure locationId is a string for comparison with Select values
+        // Fallback: If locationId is missing, try to recover it from the notes
+        let recoveredLocId = draft.locationId;
+        if (!recoveredLocId && draft.notes) {
+            console.log('LocationId missing, attempting to recover from notes:', draft.notes);
+            const locName = draft.notes.includes(' at ') ? draft.notes.split(' at ').pop() : null;
+            if (locName) {
+                const foundLoc = locations.find(l => l.name === locName);
+                if (foundLoc) {
+                    recoveredLocId = foundLoc.id;
+                    console.log('Recovered locationId from notes:', recoveredLocId, foundLoc.name);
+                }
+            }
+        }
+
+        const locId = String(recoveredLocId || locations[0]?.id || '');
+        console.log('Final locId to be used:', locId);
         setSelectedLocationId(locId);
+
+        // Load the transaction date from the draft
+        if (draft.timestamp) {
+            const draftDate = new Date(draft.timestamp).toISOString().split('T')[0];
+            setTransactionDate(draftDate);
+        }
 
         // Map transaction items back to stock take items, refreshing systemStock from products
         const draftItems: StockTakeItem[] = (draft.items || []).map(item => {
@@ -179,10 +203,11 @@ export default function StockTake() {
         setIsSubmitting(true);
         try {
             const transactionData = {
+                type: 'STOCK_TAKE',
                 locationId: selectedLocationId,
                 status: status,
                 timestamp: new Date(transactionDate + 'T00:00:00').toISOString(),
-                notes: status === 'DRAFT' ? `Draft stock take at ${locations.find(l => l.id === selectedLocationId)?.name}` : `Physical inventory count at ${locations.find(l => l.id === selectedLocationId)?.name}`,
+                notes: status === 'DRAFT' ? `Draft stock take at ${locations.find(l => l.id.toString() === selectedLocationId)?.name}` : `Physical inventory count at ${locations.find(l => l.id.toString() === selectedLocationId)?.name}`,
                 items: countedItemsList.map(item => ({
                     variantId: item.variantId,
                     sku: item.variantSku,
@@ -229,74 +254,77 @@ export default function StockTake() {
                         Start a stock take to compare your physical inventory with system records.
                         Any variances can be applied as stock adjustments.
                     </p>
+                    <div className='flex flex-col sm:flex-row items-end justify-center gap-4 mb-8'>
+                        <div className="w-full sm:w-48 text-left">
+                            <Label className="mb-2 block">Select location to count:</Label>
+                            <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                                <SelectTrigger>
+                                    <Package className="h-4 w-4 mr-2" />
+                                    <SelectValue placeholder="Select location" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {locations.map(loc => (
+                                        <SelectItem key={loc.id} value={loc.id.toString()}>{loc.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
 
-                    <div className="max-w-xs mx-auto mb-8">
-                        <Label className="mb-2 block text-left">Select location to count:</Label>
-                        <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
-                            <SelectTrigger>
-                                <Package className="h-4 w-4 mr-2" />
-                                <SelectValue placeholder="Select location" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {locations.map(loc => (
-                                    <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <div className="w-full sm:w-48 text-left">
+                            <Label className="mb-2 block">Transaction Date:</Label>
+                            <Input
+                                type="date"
+                                value={transactionDate}
+                                onChange={(e) => setTransactionDate(e.target.value)}
+                            />
+                        </div>
                     </div>
 
-                    <div className="max-w-xs mx-auto mb-8">
-                        <Label className="mb-2 block text-left">Transaction Date:</Label>
-                        <Input
-                            type="date"
-                            value={transactionDate}
-                            onChange={(e) => setTransactionDate(e.target.value)}
-                        />
-                    </div>
+                    <div className="flex flex-col sm:flex-row justify-center gap-4">
+                        <Button size="lg" onClick={startStockTake} className="w-full sm:w-auto">
+                            Start Stock Take
+                        </Button>
 
-                    <Button size="lg" onClick={startStockTake}>
-                        Start Stock Take
-                    </Button>
-
-                    <Dialog open={isDraftDialogOpen} onOpenChange={setIsDraftDialogOpen}>
-                        <DialogTrigger asChild>
-                            <Button variant="outline" size="lg" className="ml-4 gap-2">
-                                <FolderOpen className="h-4 w-4" />
-                                Resume Draft
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-2xl">
-                            <DialogHeader>
-                                <DialogTitle>Select Draft Stock Take</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 max-h-[60vh] overflow-y-auto mt-4">
-                                {transactions
-                                    .filter(t => t.type === 'STOCK_TAKE' && t.status === 'DRAFT')
-                                    .map(draft => (
-                                        <div
-                                            key={draft.id}
-                                            className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors flex justify-between items-center"
-                                            onClick={() => loadDraft(draft)}
-                                        >
-                                            <div>
-                                                <p className="font-medium">{draft.journalNumber}</p>
-                                                <p className="text-sm text-muted-foreground">{draft.notes}</p>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    {new Date(draft.timestamp || '').toLocaleString()} • {draft.items?.length || 0} items
-                                                </p>
+                        <Dialog open={isDraftDialogOpen} onOpenChange={setIsDraftDialogOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" size="lg" className="gap-2 w-full sm:w-auto">
+                                    <FolderOpen className="h-4 w-4" />
+                                    Resume Draft
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl w-[95vw]">
+                                <DialogHeader>
+                                    <DialogTitle>Select Draft Stock Take</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4 max-h-[60vh] overflow-y-auto mt-4">
+                                    {transactions
+                                        .filter(t => t.type === 'STOCK_TAKE' && t.status === 'DRAFT')
+                                        .map(draft => (
+                                            <div
+                                                key={draft.id}
+                                                className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors flex justify-between items-center"
+                                                onClick={() => loadDraft(draft)}
+                                            >
+                                                <div>
+                                                    <p className="font-medium">{draft.journalNumber}</p>
+                                                    <p className="text-sm text-muted-foreground">{draft.notes}</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        {new Date(draft.timestamp || '').toLocaleString()} • {draft.items?.length || 0} items
+                                                    </p>
+                                                </div>
+                                                <Button variant="ghost" size="sm">Select</Button>
                                             </div>
-                                            <Button variant="ghost" size="sm">Select</Button>
+                                        ))
+                                    }
+                                    {transactions.filter(t => t.type === 'STOCK_TAKE' && t.status === 'DRAFT').length === 0 && (
+                                        <div className="text-center p-8 text-muted-foreground">
+                                            No draft stock takes found
                                         </div>
-                                    ))
-                                }
-                                {transactions.filter(t => t.type === 'STOCK_TAKE' && t.status === 'DRAFT').length === 0 && (
-                                    <div className="text-center p-8 text-muted-foreground">
-                                        No draft stock takes found
-                                    </div>
-                                )}
-                            </div>
-                        </DialogContent>
-                    </Dialog>
+                                    )}
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
                 </div>
             </AppLayout>
         );
@@ -306,36 +334,63 @@ export default function StockTake() {
         <AppLayout title="Stock Take">
             <div className="container mx-auto py-8">
                 <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-xl font-semibold">Stock Take - {locations.find(l => l.id === selectedLocationId)?.name || 'Select Location'}</h2>
+                    <h2 className="text-xl font-semibold">Stock Take - {locations.find(l => l.id.toString() === selectedLocationId)?.name || 'Select Location'}</h2>
                 </div>
 
                 {/* Progress Header */}
                 <Card className="mb-6">
                     <CardContent className="py-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <div>
-                                <h3 className="font-semibold">Counting Progress</h3>
-                                <p className="text-sm text-muted-foreground">
-                                    {countedItems.size} of {stockTakeItems.length} items counted
-                                </p>
+                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-4">
+                            <div className="flex flex-col md:flex-row md:items-center gap-6">
+                                <div>
+                                    <h3 className="font-semibold">Counting Progress</h3>
+                                    <p className="text-sm text-muted-foreground">
+                                        {countedItems.size} of {stockTakeItems.length} items counted
+                                    </p>
+                                </div>
+                                <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 sm:gap-4">
+                                    <div className="w-full sm:w-40 text-left">
+                                        <Label className="text-[10px] uppercase font-bold text-muted-foreground mb-1 block">Location</Label>
+                                        <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                                            <SelectTrigger className="h-9">
+                                                <Package className="h-3 w-3 mr-1" />
+                                                <SelectValue placeholder="Location" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {locations.map(loc => (
+                                                    <SelectItem key={loc.id} value={loc.id.toString()}>{loc.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="w-full sm:w-36 text-left">
+                                        <Label className="text-[10px] uppercase font-bold text-muted-foreground mb-1 block">Date</Label>
+                                        <Input
+                                            type="date"
+                                            value={transactionDate}
+                                            onChange={(e) => setTransactionDate(e.target.value)}
+                                            className="h-9"
+                                        />
+                                    </div>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-4">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                                 {itemsWithVariance.length > 0 && (
-                                    <Badge variant={totalVariance > 0 ? 'default' : 'destructive'}>
-                                        {itemsWithVariance.length} variances ({totalVariance > 0 ? '+' : ''}{totalVariance} units)
+                                    <Badge variant={totalVariance > 0 ? 'default' : 'destructive'} className="h-9 px-3">
+                                        {itemsWithVariance.length} variances
                                     </Badge>
                                 )}
-                                <Button variant="outline" onClick={() => {
+                                <Button variant="outline" size="sm" className="flex-1 sm:flex-none h-9" onClick={() => {
                                     cancelStockTake();
                                     setCurrentTransactionId(null);
                                 }} disabled={isSubmitting}>Cancel</Button>
-                                <Button variant="secondary" onClick={() => submitStockTake('DRAFT')} disabled={isSubmitting}>
-                                    <Save className="h-4 w-4 mr-2" />
-                                    {currentTransactionId ? 'Update Draft' : 'Hold'}
+                                <Button variant="secondary" size="sm" className="flex-1 sm:flex-none h-9" onClick={() => submitStockTake('DRAFT')} disabled={isSubmitting}>
+                                    <Save className="h-4 w-4 mr-1 sm:mr-2" />
+                                    Hold
                                 </Button>
-                                <Button onClick={() => submitStockTake('COMPLETED')} disabled={countedItems.size === 0 || isSubmitting}>
+                                <Button onClick={() => submitStockTake('COMPLETED')} size="sm" className="w-full sm:w-auto h-9" disabled={countedItems.size === 0 || isSubmitting}>
                                     <Check className="h-4 w-4 mr-2" />
-                                    {currentTransactionId ? 'Complete & Apply' : 'Complete & Apply'}
+                                    Complete
                                 </Button>
                             </div>
                         </div>
@@ -443,9 +498,9 @@ export default function StockTake() {
                                             {productItems.map(item => {
                                                 const isCounted = countedItems.has(item.variantId);
                                                 return (
-                                                    <div key={item.variantId} className="p-4 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                                                        <div>
-                                                            <p className="text-sm font-medium">
+                                                    <div key={item.variantId} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                        <div className="flex-1">
+                                                            <p className="text-sm font-semibold">
                                                                 {(item as any).attributes && Object.keys((item as any).attributes).length > 0
                                                                     ? Object.values((item as any).attributes).join(' / ')
                                                                     : item.variantSku}
@@ -455,40 +510,42 @@ export default function StockTake() {
                                                             )}
                                                         </div>
 
-                                                        <div className="text-center">
-                                                            <p className="text-xs text-muted-foreground mb-1 font-medium">System</p>
-                                                            <p className="font-semibold text-sm">{item.systemStock}</p>
-                                                        </div>
+                                                        <div className="flex flex-wrap items-center justify-between md:justify-end gap-6 sm:gap-10">
+                                                            <div className="text-center bg-muted/50 px-2 py-1 rounded min-w-[60px]">
+                                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">System</p>
+                                                                <p className="font-bold text-sm">{item.systemStock}</p>
+                                                            </div>
 
-                                                        <div className="flex flex-col items-center">
-                                                            <p className="text-xs text-muted-foreground mb-1 font-medium">Physical Count</p>
-                                                            <Input
-                                                                type="number"
-                                                                min="0"
-                                                                value={item.countedStock || ''}
-                                                                onChange={(e) => updateCount(item.variantId, parseInt(e.target.value) || 0)}
-                                                                className="text-center h-8 w-24"
-                                                                placeholder="0"
-                                                            />
-                                                        </div>
+                                                            <div className="flex flex-col items-center">
+                                                                <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Physical Count</p>
+                                                                <Input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    value={item.countedStock || ''}
+                                                                    onChange={(e) => updateCount(item.variantId, parseInt(e.target.value) || 0)}
+                                                                    className="text-center h-9 w-24 font-bold"
+                                                                    placeholder="0"
+                                                                />
+                                                            </div>
 
-                                                        <div className="text-right flex flex-col items-end">
-                                                            <p className="text-xs text-muted-foreground mb-1 font-medium">Variance</p>
-                                                            <div className="flex items-center gap-2">
-                                                                <p className={cn(
-                                                                    'font-bold text-sm',
-                                                                    item.variance > 0 && 'text-success',
-                                                                    item.variance < 0 && 'text-destructive',
-                                                                    item.variance === 0 && isCounted && 'text-muted-foreground'
-                                                                )}>
-                                                                    {item.variance > 0 ? '+' : ''}{isCounted ? item.variance : '-'}
-                                                                </p>
-                                                                {isCounted && (
-                                                                    <div className={cn(
-                                                                        "h-2 w-2 rounded-full",
-                                                                        item.variance === 0 ? "bg-success" : "bg-warning"
-                                                                    )} />
-                                                                )}
+                                                            <div className="text-right flex flex-col items-end min-w-[70px]">
+                                                                <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Variance</p>
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className={cn(
+                                                                        'font-bold text-base',
+                                                                        item.variance > 0 && 'text-success',
+                                                                        item.variance < 0 && 'text-destructive',
+                                                                        item.variance === 0 && isCounted && 'text-muted-foreground'
+                                                                    )}>
+                                                                        {item.variance > 0 ? '+' : ''}{isCounted ? item.variance : '-'}
+                                                                    </p>
+                                                                    {isCounted && (
+                                                                        <div className={cn(
+                                                                            "h-2 w-2 rounded-full",
+                                                                            item.variance === 0 ? "bg-success" : "bg-warning"
+                                                                        )} />
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>

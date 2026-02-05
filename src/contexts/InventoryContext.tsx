@@ -46,6 +46,8 @@ interface InventoryContextType {
 
     // Sales & Orders
     createSale: (saleData: any) => Promise<{ id: number; journalNumber: string }>;
+    createReturn: (returnData: any) => Promise<{ id: number; journalNumber: string }>;
+    checkReturnableItems: (saleId: number) => Promise<any[]>;
     activeOrders: ActiveOrder[];
     holdOrder: (order: ActiveOrder) => void;
     discardOrder: (orderId: string) => void;
@@ -54,7 +56,7 @@ interface InventoryContextType {
     // High-level actions
     processSale: (items: { variantId: string; quantity: number }[], locationId: string) => void;
     updateStock: (variantId: string, locationId: string, delta: number) => void;
-    refreshData: () => Promise<void>;
+    refreshData: (startDate?: string, endDate?: string) => Promise<void>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -97,15 +99,23 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     // Sales history state
     const [salesHistory, setSalesHistory] = useState<Sale[]>([]);
 
-    const fetchInventoryData = async () => {
+    const fetchInventoryData = async (startDate?: string, endDate?: string) => {
         if (!isAuthenticated) return;
         setIsLoading(true);
         try {
+            let queryParams = '';
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                queryParams = `&startDate=${start.toISOString()}&endDate=${end.toISOString()}`;
+            }
+
             const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, settingsRes] = await Promise.all([
                 apiFetch<ApiResponse<Product[]>>('/api/products'),
                 apiFetch<ApiResponse<Category[]>>('/api/categories'),
-                apiFetch<ApiResponse<InventoryTransaction[]>>('/api/transactions'),
-                apiFetch<ApiResponse<Sale[]>>('/api/transactions?type=SALE'),
+                apiFetch<ApiResponse<InventoryTransaction[]>>(`/api/transactions?${queryParams.replace('&', '')}`), // Remove leading & if basic param
+                apiFetch<ApiResponse<Sale[]>>(`/api/transactions?type=SALE${queryParams}`),
                 apiFetch<ApiResponse<Location[]>>('/api/locations'),
                 apiFetch<ApiResponse<Customer[]>>('/api/customers'),
                 apiFetch<ApiResponse<SystemSettings>>('/api/system-settings'),
@@ -197,8 +207,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             });
             await fetchInventoryData();
             toast.success(response.message || 'Stock adjustment processed');
-        } catch (error) {
-            toast.error('Failed to process adjustment');
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to process adjustment');
             throw error;
         }
     };
@@ -211,8 +221,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             });
             await fetchInventoryData();
             toast.success('Stock transfer initiated');
-        } catch (error) {
-            toast.error('Failed to initiate transfer');
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to initiate transfer');
             throw error;
         }
     };
@@ -224,8 +234,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             });
             await fetchInventoryData();
             toast.success('Stock transfer confirmed and received');
-        } catch (error) {
-            toast.error('Failed to confirm transfer');
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to confirm transfer');
             throw error;
         }
     };
@@ -238,8 +248,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             });
             await fetchInventoryData();
             toast.success(response.message || 'Stock take processed');
-        } catch (error) {
-            toast.error('Failed to apply stock take');
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to apply stock take');
             throw error;
         }
     };
@@ -252,8 +262,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             });
             await fetchInventoryData();
             toast.success(response.message || 'Transaction updated');
-        } catch (error) {
-            toast.error('Failed to update transaction');
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to update transaction');
             throw error;
         }
     };
@@ -466,6 +476,29 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                     } catch (error: any) {
                         toast.error(error.message || 'Failed to process sale');
                         throw error;
+                    }
+                },
+                createReturn: async (returnData: any) => {
+                    try {
+                        const response = await apiFetch<ApiResponse<{ id: number; journalNumber: string }>>('/api/transactions/return', {
+                            method: 'POST',
+                            body: JSON.stringify(returnData),
+                        });
+                        await fetchInventoryData();
+                        toast.success(`Return ${response.data.journalNumber} processed!`);
+                        return response.data;
+                    } catch (error: any) {
+                        toast.error(error.message || 'Failed to process return');
+                        throw error;
+                    }
+                },
+                checkReturnableItems: async (saleId: number) => {
+                    try {
+                        const response = await apiFetch<ApiResponse<any[]>>(`/api/transactions/sale/${saleId}/returnable`);
+                        return response.data;
+                    } catch (error: any) {
+                        toast.error('Failed to check return status');
+                        return [];
                     }
                 },
                 activeOrders,

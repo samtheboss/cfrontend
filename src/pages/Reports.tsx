@@ -4,7 +4,7 @@ import { useInventory } from '@/contexts/InventoryContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye } from 'lucide-react';
+import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye, RefreshCw, Loader2 } from 'lucide-react';
 import { format, isAfter, isBefore, isEqual, compareAsc } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -13,21 +13,54 @@ import { Label } from '@/components/ui/label';
 import { MultiSelect, Option } from '@/components/ui/multi-select';
 
 export default function Reports() {
-  const { products, transactions, locations } = useInventory();
+  const { products, transactions, locations, refreshData } = useInventory();
+  // Wait, locations IS used in getStockMovements (line 123+). I must keep it.
 
-  // Sales data
-  const sales = transactions.filter(t => t.type === 'SALE');
-  const totalSales = sales.reduce((sum, s) => sum + (s.total || s.totalAmount || 0), 0);
-  const totalItems = sales.reduce((sum, s) => sum + s.items.reduce((iSum, i) => iSum + i.adjustment, 0), 0);
+  // Report State (Global Filters)
+  const [startDate, setStartDate] = useState<string>('2024-01-01');
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-  // Inventory data (Active only for current status)
-  const activeProducts = products.filter(p => p.isActive !== false);
-  const activeVariants = activeProducts.flatMap(p => p.variants.filter(v => v.isActive !== false));
+  // All Sales (Primary Data Source)
+  const sales = useMemo(() => transactions.filter(t => t.type === 'SALE'), [transactions]);
 
+  // Active Inventory Data
+  const activeProducts = useMemo(() => products.filter(p => p.isActive !== false), [products]);
+  const activeVariants = useMemo(() => activeProducts.flatMap(p => p.variants.filter(v => v.isActive !== false)), [activeProducts]);
+
+  // Filtered Sales (Based on Date Range)
+  const filteredSales = useMemo(() => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    return sales.filter(s => {
+      const d = new Date(s.timestamp);
+      return (isAfter(d, start) || isEqual(d, start)) && (isBefore(d, end) || isEqual(d, end));
+    });
+  }, [sales, startDate, endDate]);
+
+  // Returns Data
+  const returns = useMemo(() => transactions.filter(t => t.type === 'RETURN'), [transactions]);
+  const filteredReturns = useMemo(() => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    return returns.filter(s => {
+      const d = new Date(s.timestamp);
+      return (isAfter(d, start) || isEqual(d, start)) && (isBefore(d, end) || isEqual(d, end));
+    });
+  }, [returns, startDate, endDate]);
+
+  // Key Metrics (Based on Filtered Sales)
+  const totalSales = filteredSales.reduce((sum, s) => sum + (s.total || s.totalAmount || 0), 0);
+  const totalItems = filteredSales.reduce((sum, s) => sum + s.items.reduce((iSum, i) => iSum + i.adjustment, 0), 0);
+
+  // Inventory Metrics (Current State - Unfiltered by Date)
   const totalInventoryValue = activeVariants.reduce((sum, v) => sum + (v.stock * v.cost), 0);
   const totalRetailValue = activeVariants.reduce((sum, v) => sum + (v.stock * v.price), 0);
 
-  // Stock status (Active only)
+  // Stock Status (Current State)
   const inStock = activeVariants.filter(v => v.stock > v.lowStockThreshold).length;
   const lowStock = activeVariants.filter(v => v.stock > 0 && v.stock <= v.lowStockThreshold).length;
   const outOfStock = activeVariants.filter(v => v.stock === 0).length;
@@ -38,10 +71,10 @@ export default function Reports() {
     { name: 'Out of Stock', value: outOfStock, color: 'hsl(var(--destructive))' },
   ];
 
-  // Calculate Best Sellers from real sales
+  // Best Sellers (Filtered)
   const bestSellers = useMemo(() => {
     const productSales: Record<string, number> = {};
-    sales.forEach(s => {
+    filteredSales.forEach(s => {
       s.items.forEach(item => {
         productSales[item.productName] = (productSales[item.productName] || 0) + item.adjustment;
       });
@@ -49,55 +82,81 @@ export default function Reports() {
     return Object.entries(productSales)
       .map(([name, count]) => ({ name, sales: count }))
       .sort((a, b) => b.sales - a.sales)
-      .slice(0, 5);
-  }, [sales]);
+      .slice(0, 10);
+  }, [filteredSales]);
 
-  // Calculate Sales by Category
+  // Sales by Category (Filtered)
   const salesByCategory = useMemo(() => {
     const catSales: Record<string, number> = {};
-    sales.forEach(s => {
+    filteredSales.forEach(s => {
       s.items.forEach(item => {
-        // Find category from products since it's not in transaction item
         const product = products.find(p => p.name === item.productName);
         const category = product?.category || 'Uncategorized';
         catSales[category] = (catSales[category] || 0) + (item.adjustment * (item.price || 0));
       });
     });
     return Object.entries(catSales).map(([category, sales]) => ({ category, sales }));
-  }, [sales, products]);
+  }, [filteredSales, products]);
 
-  // Daily sales trend (last 7 days)
+  // Sales Trend (Filtered)
   const dailySales = useMemo(() => {
     const trend: Record<string, number> = {};
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    // Initialize last 7 days
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      trend[days[d.getDay()]] = 0;
-    }
+    filteredSales.forEach(s => {
+      const day = format(new Date(s.timestamp), 'MMM d');
+      trend[day] = (trend[day] || 0) + (s.total || s.totalAmount || 0);
+    });
+    return Object.entries(trend).map(([day, sales]) => ({ day, sales }));
+  }, [filteredSales]);
 
-    sales.forEach(s => {
-      const day = days[new Date(s.timestamp).getDay()];
-      if (trend[day] !== undefined) {
-        trend[day] += (s.total || s.totalAmount || 0);
+  // Payments Data (Filtered)
+  const payments = useMemo(() => {
+    const all: { id: string, date: Date, ref: string, method: string, amount: number }[] = [];
+    filteredSales.forEach(s => {
+      const saleRef = s.journalNumber;
+      if (s.payments && s.payments.length > 0) {
+        s.payments.forEach((p, idx) => {
+          all.push({
+            id: `${s.id}-p-${idx}`,
+            date: new Date(s.timestamp),
+            ref: saleRef,
+            method: p.method,
+            amount: p.amount
+          });
+        });
+      } else {
+        all.push({
+          id: `${s.id}-p-default`,
+          date: new Date(s.timestamp),
+          ref: saleRef,
+          method: (s as any).paymentMethod || 'CASH',
+          amount: s.total || s.totalAmount || 0
+        });
       }
     });
+    return all.sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [filteredSales]);
 
-    return Object.entries(trend).map(([day, sales]) => ({ day, sales }));
-  }, [sales]);
+  const paymentStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    payments.forEach(p => {
+      stats[p.method] = (stats[p.method] || 0) + p.amount;
+    });
+    return stats;
+  }, [payments]);
 
   // Stock Movement Report State
   const [selectedProductId, setSelectedProductId] = useState<string>(''); // Product ID
   const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>([]); // Variant IDs
   const [selectedLocationId, setSelectedLocationId] = useState<string>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const [startDate, setStartDate] = useState<string>(
-    '2024-01-01'
-  );
-  const [endDate, setEndDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshData(startDate, endDate);
+    setIsRefreshing(false);
+  };
+
+
 
   // Helper options (Active only)
   const productOptions = activeProducts.map(p => ({
@@ -360,18 +419,167 @@ export default function Reports() {
         </Card>
       </div>
 
-      <Tabs defaultValue="inventory" className="space-y-6">
+      <div className="flex items-center gap-4 bg-muted/50 p-4 rounded-lg border mb-6">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Report Period:</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">From</Label>
+          <Input type="date" className="w-auto bg-background" value={startDate} onChange={e => setStartDate(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">To</Label>
+          <Input type="date" className="w-auto bg-background" value={endDate} onChange={e => setEndDate(e.target.value)} />
+        </div>
+        <div className="ml-auto">
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+            {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+            Refresh Data
+          </Button>
+        </div>
+      </div>
+
+      <Tabs defaultValue="stock" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="sales">Sales</TabsTrigger>
-          <TabsTrigger value="inventory">Inventory</TabsTrigger>
-          <TabsTrigger value="products">Products</TabsTrigger>
+          <TabsTrigger value="stock">Stock Report</TabsTrigger>
+          <TabsTrigger value="sales">Sales Report</TabsTrigger>
+          <TabsTrigger value="returns">Returns</TabsTrigger>
+          <TabsTrigger value="payments">Payments Report</TabsTrigger>
+          <TabsTrigger value="fast-moving">Fast Moving Items</TabsTrigger>
+          <TabsTrigger value="history">Inventory History</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="sales" className="space-y-6">
-          {/* Recent Sales Table */}
+        {/* Stock Report Tab */}
+        <TabsContent value="stock" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Recent Sales</CardTitle>
+              <CardTitle>Inventory Valuation & Stock Level</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex gap-4">
+                  {/* Add filters here if needed */}
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Total Inventory Value (Cost)</p>
+                  <p className="text-2xl font-bold">${totalInventoryValue.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Variant</th>
+                    <th>Category</th>
+                    <th className="text-right">Cost</th>
+                    <th className="text-right">Price</th>
+                    <th className="text-right">Stock</th>
+                    <th className="text-right">Total Cost</th>
+                    <th className="text-right">Total Retail</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeVariants.map((variant) => {
+                    const product = products.find(p => p.id === variant.productId); // Assuming link or match
+                    // activeVariants was derived from products, so we need to find parent.
+                    // Wait, activeVariants maps `p.variants`. It doesn't have `productId` unless added.
+                    // Let's re-derive activeVariants to include product info or look it up.
+                    // Actually, let's map over products and their variants to render rows.
+                    return null;
+                  })}
+                  {activeProducts.flatMap(product =>
+                    product.variants.filter(v => v.isActive !== false).map(variant => {
+                      const totalCost = variant.stock * variant.cost;
+                      const totalRetail = variant.stock * variant.price;
+                      let statusColor = "bg-success";
+                      let statusText = "In Stock";
+                      if (variant.stock === 0) {
+                        statusColor = "bg-destructive";
+                        statusText = "Out of Stock";
+                      } else if (variant.stock <= variant.lowStockThreshold) {
+                        statusColor = "bg-warning";
+                        statusText = "Low Stock";
+                      }
+
+                      return (
+                        <tr key={variant.id}>
+                          <td className="font-medium">{product.name}</td>
+                          <td className="text-muted-foreground text-sm">{Object.values(variant.attributes).join(' / ') || 'Default'}</td>
+                          <td>{product.category}</td>
+                          <td className="text-right">${variant.cost.toFixed(2)}</td>
+                          <td className="text-right">${variant.price.toFixed(2)}</td>
+                          <td className="text-right font-bold">{variant.stock}</td>
+                          <td className="text-right">${totalCost.toFixed(2)}</td>
+                          <td className="text-right">${totalRetail.toFixed(2)}</td>
+                          <td>
+                            <span className={`px-2 py-1 rounded-full text-xs text-white ${statusColor}`}>
+                              {statusText}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="sales" className="space-y-6">
+          {/* Sales Summary Cards */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">${totalSales.toLocaleString()}</div></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Tax</CardTitle></CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  ${filteredSales.reduce((sum, s) => sum + (s.tax || s.taxAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Transactions</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">{filteredSales.length}</div></CardContent>
+            </Card>
+          </div>
+
+          {/* Sales Trend Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Sales Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailySales}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="day" className="text-xs" />
+                    <YAxis className="text-xs" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }}
+                    />
+                    <Bar dataKey="sales" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Detailed Sales List */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Detailed Sales History</CardTitle>
             </CardHeader>
             <CardContent>
               <table className="data-table">
@@ -386,7 +594,7 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sales.map((sale) => (
+                  {filteredSales.map((sale) => (
                     <tr key={sale.id}>
                       <td>{format(new Date(sale.timestamp), 'MMM d, yyyy HH:mm')}</td>
                       <td>
@@ -404,17 +612,132 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="inventory" className="space-y-6">
+        <TabsContent value="returns" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Sales Returns</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2 mb-6">
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Refunded</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      ${filteredReturns.reduce((sum, r) => sum + (r.totalAmount || r.amountPaid || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Return Count</CardTitle></CardHeader>
+                  <CardContent><div className="text-2xl font-bold">{filteredReturns.length}</div></CardContent>
+                </Card>
+              </div>
 
-          {/* Detailed Stock Movement - Moved to top of Inventory tab as requested */}
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Return Ref</th>
+                    <th>Items Returned</th>
+                    <th>Reason / Notes</th>
+                    <th className="text-right">Refund Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredReturns.map((r) => (
+                    <tr key={r.id}>
+                      <td>{format(new Date(r.timestamp), 'MMM d, yyyy HH:mm')}</td>
+                      <td>{r.journalNumber}</td>
+                      <td>{r.items.map(i => `${i.productName} (${Math.abs(i.adjustment)})`).join(', ')}</td>
+                      <td>{r.notes || '-'}</td>
+                      <td className="text-right font-medium text-destructive">-${(r.totalAmount || r.amountPaid || 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="payments" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Payment Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3 mb-6">
+                {Object.entries(paymentStats).map(([method, amount]) => (
+                  <Card key={method}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium uppercase text-muted-foreground">{method}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              <table className="data-table">
+                <thead><tr><th>Date</th><th>Ref</th><th>Method</th><th className="text-right">Amount</th></tr></thead>
+                <tbody>
+                  {payments.map(p => (
+                    <tr key={p.id}>
+                      <td>{format(p.date, 'MMM d, yyyy HH:mm')}</td>
+                      <td>{p.ref}</td>
+                      <td>{p.method}</td>
+                      <td className="text-right font-medium">${p.amount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="fast-moving" className="space-y-6">
+          <Card>
+            <CardHeader><CardTitle>Fast Moving Items</CardTitle></CardHeader>
+            <CardContent>
+              <div className="h-80 mb-6">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={bestSellers}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="name" className="text-xs" />
+                    <YAxis className="text-xs" />
+                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} />
+                    <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Product</th>
+                    <th className="text-right">Qty Sold</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bestSellers.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="font-mono text-sm">#{idx + 1}</td>
+                      <td className="font-medium">{item.name}</td>
+                      <td className="text-right font-bold">{item.sales}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-6">
           <Card className="mb-6">
             <CardHeader>
               <CardTitle>Detailed Stock Movement</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col md:flex-row gap-4 mb-6 items-end">
-
-                {/* Location Select */}
                 <div className="w-full md:w-1/4 space-y-2">
                   <Label>Location</Label>
                   <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
@@ -431,13 +754,11 @@ export default function Reports() {
                     </SelectContent>
                   </Select>
                 </div>
-
-                {/* Product Select */}
                 <div className="w-full md:w-1/4 space-y-2">
                   <Label>Product</Label>
                   <Select value={selectedProductId} onValueChange={(val) => {
                     setSelectedProductId(val);
-                    setSelectedVariantIds([]); // Reset variants when product changes
+                    setSelectedVariantIds([]);
                   }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select Product" />
@@ -451,8 +772,6 @@ export default function Reports() {
                     </SelectContent>
                   </Select>
                 </div>
-
-                {/* Variant Select (Multi-Select) */}
                 <div className="w-full md:w-1/4 space-y-2">
                   <Label>Variant(s) Leave empty to view all variants.</Label>
                   <MultiSelect
@@ -463,7 +782,6 @@ export default function Reports() {
                     className={!selectedProductId ? "opacity-50 pointer-events-none" : ""}
                   />
                 </div>
-
                 <div className="space-y-2">
                   <Label>Start Date</Label>
                   <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
@@ -536,7 +854,6 @@ export default function Reports() {
           </Card>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* Stock Status */}
             <Card>
               <CardHeader>
                 <CardTitle>Stock Status Distribution</CardTitle>
@@ -572,7 +889,6 @@ export default function Reports() {
               </CardContent>
             </Card>
 
-            {/* Inventory Value */}
             <Card>
               <CardHeader>
                 <CardTitle>Inventory Summary</CardTitle>
@@ -602,7 +918,6 @@ export default function Reports() {
             </Card>
           </div>
 
-          {/* Stock Movements */}
           <Card>
             <CardHeader>
               <CardTitle>Recent Stock Movements</CardTitle>
@@ -639,72 +954,6 @@ export default function Reports() {
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="products" className="space-y-6">
-          {/* Best Sellers */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Best Selling Products</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={bestSellers}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="name" className="text-xs" />
-                    <YAxis className="text-xs" />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px'
-                      }}
-                    />
-                    <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Products Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Product Performance</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>Category</th>
-                    <th>Variants</th>
-                    <th>Total Stock</th>
-                    <th>Avg Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeProducts.map((product) => {
-                    const activeVariants = product.variants.filter(v => v.isActive !== false);
-                    const totalStock = activeVariants.reduce((sum, v) => sum + v.stock, 0);
-                    const avgPrice = activeVariants.length > 0
-                      ? activeVariants.reduce((sum, v) => sum + v.price, 0) / activeVariants.length
-                      : 0;
-                    return (
-                      <tr key={product.id}>
-                        <td className="font-medium">{product.name}</td>
-                        <td>{product.category}</td>
-                        <td className="text-muted-foreground">{activeVariants.length}</td>
-                        <td className="font-semibold">{totalStock}</td>
-                        <td className="font-medium text-primary">${avgPrice.toFixed(2)}</td>
-                      </tr>
-                    );
-                  })}
                 </tbody>
               </table>
             </CardContent>

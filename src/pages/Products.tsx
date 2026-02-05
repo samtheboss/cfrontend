@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
-import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Star } from 'lucide-react';
 import { apiFetch, BASE_URL } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -105,6 +105,7 @@ export default function Products() {
     baseCost: '',
     availableOnline: false,
     isActive: true,
+    isFeatured: false,
   });
 
   const filteredProducts = products.filter(p => {
@@ -208,6 +209,14 @@ export default function Products() {
       newProduct.name || 'Product'
     );
 
+    // Check if all attributes in 'subset' exist in 'superset' with same values
+    const isAttributeSubset = (subset: Record<string, string>, superset: Record<string, string>) => {
+      return Object.entries(subset).every(([key, value]) =>
+        superset[key.toLowerCase()] === value || superset[key] === value
+      );
+    };
+
+    // Exact match check
     const areAttributesEqual = (a: Record<string, string>, b: Record<string, string>) => {
       const keysA = Object.keys(a).sort();
       const keysB = Object.keys(b).sort();
@@ -216,10 +225,18 @@ export default function Products() {
     };
 
     return newVariants.map(nv => {
-      // Priority 1: Match by attributes (most accurate)
+      // Priority 1: Exact match by attributes
       let existing = currentVariants.find(ev => areAttributesEqual(ev.attributes, nv.attributes));
 
-      // Priority 2: Match by SKU if attributes don't match (prevents ID loss on SKU edits)
+      // Priority 2: Partial match - if existing variant's attributes are a subset of the new variant
+      // This handles the case when a new attribute is added (e.g., adding "Color" when only "Size" existed)
+      if (!existing) {
+        existing = currentVariants.find(ev =>
+          Object.keys(ev.attributes).length > 0 && isAttributeSubset(ev.attributes, nv.attributes)
+        );
+      }
+
+      // Priority 3: Match by SKU if attributes don't match (prevents ID loss on SKU edits)
       if (!existing && nv.sku) {
         existing = currentVariants.find(ev => ev.sku === nv.sku);
       }
@@ -366,6 +383,7 @@ export default function Products() {
       baseCost: '',
       availableOnline: false,
       isActive: true,
+      isFeatured: false,
     });
     setEditingId(null);
   };
@@ -386,6 +404,7 @@ export default function Products() {
       baseCost: product.variants[0]?.cost.toString() || '',
       availableOnline: product.availableOnline,
       isActive: product.isActive !== undefined ? product.isActive : true,
+      isFeatured: !!product.isFeatured,
     });
     setIsAddDialogOpen(true);
   };
@@ -431,6 +450,7 @@ export default function Products() {
       images: newProduct.images.map(img => img.replace(BASE_URL, '')).filter(img => img.trim() !== ''),
       availableOnline: !!newProduct.availableOnline,
       isActive: newProduct.isActive !== false,
+      isFeatured: !!newProduct.isFeatured,
     };
 
     try {
@@ -498,8 +518,8 @@ export default function Products() {
 
   return (
     <AppLayout title="Products">
-      <div className="flex items-center justify-between mb-6">
-        <div className="relative w-80">
+      <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:w-80">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search products..."
@@ -508,9 +528,9 @@ export default function Products() {
             className="pl-9"
           />
         </div>
-        <div className="flex gap-2">
-          <div className="flex items-center gap-2 mr-2 px-3 border rounded-md bg-background">
-            <Label htmlFor="show-disabled" className="text-xs font-medium cursor-pointer">Show Disabled</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 px-3 h-10 border rounded-md bg-background">
+            <Label htmlFor="show-disabled" className="text-xs font-medium cursor-pointer whitespace-nowrap">Show Disabled</Label>
             <Switch
               id="show-disabled"
               checked={showDisabled}
@@ -533,14 +553,14 @@ export default function Products() {
                 Add Product
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
+            <DialogContent className="w-[90vw] max-w-[90vw] md:max-w-2xl max-h-[85vh] flex flex-col">
+              <DialogHeader className="flex-shrink-0">
                 <DialogTitle>{editingId ? 'Edit Product' : 'Create New Product'}</DialogTitle>
                 <DialogDescription>
                   {editingId ? 'Update product details and attributes.' : 'Add a new product with attributes. Variants will be auto-generated based on attributes.'}
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
+              <div className="grid gap-4 py-4 overflow-y-auto flex-1">
                 <div className="grid gap-2">
                   <Label htmlFor="name">Product Name</Label>
                   <Input
@@ -609,15 +629,17 @@ export default function Products() {
                     </Button>
                   </div>
                   {newProduct.attributes.map((attr, index) => (
-                    <div key={index} className="flex gap-2 items-start">
-                      <div className="flex-1">
+                    <div key={index} className="flex flex-col sm:flex-row gap-2 items-start border p-3 rounded-md sm:border-0 sm:p-0 relative">
+                      <div className="w-full sm:flex-1">
+                        <Label className="sm:hidden text-xs mb-1">Name</Label>
                         <Input
                           value={attr.name}
                           onChange={(e) => updateAttribute(index, 'name', e.target.value)}
                           placeholder="Attribute name (e.g., Size)"
                         />
                       </div>
-                      <div className="flex-[2]">
+                      <div className="w-full sm:flex-[2]">
+                        <Label className="sm:hidden text-xs mb-1">Values</Label>
                         <Input
                           value={attr.values}
                           onChange={(e) => updateAttribute(index, 'values', e.target.value)}
@@ -630,6 +652,7 @@ export default function Products() {
                           variant="ghost"
                           size="icon"
                           onClick={() => removeAttribute(index)}
+                          className="absolute -top-1 -right-1 sm:static h-8 w-8 text-destructive"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -638,7 +661,114 @@ export default function Products() {
                   ))}
                   <div className="space-y-3">
                     <Label>Generated Variants ({newProduct.variants?.length || 0})</Label>
-                    <div className="border rounded-md overflow-hidden">
+
+                    {/* Mobile Card Layout */}
+                    <div className="md:hidden space-y-3">
+                      {newProduct.variants?.map((variant, index) => (
+                        <div key={index} className="border rounded-lg p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-sm">
+                              {Object.entries(variant.attributes).map(([k, v]) => `${v}`).join(' / ')}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {variant.image ? (
+                                <div className="relative h-8 w-8 rounded border overflow-hidden group">
+                                  <img
+                                    src={variant.image.startsWith('http') ? variant.image : `${BASE_URL}${variant.image}`}
+                                    className="h-full w-full object-cover"
+                                    alt=""
+                                  />
+                                  <button
+                                    type="button"
+                                    className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => {
+                                      setNewProduct(prev => ({
+                                        ...prev,
+                                        variants: prev.variants.map((v, i) => i === index ? { ...v, image: undefined } : v)
+                                      }));
+                                    }}
+                                  >
+                                    <X className="h-3 w-3 text-white" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <label className="cursor-pointer">
+                                  <div className="h-8 w-8 rounded border border-dashed flex items-center justify-center hover:bg-muted transition-colors">
+                                    <Upload className="h-3 w-3 text-muted-foreground" />
+                                  </div>
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    accept="image/*"
+                                    onChange={(e) => handleVariantImageUpload(index, e)}
+                                  />
+                                </label>
+                              )}
+                              <Switch
+                                checked={variant.isActive !== false}
+                                onCheckedChange={(checked) => {
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, isActive: checked } : v)
+                                  }));
+                                }}
+                                className="scale-75"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Price</Label>
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.price}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, price: val } : v)
+                                  }));
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Cost</Label>
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.cost}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, cost: val } : v)
+                                  }));
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Stock</Label>
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.stock}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, stock: val } : v)
+                                  }));
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Desktop Table Layout */}
+                    <div className="hidden md:block border rounded-md overflow-hidden">
                       <table className="w-full text-sm">
                         <thead className="bg-muted">
                           <tr>
@@ -788,8 +918,8 @@ export default function Products() {
                   >
                     {newProduct.images.length === 0 ? (
                       <div className="text-center text-muted-foreground flex flex-col items-center gap-2">
-                        <ImageIcon className="h-8 w-8 opacity-50" />
-                        <p className="text-sm">Drag and drop images here, or click to upload</p>
+                        <ImageIcon className="h-6 w-6 md:h-8 md:w-8 opacity-50" />
+                        <p className="text-sm">Drag and drop images here</p>
                         <p className="text-xs opacity-70">JPG, PNG, GIF up to 10MB</p>
                       </div>
                     ) : (
@@ -858,6 +988,23 @@ export default function Products() {
 
                 <div className="flex items-center justify-between rounded-lg border p-4">
                   <div className="space-y-0.5">
+                    <Label htmlFor="isFeatured" className="flex items-center gap-2">
+                      <Settings className="h-4 w-4 text-yellow-500" />
+                      Featured Product
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Highlight this product in the home page slider or featured section.
+                    </p>
+                  </div>
+                  <Switch
+                    id="isFeatured"
+                    checked={newProduct.isFeatured}
+                    onCheckedChange={(checked) => setNewProduct(prev => ({ ...prev, isFeatured: checked }))}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
                     <Label htmlFor="isActive" className="flex items-center gap-2">
                       <Settings className="h-4 w-4 text-primary" />
                       Product Status
@@ -878,7 +1025,7 @@ export default function Products() {
                   </div>
                 </div>
               </div>
-              <DialogFooter>
+              <DialogFooter className="flex-shrink-0">
                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
                 <Button onClick={handleCreateProduct} disabled={!newProduct.name}>
                   {editingId ? 'Update Product' : 'Create Product'}
@@ -1066,25 +1213,26 @@ export default function Products() {
                   )}
                 </div>
                 <div>
-                  <h3 className="font-medium">{product.name}</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <h3 className="font-medium text-sm md:text-base line-clamp-1">{product.name}</h3>
+                  <p className="text-xs text-muted-foreground">
                     {product.category} • {(product.variants || []).filter(v => showDisabled || v.isActive !== false).length} variants
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <div className="flex gap-2">
+                <div className="hidden md:flex gap-2">
                   {product.availableOnline && (
                     <Badge variant="default" className="text-xs bg-primary/20 text-primary hover:bg-primary/30">
                       <Globe className="h-3 w-3 mr-1" />
                       E-commerce
                     </Badge>
                   )}
-                  {product.attributes.map(attr => (
-                    <Badge key={attr.id} variant="secondary" className="text-xs">
-                      {attr.name}: {attr.values.length}
+                  {product.isFeatured && (
+                    <Badge variant="default" className="text-xs bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border-yellow-200">
+                      <Star className="h-3 w-3 mr-1 fill-yellow-500 text-yellow-500" />
+                      Featured
                     </Badge>
-                  ))}
+                  )}
                   <Badge variant="outline" className="text-xs">
                     Total Qty: {(product.variants || []).reduce((sum, v) => sum + v.stock, 0)}
                   </Badge>
@@ -1131,8 +1279,8 @@ export default function Products() {
             </div>
 
             {expandedProducts.has(product.id) && (
-              <div className="border-t bg-muted/30">
-                <table className="data-table">
+              <div className="border-t bg-muted/30 overflow-x-auto">
+                <table className="data-table min-w-[800px] lg:min-w-full">
                   <thead>
                     <tr className="bg-muted/50">
                       <th>SKU</th>
@@ -1150,31 +1298,31 @@ export default function Products() {
                       .filter(v => showDisabled || v.isActive !== false)
                       .map((variant) => (
                         <tr key={variant.id}>
-                          <td className="font-mono text-sm">{variant.sku}</td>
+                          <td className="font-mono text-xs md:text-sm">{variant.sku}</td>
                           <td>
                             <div className="flex items-center gap-2">
-                              <Barcode className="h-4 w-4 text-muted-foreground" />
-                              <span className="font-mono text-sm">{variant.barcode}</span>
+                              <Barcode className="h-4 w-4 text-muted-foreground hidden sm:block" />
+                              <span className="font-mono text-xs md:text-sm">{variant.barcode}</span>
                             </div>
                           </td>
                           <td>
-                            <div className="flex gap-1">
+                            <div className="flex flex-wrap gap-1">
                               {Object.entries(variant.attributes).map(([key, value]) => (
-                                <Badge key={key} variant="outline" className="text-xs">
+                                <Badge key={key} variant="outline" className="text-[10px] py-0 h-4">
                                   {value}
                                 </Badge>
                               ))}
                             </div>
                           </td>
-                          <td>${variant.price.toFixed(2)}</td>
-                          <td>${variant.cost.toFixed(2)}</td>
-                          <td>{variant.stock}</td>
+                          <td className="text-xs md:text-sm">${variant.price.toFixed(2)}</td>
+                          <td className="text-xs md:text-sm">${variant.cost.toFixed(2)}</td>
+                          <td className="text-xs md:text-sm">{variant.stock}</td>
                           <td>
                             <StockBadge status={getStockStatus(variant.stock, variant.lowStockThreshold)} />
                           </td>
                           <td>
-                            <Button variant="ghost" size="sm">
-                              <Settings className="h-4 w-4" />
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                              <Settings className="h-3 w-3" />
                             </Button>
                           </td>
                         </tr>

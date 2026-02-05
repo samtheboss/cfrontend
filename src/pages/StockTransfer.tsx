@@ -151,6 +151,7 @@ export default function StockTransfer() {
 
         try {
             await createTransfer({
+                type: 'TRANSFER',
                 fromLocationId,
                 toLocationId,
                 notes,
@@ -172,9 +173,9 @@ export default function StockTransfer() {
     return (
         <AppLayout title="Stock Transfer">
             <Tabs defaultValue="new" className="space-y-6">
-                <TabsList>
-                    <TabsTrigger value="new">New Transfer</TabsTrigger>
-                    <TabsTrigger value="arrivals" className="relative">
+                <TabsList className="w-full justify-start h-auto flex-wrap gap-1 p-1">
+                    <TabsTrigger value="new" className="flex-1 sm:flex-none py-2">New Transfer</TabsTrigger>
+                    <TabsTrigger value="arrivals" className="flex-1 sm:flex-none py-2 relative">
                         Incoming
                         {transferHistory.filter(t => t.toLocationId === arrivalsLocationId && t.status === 'PENDING').length > 0 && (
                             <Badge className="ml-2 px-1.5 py-0 h-5 bg-primary text-[10px]">
@@ -182,7 +183,7 @@ export default function StockTransfer() {
                             </Badge>
                         )}
                     </TabsTrigger>
-                    <TabsTrigger value="history">
+                    <TabsTrigger value="history" className="flex-1 sm:flex-none py-2">
                         <History className="h-4 w-4 mr-2" />
                         History
                     </TabsTrigger>
@@ -195,9 +196,9 @@ export default function StockTransfer() {
                             <CardTitle className="text-lg">Location Details</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                                <div className="space-y-2">
-                                    <Label>Source Location</Label>
+                            <div className="flex flex-col md:flex-row items-center gap-4">
+                                <div className="space-y-2 w-full">
+                                    <Label>Source</Label>
                                     <Select value={fromLocationId} onValueChange={(val) => {
                                         setFromLocationId(val);
                                         setPendingItems([]); // Clear because stock levels change
@@ -213,12 +214,12 @@ export default function StockTransfer() {
                                     </Select>
                                 </div>
 
-                                <div className="flex justify-center pt-6">
-                                    <ArrowRight className="h-6 w-6 text-muted-foreground" />
+                                <div className="flex justify-center rotate-90 md:rotate-0">
+                                    <ArrowRight className="h-5 w-5 text-muted-foreground" />
                                 </div>
 
-                                <div className="space-y-2">
-                                    <Label>Destination Location</Label>
+                                <div className="space-y-2 w-full">
+                                    <Label>Destination</Label>
                                     <Select value={toLocationId} onValueChange={setToLocationId}>
                                         <SelectTrigger>
                                             <SelectValue placeholder="Select destination" />
@@ -260,21 +261,21 @@ export default function StockTransfer() {
                                             className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b last:border-0"
                                             onClick={() => addToTransfer(variant)}
                                         >
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
                                                     <Package className="h-5 w-5 text-muted-foreground" />
                                                 </div>
-                                                <div>
-                                                    <p className="font-medium text-sm">{variant.productName}</p>
-                                                    <p className="text-xs text-muted-foreground">{variant.sku}</p>
+                                                <div className="min-w-0">
+                                                    <p className="font-medium text-sm truncate">{variant.productName}</p>
+                                                    <p className="text-[10px] text-muted-foreground uppercase">{variant.sku}</p>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-4">
+                                            <div className="flex items-center gap-4 flex-shrink-0">
                                                 <div className="text-right">
-                                                    <p className="text-[10px] uppercase text-muted-foreground">Source Stock</p>
-                                                    <p className="font-semibold">{variant.sourceStock}</p>
+                                                    <p className="text-[10px] uppercase text-muted-foreground">Source</p>
+                                                    <p className="font-semibold text-sm">{variant.sourceStock}</p>
                                                 </div>
-                                                <Button size="sm" variant="outline">
+                                                <Button size="icon" variant="outline" className="h-8 w-8">
                                                     <Plus className="h-4 w-4" />
                                                 </Button>
                                             </div>
@@ -299,17 +300,17 @@ export default function StockTransfer() {
                                 <div className="space-y-4">
                                     <div className="border rounded-lg divide-y">
                                         {pendingItems.map((item) => (
-                                            <div key={item.variantId} className="flex items-center justify-between p-4">
+                                            <div key={item.variantId} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-4">
                                                 <div className="flex-1">
                                                     <p className="font-medium">{item.productName}</p>
                                                     <p className="text-sm text-muted-foreground">{item.sku}</p>
                                                 </div>
-                                                <div className="flex items-center gap-8">
-                                                    <div className="text-center">
-                                                        <p className="text-xs text-muted-foreground">Avail.</p>
-                                                        <p className="font-semibold">{item.sourceStock}</p>
+                                                <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-8">
+                                                    <div className="text-center bg-muted/50 px-2 py-1 rounded">
+                                                        <p className="text-[10px] uppercase text-muted-foreground">Avail.</p>
+                                                        <p className="text-sm font-semibold">{item.sourceStock}</p>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-1.5">
                                                         <Button
                                                             variant="outline"
                                                             size="icon"
@@ -322,7 +323,7 @@ export default function StockTransfer() {
                                                             type="number"
                                                             value={item.quantity}
                                                             onChange={(e) => setQuantityValue(item.variantId, parseInt(e.target.value) || 0)}
-                                                            className="w-16 h-8 text-center"
+                                                            className="w-16 h-8 text-center px-1"
                                                         />
                                                         <Button
                                                             variant="outline"
@@ -335,11 +336,11 @@ export default function StockTransfer() {
                                                     </div>
                                                     <Button
                                                         variant="ghost"
-                                                        size="icon"
+                                                        size="sm"
                                                         onClick={() => removeFromTransfer(item.variantId)}
-                                                        className="text-destructive"
+                                                        className="text-destructive h-8 px-2 hover:bg-destructive/10"
                                                     >
-                                                        <Trash2 className="h-4 w-4" />
+                                                        Remove
                                                     </Button>
                                                 </div>
                                             </div>
@@ -390,8 +391,8 @@ export default function StockTransfer() {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <div className="border rounded-lg overflow-hidden">
-                                <table className="w-full text-sm">
+                            <div className="overflow-x-auto border rounded-lg">
+                                <table className="w-full text-sm min-w-[700px]">
                                     <thead className="bg-muted">
                                         <tr className="text-left">
                                             <th className="w-10"></th>
@@ -440,14 +441,14 @@ export default function StockTransfer() {
                                                                     className="bg-primary hover:bg-primary/90 h-7 text-xs"
                                                                 >
                                                                     <Check className="h-3.5 w-3.5 mr-1" />
-                                                                    Confirm Receipt
+                                                                    Confirm
                                                                 </Button>
                                                             </td>
                                                         </tr>
                                                         {isExpanded && (
                                                             <tr className="bg-muted/5">
                                                                 <td colSpan={5} className="p-0">
-                                                                    <div className="px-12 py-3 space-y-2">
+                                                                    <div className="px-4 py-3 sm:px-12 sm:py-3 space-y-2">
                                                                         {Object.entries(groupedItems).map(([productName, variants]) => {
                                                                             const productKey = `${tr.id}-${productName}`;
                                                                             const isProductExpanded = expandedProducts.has(productKey);
@@ -472,7 +473,7 @@ export default function StockTransfer() {
                                                                                     {isProductExpanded && (
                                                                                         <div className="border-t bg-muted/5 divide-y divide-dashed">
                                                                                             {variants.map((v, idx) => (
-                                                                                                <div key={idx} className="flex justify-between px-8 py-2 text-sm">
+                                                                                                <div key={idx} className="flex justify-between px-4 sm:px-8 py-2 text-sm">
                                                                                                     <span className="font-mono text-xs text-muted-foreground">{v.sku}</span>
                                                                                                     <span className="font-bold">{v.adjustment} units</span>
                                                                                                 </div>
@@ -507,108 +508,113 @@ export default function StockTransfer() {
                             <CardTitle className="text-lg">Transfer History</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <table className="data-table">
-                                <thead>
-                                    <tr>
-                                        <th className="w-10"></th>
-                                        <th>Ref #</th>
-                                        <th>Date</th>
-                                        <th>Route</th>
-                                        <th>Status</th>
-                                        <th>Note</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {transferHistory.map((tr) => {
-                                        const isExpanded = expandedJournals.has(tr.id!);
-                                        const groupedItems = tr.items.reduce((acc, item) => {
-                                            if (!acc[item.productName]) acc[item.productName] = [];
-                                            acc[item.productName].push(item);
-                                            return acc;
-                                        }, {} as Record<string, any[]>);
+                            <div className="overflow-x-auto border rounded-lg">
+                                <table className="data-table min-w-[800px]">
+                                    <thead>
+                                        <tr>
+                                            <th className="w-10"></th>
+                                            <th>Ref #</th>
+                                            <th>Date</th>
+                                            <th>Route</th>
+                                            <th>Status</th>
+                                            <th>Note</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {transferHistory.map((tr) => {
+                                            const isExpanded = expandedJournals.has(tr.id!);
+                                            const groupedItems = tr.items.reduce((acc, item) => {
+                                                if (!acc[item.productName]) acc[item.productName] = [];
+                                                acc[item.productName].push(item);
+                                                return acc;
+                                            }, {} as Record<string, any[]>);
 
-                                        return (
-                                            <Fragment key={tr.id}>
-                                                <tr
-                                                    className={cn("cursor-pointer hover:bg-muted/50 transition-colors", isExpanded && "bg-muted/30")}
-                                                    onClick={() => toggleJournal(tr.id!)}
-                                                >
-                                                    <td className="text-center">
-                                                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                                    </td>
-                                                    <td className="font-mono text-sm font-semibold text-primary">{tr.journalNumber}</td>
-                                                    <td className="text-sm">
-                                                        {format(new Date(tr.timestamp), 'MMM d, yyyy HH:mm')}
-                                                    </td>
-                                                    <td>
-                                                        <div className="flex items-center gap-2 text-xs font-medium">
-                                                            <span>{locations.find(l => l.id === tr.fromLocationId)?.name}</span>
-                                                            <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                                                            <span>{locations.find(l => l.id === tr.toLocationId)?.name}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <Badge
-                                                            variant="outline"
-                                                            className={cn(
-                                                                "capitalize text-[10px]",
-                                                                tr.status === 'RECEIVED' ? "bg-success/10 text-success border-success/20" : "bg-warning/10 text-warning border-warning/20"
-                                                            )}
-                                                        >
-                                                            {tr.status.toLowerCase()}
-                                                        </Badge>
-                                                    </td>
-                                                    <td className="text-sm text-muted-foreground truncate max-w-[150px]">
-                                                        {tr.notes || '---'}
-                                                    </td>
-                                                </tr>
-                                                {isExpanded && (
-                                                    <tr className="bg-muted/5">
-                                                        <td colSpan={6} className="p-0">
-                                                            <div className="px-14 py-4 space-y-3">
-                                                                {Object.entries(groupedItems).map(([productName, variants]) => {
-                                                                    const productKey = `${tr.id}-${productName}`;
-                                                                    const isProductExpanded = expandedProducts.has(productKey);
-                                                                    return (
-                                                                        <div key={productName} className="border rounded-md overflow-hidden bg-white shadow-sm">
-                                                                            <div
-                                                                                className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-muted/50"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    toggleProduct(tr.id!, productName);
-                                                                                }}
-                                                                            >
-                                                                                <div className="flex items-center gap-2 text-sm font-semibold">
-                                                                                    <Package className="h-4 w-4 text-primary" />
-                                                                                    {productName}
-                                                                                    <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-2">
-                                                                                        {variants.length} items
-                                                                                    </Badge>
-                                                                                </div>
-                                                                                {isProductExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                                                            </div>
-                                                                            {isProductExpanded && (
-                                                                                <div className="border-t bg-muted/5 divide-y divide-dashed">
-                                                                                    {variants.map((v, idx) => (
-                                                                                        <div key={idx} className="flex justify-between px-8 py-2 text-sm">
-                                                                                            <span className="font-mono text-xs text-muted-foreground">{v.sku}</span>
-                                                                                            <span className="font-bold">{v.adjustment} units</span>
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    );
-                                                                })}
+                                            return (
+                                                <Fragment key={tr.id}>
+                                                    <tr
+                                                        className={cn("cursor-pointer hover:bg-muted/50 transition-colors", isExpanded && "bg-muted/30")}
+                                                        onClick={() => toggleJournal(tr.id!)}
+                                                    >
+                                                        <td className="text-center">
+                                                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                                        </td>
+                                                        <td className="font-mono text-sm font-semibold text-primary">{tr.journalNumber}</td>
+                                                        <td className="text-sm">
+                                                            {format(new Date(tr.timestamp), 'MMM d, yyyy HH:mm')}
+                                                        </td>
+                                                        <td>
+                                                            <div className="flex items-center gap-2 text-xs font-medium">
+                                                                <span>{locations.find(l => l.id === tr.fromLocationId)?.name}</span>
+                                                                <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                                                                <span>{locations.find(l => l.id === tr.toLocationId)?.name}</span>
                                                             </div>
                                                         </td>
+                                                        <td>
+                                                            <Badge
+                                                                variant="outline"
+                                                                className={cn(
+                                                                    "capitalize text-[10px]",
+                                                                    tr.status === 'RECEIVED' ? "bg-success/10 text-success border-success/20" : "bg-warning/10 text-warning border-warning/20"
+                                                                )}
+                                                            >
+                                                                {tr.status.toLowerCase()}
+                                                            </Badge>
+                                                        </td>
+                                                        <td className="text-sm text-muted-foreground truncate max-w-[150px]">
+                                                            {tr.notes || '---'}
+                                                        </td>
                                                     </tr>
-                                                )}
-                                            </Fragment>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                                                    {isExpanded && (
+                                                        <tr className="bg-muted/5">
+                                                            <td colSpan={6} className="p-0">
+                                                                <div className="px-4 py-3 sm:px-14 sm:py-4 space-y-3">
+                                                                    {Object.entries(groupedItems).map(([productName, variants]) => {
+                                                                        const productKey = `${tr.id}-${productName}`;
+                                                                        const isProductExpanded = expandedProducts.has(productKey);
+                                                                        return (
+                                                                            <div key={productName} className="border rounded-md overflow-hidden bg-white shadow-sm">
+                                                                                <div
+                                                                                    className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-muted/50"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        toggleProduct(tr.id!, productName);
+                                                                                    }}
+                                                                                >
+                                                                                    <div className="flex items-center gap-2 text-sm font-semibold">
+                                                                                        <Package className="h-4 w-4 text-primary" />
+                                                                                        {productName}
+                                                                                        <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-2">
+                                                                                            {variants.length} items
+                                                                                        </Badge>
+                                                                                    </div>
+                                                                                    {isProductExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                                                                </div>
+                                                                                {isProductExpanded && (
+                                                                                    <div className="border-t bg-muted/5 divide-y divide-dashed">
+                                                                                        {variants.map((v, idx) => (
+                                                                                            <div key={idx} className="flex justify-between px-4 sm:px-8 py-2 text-sm">
+                                                                                                <span className="font-mono text-xs text-muted-foreground">{v.sku}</span>
+                                                                                                <span className="font-bold">{v.adjustment} units</span>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </Fragment>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                                {transferHistory.length === 0 && (
+                                    <p className="text-center py-12 text-muted-foreground">No transfer history found</p>
+                                )}
+                            </div>
                             {transferHistory.length === 0 && (
                                 <p className="text-center py-12 text-muted-foreground">No transfer history found</p>
                             )}

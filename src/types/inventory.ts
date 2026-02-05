@@ -43,8 +43,20 @@ export interface Product {
   images: string[];
   availableOnline: boolean;
   isActive: boolean;
+  isFeatured: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface Slide {
+  id?: number;
+  title: string;
+  subtitle: string;
+  image: string;
+  link: string;
+  cta: string;
+  displayOrder: number;
+  isActive: boolean;
 }
 
 export interface TransactionItem {
@@ -70,7 +82,7 @@ export interface StockTakeItem {
   attributes?: Record<string, string>;
 }
 
-export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE';
+export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE' | 'RETURN';
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED' | 'DRAFT';
 
 export interface InventoryTransaction {
@@ -78,8 +90,9 @@ export interface InventoryTransaction {
   journalNumber: string;
   type: TransactionType;
   status: TransactionStatus;
-  timestamp: Date;
+  timestamp: Date | string;
   userId: string;
+  locationId?: string | number;
   notes?: string;
   items: TransactionItem[];
   subtotal?: number;
@@ -136,8 +149,9 @@ export interface SystemSettings {
 
 export interface Sale extends InventoryTransaction {
   id: string; // Override for frontend
-  locationId: number;
+  locationId: string | number;
   customerId?: number;
+  paymentMethod?: string;
   salePayments: { method: string; amount: number; reference?: string }[];
   amountPaid: number;
   changeAmount: number;

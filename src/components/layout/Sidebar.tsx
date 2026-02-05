@@ -13,7 +13,9 @@ import {
   History,
   MapPin,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Image as ImageIcon,
+  X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -31,81 +33,118 @@ const navigation = [
   { name: 'Customers', href: '/customers', icon: Users },
   { name: 'Locations', href: '/locations', icon: MapPin },
   { name: 'Users', href: '/users', icon: Users },
+  { name: 'Banners', href: '/slides', icon: ImageIcon },
 ];
 
 interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
+export function Sidebar({ isCollapsed, onToggle, isMobileOpen, onMobileClose }: SidebarProps) {
   const location = useLocation();
 
   return (
-    <aside className={cn(
-      "fixed left-0 top-0 z-40 h-screen transition-all duration-300 ease-in-out bg-sidebar border-r border-sidebar-border text-sidebar-foreground",
-      isCollapsed ? "w-16" : "w-64"
-    )}>
-      <div className="flex h-full flex-col">
-        {/* Logo & Toggle */}
-        <div className={cn(
-          "flex h-16 items-center border-b border-sidebar-border px-3 transition-all duration-300",
-          isCollapsed ? "justify-center" : "justify-between"
-        )}>
-          <div className={cn("flex items-center gap-2 px-2 overflow-hidden transition-all duration-300", isCollapsed ? "w-0 opacity-0 hidden" : "w-auto opacity-100")}>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary shrink-0">
-              <Boxes className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-semibold whitespace-nowrap">StockFlow</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggle}
-            className={cn("h-8 w-8 hover:bg-sidebar-accent text-sidebar-foreground transition-all duration-300", isCollapsed && "scale-110")}
-          >
-            {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </Button>
-        </div>
+    <>
+      {/* Mobile Overlay */}
+      <div
+        className={cn(
+          "fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden transition-opacity duration-300",
+          isMobileOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}
+        onClick={onMobileClose}
+      />
 
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto scrollbar-thin scrollbar-thumb-sidebar-border">
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href;
-            return (
-              <NavLink
-                key={item.name}
-                to={item.href}
-                title={isCollapsed ? item.name : undefined}
+      <aside className={cn(
+        "fixed left-0 top-0 z-50 h-screen transition-all duration-300 ease-in-out bg-sidebar border-r border-sidebar-border text-sidebar-foreground",
+        "lg:translate-x-0",
+        isMobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+        isCollapsed ? "lg:w-16" : "lg:w-64",
+        "w-64 shadow-2xl lg:shadow-none"
+      )}>
+        <div className="flex h-full flex-col">
+          {/* Logo & Toggle */}
+          <div className={cn(
+            "flex h-16 items-center border-b border-sidebar-border px-3 transition-all duration-300",
+            "justify-between lg:justify-between",
+            isCollapsed && "lg:justify-center"
+          )}>
+            <div className={cn("flex items-center gap-2 px-2 overflow-hidden transition-all duration-300", (isCollapsed && !isMobileOpen) ? "lg:w-0 lg:opacity-0 lg:hidden" : "w-auto opacity-100")}>
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary shrink-0">
+                <Boxes className="h-5 w-5 text-primary-foreground" />
+              </div>
+              <span className="text-lg font-semibold whitespace-nowrap">StockFlow</span>
+            </div>
+
+            <div className="flex items-center">
+              {/* Desktop Toggle Button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onToggle}
                 className={cn(
-                  'sidebar-link flex items-center gap-3',
-                  isActive && 'sidebar-link-active',
-                  isCollapsed && 'justify-center px-0'
+                  "h-8 w-8 hover:bg-sidebar-accent text-sidebar-foreground transition-all duration-300 hidden lg:flex",
+                  isCollapsed && "scale-110"
                 )}
               >
-                <item.icon className="h-5 w-5 shrink-0" />
-                {!isCollapsed && <span className="transition-opacity duration-300">{item.name}</span>}
-              </NavLink>
-            );
-          })}
-        </nav>
+                {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+              </Button>
 
-        {/* Settings */}
-        <div className="border-t border-sidebar-border p-3">
-          <NavLink
-            to="/settings"
-            title={isCollapsed ? 'Settings' : undefined}
-            className={cn(
-              'sidebar-link flex items-center gap-3',
-              location.pathname === '/settings' && 'sidebar-link-active',
-              isCollapsed && 'justify-center px-0'
-            )}
-          >
-            <Settings className="h-5 w-5 shrink-0" />
-            {!isCollapsed && <span className="transition-opacity duration-300">Settings</span>}
-          </NavLink>
+              {/* Mobile Close Button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onMobileClose}
+                className="h-8 w-8 hover:bg-sidebar-accent text-sidebar-foreground lg:hidden"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto scrollbar-thin scrollbar-thumb-sidebar-border">
+            {navigation.map((item) => {
+              const isActive = location.pathname === item.href;
+              return (
+                <NavLink
+                  key={item.name}
+                  to={item.href}
+                  onClick={onMobileClose}
+                  title={(isCollapsed && !isMobileOpen) ? item.name : undefined}
+                  className={cn(
+                    'sidebar-link flex items-center gap-3',
+                    isActive && 'sidebar-link-active',
+                    (isCollapsed && !isMobileOpen) && 'lg:justify-center lg:px-0'
+                  )}
+                >
+                  <item.icon className="h-5 w-5 shrink-0" />
+                  {(!isCollapsed || isMobileOpen) && <span className="transition-opacity duration-300">{item.name}</span>}
+                </NavLink>
+              );
+            })}
+          </nav>
+
+          {/* Settings */}
+          <div className="border-t border-sidebar-border p-3">
+            <NavLink
+              to="/settings"
+              onClick={onMobileClose}
+              title={(isCollapsed && !isMobileOpen) ? 'Settings' : undefined}
+              className={cn(
+                'sidebar-link flex items-center gap-3',
+                location.pathname === '/settings' && 'sidebar-link-active',
+                (isCollapsed && !isMobileOpen) && 'lg:justify-center lg:px-0'
+              )}
+            >
+              <Settings className="h-5 w-5 shrink-0" />
+              {(!isCollapsed || isMobileOpen) && <span className="transition-opacity duration-300">Settings</span>}
+            </NavLink>
+          </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }

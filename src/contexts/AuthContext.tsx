@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User, UserGroup, UserRights, hardcodedUsers, hardcodedUserGroups } from '@/types/user';
 import { apiFetch } from '@/lib/api';
+import { isTokenExpired, getTokenExpirationTime } from '@/lib/auth';
 
 interface LoginResponse {
   message: string;
@@ -73,23 +74,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let logoutTimer: NodeJS.Timeout;
+
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
 
       if (token && storedUser) {
+        if (isTokenExpired(token)) {
+          logout();
+          setIsLoading(false);
+          return;
+        }
+
         try {
           setUser(JSON.parse(storedUser));
           await fetchUsers();
+
+          // Set timer for proactive logout
+          const expTime = getTokenExpirationTime(token);
+          if (expTime) {
+            const timeUntilExpiry = expTime - Date.now();
+            if (timeUntilExpiry > 0) {
+              logoutTimer = setTimeout(() => {
+                logout();
+                window.location.href = '/signin';
+              }, timeUntilExpiry);
+            }
+          }
         } catch (e) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+          logout();
         }
       }
       setIsLoading(false);
     };
 
     checkAuth();
+
+    return () => {
+      if (logoutTimer) clearTimeout(logoutTimer);
+    };
   }, []);
 
   const login = async (username: string, password: string): Promise<boolean> => {
@@ -105,6 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('user', JSON.stringify(frontendUser));
         setUser(frontendUser);
         await fetchUsers();
+
+        // Trigger a reload or manually set the timer here if needed
+        // For simplicity, we can just allow the page reload/navigation to trigger the useEffect above
         return true;
       }
       return false;
