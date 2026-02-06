@@ -6,7 +6,7 @@ import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { BASE_URL, apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -45,7 +45,7 @@ import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-f
 export default function POS() {
   const navigate = useNavigate();
   const { products, locations, settings, customers: contextCustomers, transactions, createSale, createReturn, checkReturnableItems, addCustomer, activeOrders, holdOrder, discardOrder, salesHistory, refreshData } = useInventory();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   // Location selector - default to user's location or main location
   const defaultLocationId = (user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString();
@@ -535,6 +535,11 @@ export default function POS() {
       setIsProcessing(false);
     }
   };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/signin');
+  };
   const handleMpesaPush = async () => {
     if (!mpesaPhone) {
       toast.error('Please enter a phone number');
@@ -659,6 +664,10 @@ export default function POS() {
       const variant = allVariants.find(v => v.id === item.variantId);
       return {
         ...item,
+        variantSku: item.sku,
+        quantity: Math.abs(item.adjustment),
+        attributes: item.attributes || {},
+        price: item.price || 0,
         maxStock: variant ? variant.stock : 0 // Or 0 if discontinued
       };
     });
@@ -840,6 +849,9 @@ export default function POS() {
               <div className="flex items-center gap-3">
                 <Button variant="outline" size="icon" onClick={() => navigate('/')} title="Home" className="h-9 w-9">
                   <Home className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={handleLogout} title="Log out" className="h-9 w-9 text-destructive hover:text-destructive">
+                  <LogOut className="h-4 w-4" />
                 </Button>
                 <h1 className="text-lg md:text-xl font-semibold whitespace-nowrap">POS</h1>
               </div>

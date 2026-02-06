@@ -35,20 +35,20 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/signin" element={<SignIn />} />
-              <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-              <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
-              <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
-              <Route path="/pos" element={<ProtectedRoute><POS /></ProtectedRoute>} />
-              <Route path="/adjustments" element={<ProtectedRoute><StockAdjustment /></ProtectedRoute>} />
-              <Route path="/stock-take" element={<ProtectedRoute><StockTake /></ProtectedRoute>} />
-              <Route path="/transfers" element={<ProtectedRoute><StockTransfer /></ProtectedRoute>} />
-              <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-              <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
-              <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
-              <Route path="/locations" element={<ProtectedRoute><Locations /></ProtectedRoute>} />
-              <Route path="/journal" element={<ProtectedRoute><InventoryTransactions /></ProtectedRoute>} />
-              <Route path="/slides" element={<ProtectedRoute><Slides /></ProtectedRoute>} />
+              <Route path="/" element={<ProtectedRoute requiredRight="viewDashboard"><Dashboard /></ProtectedRoute>} />
+              <Route path="/products" element={<ProtectedRoute requiredRight="viewProducts"><Products /></ProtectedRoute>} />
+              <Route path="/inventory" element={<ProtectedRoute requiredRight="viewInventory"><Inventory /></ProtectedRoute>} />
+              <Route path="/pos" element={<ProtectedRoute requiredRight="viewOrders"><POS /></ProtectedRoute>} />
+              <Route path="/adjustments" element={<ProtectedRoute requiredRight="stockAdjustment"><StockAdjustment /></ProtectedRoute>} />
+              <Route path="/stock-take" element={<ProtectedRoute requiredRight="stockTake"><StockTake /></ProtectedRoute>} />
+              <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute requiredRight="viewSettings"><Settings /></ProtectedRoute>} />
+              <Route path="/users" element={<ProtectedRoute requiredRight="viewUsers"><Users /></ProtectedRoute>} />
+              <Route path="/customers" element={<ProtectedRoute requiredRight="viewCustomers"><Customers /></ProtectedRoute>} />
+              <Route path="/locations" element={<ProtectedRoute requiredRight="viewSettings"><Locations /></ProtectedRoute>} />
+              <Route path="/journal" element={<ProtectedRoute requiredRight="viewInventory"><InventoryTransactions /></ProtectedRoute>} />
+              <Route path="/slides" element={<ProtectedRoute requiredRight="viewSettings"><Slides /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

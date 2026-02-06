@@ -203,7 +203,7 @@ export default function StockTake() {
         setIsSubmitting(true);
         try {
             const transactionData = {
-                type: 'STOCK_TAKE',
+                type: 'STOCK_TAKE' as const,
                 locationId: selectedLocationId,
                 status: status,
                 timestamp: new Date(transactionDate + 'T00:00:00').toISOString(),

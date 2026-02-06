@@ -19,21 +19,30 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import { UserRights } from '@/types/user';
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Products', href: '/products', icon: Package },
-  { name: 'Inventory', href: '/inventory', icon: Boxes },
-  { name: 'Stock Adjustment', href: '/adjustments', icon: SlidersHorizontal },
-  { name: 'Point of Sale', href: '/pos', icon: ShoppingCart },
-  { name: 'Stock Take', href: '/stock-take', icon: ClipboardList },
-  { name: 'Stock Transfer', href: '/transfers', icon: ArrowRightLeft },
-  { name: 'Reports', href: '/reports', icon: BarChart3 },
-  { name: 'Stock Journal', href: '/journal', icon: History },
-  { name: 'Customers', href: '/customers', icon: Users },
-  { name: 'Locations', href: '/locations', icon: MapPin },
-  { name: 'Users', href: '/users', icon: Users },
-  { name: 'Banners', href: '/slides', icon: ImageIcon },
+interface NavigationItem {
+  name: string;
+  href: string;
+  icon: any;
+  requiredRight: keyof UserRights;
+}
+
+const navigation: NavigationItem[] = [
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard, requiredRight: 'viewDashboard' },
+  { name: 'Products', href: '/products', icon: Package, requiredRight: 'viewProducts' },
+  { name: 'Inventory', href: '/inventory', icon: Boxes, requiredRight: 'viewInventory' },
+  { name: 'Stock Adjustment', href: '/adjustments', icon: SlidersHorizontal, requiredRight: 'stockAdjustment' },
+  { name: 'Point of Sale', href: '/pos', icon: ShoppingCart, requiredRight: 'viewOrders' },
+  { name: 'Stock Take', href: '/stock-take', icon: ClipboardList, requiredRight: 'stockTake' },
+  { name: 'Stock Transfer', href: '/transfers', icon: ArrowRightLeft, requiredRight: 'stockAdjustment' },
+  { name: 'Reports', href: '/reports', icon: BarChart3, requiredRight: 'viewReports' },
+  { name: 'Stock Journal', href: '/journal', icon: History, requiredRight: 'viewInventory' },
+  { name: 'Customers', href: '/customers', icon: Users, requiredRight: 'viewCustomers' },
+  { name: 'Locations', href: '/locations', icon: MapPin, requiredRight: 'viewSettings' },
+  { name: 'Users', href: '/users', icon: Users, requiredRight: 'viewUsers' },
+  { name: 'Banners', href: '/slides', icon: ImageIcon, requiredRight: 'viewSettings' },
 ];
 
 interface SidebarProps {
@@ -45,6 +54,9 @@ interface SidebarProps {
 
 export function Sidebar({ isCollapsed, onToggle, isMobileOpen, onMobileClose }: SidebarProps) {
   const location = useLocation();
+  const { user, getUserRights } = useAuth();
+
+  const rights = user ? getUserRights(user) : null;
 
   return (
     <>
@@ -107,6 +119,9 @@ export function Sidebar({ isCollapsed, onToggle, isMobileOpen, onMobileClose }: 
           {/* Navigation */}
           <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto scrollbar-thin scrollbar-thumb-sidebar-border">
             {navigation.map((item) => {
+              // Check rights
+              if (rights && rights[item.requiredRight] === 'no') return null;
+
               const isActive = location.pathname === item.href;
               return (
                 <NavLink
@@ -127,22 +142,24 @@ export function Sidebar({ isCollapsed, onToggle, isMobileOpen, onMobileClose }: 
             })}
           </nav>
 
-          {/* Settings */}
-          <div className="border-t border-sidebar-border p-3">
-            <NavLink
-              to="/settings"
-              onClick={onMobileClose}
-              title={(isCollapsed && !isMobileOpen) ? 'Settings' : undefined}
-              className={cn(
-                'sidebar-link flex items-center gap-3',
-                location.pathname === '/settings' && 'sidebar-link-active',
-                (isCollapsed && !isMobileOpen) && 'lg:justify-center lg:px-0'
-              )}
-            >
-              <Settings className="h-5 w-5 shrink-0" />
-              {(!isCollapsed || isMobileOpen) && <span className="transition-opacity duration-300">Settings</span>}
-            </NavLink>
-          </div>
+          {/* Settings - manually check rights */}
+          {rights?.viewSettings !== 'no' && (
+            <div className="border-t border-sidebar-border p-3">
+              <NavLink
+                to="/settings"
+                onClick={onMobileClose}
+                title={(isCollapsed && !isMobileOpen) ? 'Settings' : undefined}
+                className={cn(
+                  'sidebar-link flex items-center gap-3',
+                  location.pathname === '/settings' && 'sidebar-link-active',
+                  (isCollapsed && !isMobileOpen) && 'lg:justify-center lg:px-0'
+                )}
+              >
+                <Settings className="h-5 w-5 shrink-0" />
+                {(!isCollapsed || isMobileOpen) && <span className="transition-opacity duration-300">Settings</span>}
+              </NavLink>
+            </div>
+          )}
         </div>
       </aside>
     </>

@@ -180,6 +180,7 @@ export default function Products() {
       price: basePrice,
       cost: baseCost,
       stock: 0,
+      locationStock: {},
       lowStockThreshold: 10,
       isActive: true
     }));
@@ -1237,7 +1238,7 @@ export default function Products() {
                     Total Qty: {(product.variants || []).reduce((sum, v) => sum + v.stock, 0)}
                   </Badge>
                   <Badge
-                    variant={product.isActive !== false ? "success" : "destructive"}
+                    variant={product.isActive !== false ? "secondary" : "destructive"}
                     className={cn(
                       "text-[10px] capitalize",
                       product.isActive === false ? "bg-destructive/10 text-destructive border-destructive/20" : "bg-success/10 text-success border-success/20"

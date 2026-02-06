@@ -113,8 +113,8 @@ export default function Reports() {
     const all: { id: string, date: Date, ref: string, method: string, amount: number }[] = [];
     filteredSales.forEach(s => {
       const saleRef = s.journalNumber;
-      if (s.payments && s.payments.length > 0) {
-        s.payments.forEach((p, idx) => {
+      if ((s as any).payments && (s as any).payments.length > 0) {
+        (s as any).payments.forEach((p: any, idx: number) => {
           all.push({
             id: `${s.id}-p-${idx}`,
             date: new Date(s.timestamp),
@@ -623,7 +623,7 @@ export default function Reports() {
                   <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Refunded</CardTitle></CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">
-                      ${filteredReturns.reduce((sum, r) => sum + (r.totalAmount || r.amountPaid || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ${filteredReturns.reduce((sum, r) => sum + (r.totalAmount || (r as any).amountPaid || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </div>
                   </CardContent>
                 </Card>
@@ -650,7 +650,7 @@ export default function Reports() {
                       <td>{r.journalNumber}</td>
                       <td>{r.items.map(i => `${i.productName} (${Math.abs(i.adjustment)})`).join(', ')}</td>
                       <td>{r.notes || '-'}</td>
-                      <td className="text-right font-medium text-destructive">-${(r.totalAmount || r.amountPaid || 0).toFixed(2)}</td>
+                      <td className="text-right font-medium text-destructive">-${(r.totalAmount || (r as any).amountPaid || 0).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>

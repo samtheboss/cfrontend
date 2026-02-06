@@ -5,6 +5,13 @@ export interface Location {
   isMain: boolean;
 }
 
+export interface ShippingLocation {
+  id: number;
+  name: string;
+  fee: number;
+  isActive: boolean;
+}
+
 export interface Category {
   id: number;
   name: string;
@@ -145,6 +152,20 @@ export interface SystemSettings {
   lowStockAlerts: boolean;
   outOfStockAlerts: boolean;
   dailySalesSummary: boolean;
+  allowNegativeStock: boolean;
+}
+
+export interface EcommerceSettings {
+  id?: number;
+  shopName: string;
+  shopDescription: string;
+  logoUrl: string;
+  heroBannerUrl: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  contactEmail: string;
+  contactPhone: string;
+  footerText: string;
 }
 
 export interface Sale extends InventoryTransaction {

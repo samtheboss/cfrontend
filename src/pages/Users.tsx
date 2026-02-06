@@ -148,6 +148,7 @@ export default function Users() {
     password: '',
     name: '',
     email: '',
+    phoneNumber: '',
     groupId: '',
     locationId: '',
   });
@@ -163,7 +164,12 @@ export default function Users() {
   });
 
   const currentUserRights = currentUser ? getUserRights(currentUser) : null;
-  const canManageUsers = currentUserRights?.manageUsers === 'yes';
+
+  // Derived permissions
+  const canCreateUser = currentUserRights?.createUser === 'yes';
+  const canEditUser = currentUserRights?.editUser === 'yes';
+  const canDeleteUser = currentUserRights?.deleteUser === 'yes';
+  const canManageGroups = currentUserRights?.manageUserRoles === 'yes';
 
   // User handlers
   const handleAddUser = async () => {
@@ -175,7 +181,7 @@ export default function Users() {
     try {
       await addUser(newUser);
       toast({ title: 'User created', description: `${newUser.name} has been added.` });
-      setNewUser({ username: '', password: '', name: '', email: '', groupId: '', locationId: '' });
+      setNewUser({ username: '', password: '', name: '', email: '', phoneNumber: '', groupId: '', locationId: '' });
       setIsAddUserOpen(false);
     } catch (error: any) {
       toast({
@@ -191,6 +197,7 @@ export default function Users() {
     updateUser(editingUser.id, {
       name: editingUser.name,
       email: editingUser.email,
+      phoneNumber: editingUser.phoneNumber,
       groupId: editingUser.groupId,
       locationId: editingUser.locationId,
     });
@@ -314,7 +321,7 @@ export default function Users() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-lg">All Users</CardTitle>
-                {canManageUsers && (
+                {canCreateUser && (
                   <Button onClick={() => setIsAddUserOpen(true)}>
                     <UserPlus className="h-4 w-4 mr-2" />
                     Add User
@@ -341,6 +348,8 @@ export default function Users() {
                       const supervisedCount = Object.values(userRights).filter(v => v === 'supervised').length;
                       const noCount = Object.values(userRights).filter(v => v === 'no').length;
 
+                      const isSelf = currentUser?.id === user.id;
+
                       return (
                         <TableRow key={user.id}>
                           <TableCell>
@@ -365,7 +374,12 @@ export default function Users() {
                               {locations.find(l => l.id === user.locationId)?.name || 'None'}
                             </div>
                           </TableCell>
-                          <TableCell className="text-muted-foreground">{user.email || '-'}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1 text-sm">
+                              <span className="text-muted-foreground">{user.email || '-'}</span>
+                              {user.phoneNumber && <span className="text-xs text-muted-foreground/70">{user.phoneNumber}</span>}
+                            </div>
+                          </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
                               <span className="text-xs text-emerald-600">{yesCount} Yes</span>
@@ -379,11 +393,11 @@ export default function Users() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setEditingUser({ ...user })}
-                                disabled={!canManageUsers && currentUser?.id !== user.id}
+                                disabled={!canEditUser && !isSelf}
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              {canManageUsers && user.id !== currentUser?.id && (
+                              {canDeleteUser && !isSelf && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -409,7 +423,7 @@ export default function Users() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-lg">User Groups</CardTitle>
-                {canManageUsers && (
+                {canManageGroups && (
                   <Button onClick={() => setIsAddGroupOpen(true)}>
                     <FolderPlus className="h-4 w-4 mr-2" />
                     Add Group
@@ -463,11 +477,11 @@ export default function Users() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleEditGroup(group)}
-                                disabled={!canManageUsers}
+                                disabled={!canManageGroups}
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              {canManageUsers && (
+                              {canManageGroups && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -536,6 +550,15 @@ export default function Users() {
                   placeholder="john@example.com"
                   value={newUser.email}
                   onChange={(e) => setNewUser(prev => ({ ...prev, email: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-phone">Phone Number</Label>
+                <Input
+                  id="new-phone"
+                  placeholder="+254..."
+                  value={newUser.phoneNumber}
+                  onChange={(e) => setNewUser(prev => ({ ...prev, phoneNumber: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
@@ -610,6 +633,14 @@ export default function Users() {
                     type="email"
                     value={editingUser.email}
                     onChange={(e) => setEditingUser(prev => prev ? { ...prev, email: e.target.value } : null)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-phone">Phone Number</Label>
+                  <Input
+                    id="edit-phone"
+                    value={editingUser.phoneNumber || ''}
+                    onChange={(e) => setEditingUser(prev => prev ? { ...prev, phoneNumber: e.target.value } : null)}
                   />
                 </div>
                 <div className="space-y-2">

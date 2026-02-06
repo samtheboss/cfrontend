@@ -242,7 +242,7 @@ export default function StockAdjustment() {
     setIsSubmitting(true);
     try {
       const transactionData = {
-        type: 'ADJUSTMENT',
+        type: 'ADJUSTMENT' as const,
         locationId: selectedLocationId,
         notes: reason || (status === 'DRAFT' ? 'Held Adjustment' : ''),
         status: status,

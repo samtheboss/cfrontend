@@ -1,28 +1,52 @@
 export type RightValue = 'yes' | 'no' | 'supervised';
 
 export interface UserRights {
-  // POS & Sales
-  posAccess: RightValue;
-  processRefunds: RightValue;
-  applyDiscounts: RightValue;
+  // Dashboard
+  viewDashboard: RightValue;
+  exportDashboard: RightValue;
 
-  // Inventory
+  // Customers (Window: VIEW_CUSTOMERS)
+  viewCustomers: RightValue;
+  createCustomer: RightValue;
+  editCustomer: RightValue;
+  deleteCustomer: RightValue;
+
+  // Employees/Users (Window: VIEW_EMPLOYEES / USERS)
+  viewUsers: RightValue;
+  createUser: RightValue;
+  editUser: RightValue;
+  deleteUser: RightValue;
+  manageUserRoles: RightValue; // USER_ROLES
+
+  // Services / Products (Window: VIEW_SERVICES / PRODUCTS)
+  viewProducts: RightValue;
+  createProduct: RightValue;
+  editProduct: RightValue;
+  deleteProduct: RightValue;
+
+  // Payments
+  viewPayments: RightValue;
+  processPayments: RightValue;
+
+  // Orders / Sales (Window: ORDER_PROCESSING)
+  viewOrders: RightValue; // POS Access
+  createOrder: RightValue;
+  editOrder: RightValue;
+  deleteOrder: RightValue;
+  reprintReceipt: RightValue;
+  paymentAccess: RightValue; // Receive Order Payment
+
+  // Inventory (Window: VIEW_INVENTORY - Not explicitly in list but implied for system)
   viewInventory: RightValue;
   stockAdjustment: RightValue;
   stockTake: RightValue;
 
-  // Products
-  addProduct: RightValue;
-  editProduct: RightValue;
-  deleteProduct: RightValue;
-
   // Reports
   viewReports: RightValue;
-  exportData: RightValue;
 
-  // Admin
-  manageUsers: RightValue;
-  manageSettings: RightValue;
+  // Settings
+  viewSettings: RightValue;
+  editSettings: RightValue;
 }
 
 export interface UserGroup {
@@ -39,6 +63,7 @@ export interface User {
   password: string; // In real app, this would be hashed
   name: string;
   email: string;
+  phoneNumber?: string;
   groupId: string; // Reference to user group
   locationId?: string; // Main location
   assignedLocations?: string[]; // Allowed locations
@@ -47,19 +72,35 @@ export interface User {
 
 // Default rights (all no)
 export const defaultRights: UserRights = {
-  posAccess: 'no',
-  processRefunds: 'no',
-  applyDiscounts: 'no',
+  viewDashboard: 'no',
+  exportDashboard: 'no',
+  viewCustomers: 'no',
+  createCustomer: 'no',
+  editCustomer: 'no',
+  deleteCustomer: 'no',
+  viewUsers: 'no',
+  createUser: 'no',
+  editUser: 'no',
+  deleteUser: 'no',
+  manageUserRoles: 'no',
+  viewProducts: 'no',
+  createProduct: 'no',
+  editProduct: 'no',
+  deleteProduct: 'no',
+  viewPayments: 'no',
+  processPayments: 'no',
+  viewOrders: 'no',
+  createOrder: 'no',
+  editOrder: 'no',
+  deleteOrder: 'no',
+  reprintReceipt: 'no',
+  paymentAccess: 'no',
   viewInventory: 'no',
   stockAdjustment: 'no',
   stockTake: 'no',
-  addProduct: 'no',
-  editProduct: 'no',
-  deleteProduct: 'no',
   viewReports: 'no',
-  exportData: 'no',
-  manageUsers: 'no',
-  manageSettings: 'no',
+  viewSettings: 'no',
+  editSettings: 'no',
 };
 
 // Hardcoded user groups
@@ -67,87 +108,151 @@ export const hardcodedUserGroups: UserGroup[] = [
   {
     id: 'group-admin',
     name: 'Administrator',
-    description: 'Full system access with all permissions',
+    description: 'Full system access',
     rights: {
-      posAccess: 'yes',
-      processRefunds: 'yes',
-      applyDiscounts: 'yes',
+      viewDashboard: 'yes',
+      exportDashboard: 'yes',
+      viewCustomers: 'yes',
+      createCustomer: 'yes',
+      editCustomer: 'yes',
+      deleteCustomer: 'yes',
+      viewUsers: 'yes',
+      createUser: 'yes',
+      editUser: 'yes',
+      deleteUser: 'yes',
+      manageUserRoles: 'yes',
+      viewProducts: 'yes',
+      createProduct: 'yes',
+      editProduct: 'yes',
+      deleteProduct: 'yes',
+      viewPayments: 'yes',
+      processPayments: 'yes',
+      viewOrders: 'yes',
+      createOrder: 'yes',
+      editOrder: 'yes',
+      deleteOrder: 'yes',
+      reprintReceipt: 'yes',
+      paymentAccess: 'yes',
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
-      addProduct: 'yes',
-      editProduct: 'yes',
-      deleteProduct: 'yes',
       viewReports: 'yes',
-      exportData: 'yes',
-      manageUsers: 'yes',
-      manageSettings: 'yes',
+      viewSettings: 'yes',
+      editSettings: 'yes',
     },
     createdAt: new Date('2024-01-01'),
   },
   {
     id: 'group-manager',
     name: 'Store Manager',
-    description: 'Manage inventory, sales, and staff operations',
+    description: 'Manage store operations',
     rights: {
-      posAccess: 'yes',
-      processRefunds: 'yes',
-      applyDiscounts: 'yes',
+      viewDashboard: 'yes',
+      exportDashboard: 'yes',
+      viewCustomers: 'yes',
+      createCustomer: 'yes',
+      editCustomer: 'yes',
+      deleteCustomer: 'supervised',
+      viewUsers: 'yes',
+      createUser: 'yes',
+      editUser: 'yes',
+      deleteUser: 'no',
+      manageUserRoles: 'no',
+      viewProducts: 'yes',
+      createProduct: 'yes',
+      editProduct: 'yes',
+      deleteProduct: 'supervised',
+      viewPayments: 'yes',
+      processPayments: 'yes',
+      viewOrders: 'yes',
+      createOrder: 'yes',
+      editOrder: 'yes',
+      deleteOrder: 'supervised',
+      reprintReceipt: 'yes',
+      paymentAccess: 'yes',
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
-      addProduct: 'yes',
-      editProduct: 'yes',
-      deleteProduct: 'supervised',
       viewReports: 'yes',
-      exportData: 'yes',
-      manageUsers: 'supervised',
-      manageSettings: 'supervised',
+      viewSettings: 'yes',
+      editSettings: 'supervised',
     },
     createdAt: new Date('2024-01-01'),
   },
   {
     id: 'group-cashier',
     name: 'Cashier',
-    description: 'Point of sale operations and basic inventory viewing',
+    description: 'Process sales and payments',
     rights: {
-      posAccess: 'yes',
-      processRefunds: 'supervised',
-      applyDiscounts: 'supervised',
-      viewInventory: 'yes',
-      stockAdjustment: 'no',
-      stockTake: 'supervised',
-      addProduct: 'no',
+      viewDashboard: 'yes',
+      exportDashboard: 'no',
+      viewCustomers: 'yes',
+      createCustomer: 'yes',
+      editCustomer: 'no',
+      deleteCustomer: 'no',
+      viewUsers: 'no',
+      createUser: 'no',
+      editUser: 'no',
+      deleteUser: 'no',
+      manageUserRoles: 'no',
+      viewProducts: 'yes',
+      createProduct: 'no',
       editProduct: 'no',
       deleteProduct: 'no',
+      viewPayments: 'no',
+      processPayments: 'yes',
+      viewOrders: 'yes',
+      createOrder: 'yes',
+      editOrder: 'supervised',
+      deleteOrder: 'no',
+      reprintReceipt: 'yes',
+      paymentAccess: 'yes',
+      viewInventory: 'yes',
+      stockAdjustment: 'no',
+      stockTake: 'no',
       viewReports: 'no',
-      exportData: 'no',
-      manageUsers: 'no',
-      manageSettings: 'no',
+      viewSettings: 'no',
+      editSettings: 'no',
     },
     createdAt: new Date('2024-01-01'),
   },
   {
     id: 'group-inventory',
     name: 'Inventory Staff',
-    description: 'Stock management and inventory operations',
+    description: 'Manage stock and products',
     rights: {
-      posAccess: 'no',
-      processRefunds: 'no',
-      applyDiscounts: 'no',
+      viewDashboard: 'yes',
+      exportDashboard: 'no',
+      viewCustomers: 'no',
+      createCustomer: 'no',
+      editCustomer: 'no',
+      deleteCustomer: 'no',
+      viewUsers: 'no',
+      createUser: 'no',
+      editUser: 'no',
+      deleteUser: 'no',
+      manageUserRoles: 'no',
+      viewProducts: 'yes',
+      createProduct: 'yes',
+      editProduct: 'yes',
+      deleteProduct: 'no',
+      viewPayments: 'no',
+      processPayments: 'no',
+      viewOrders: 'no',
+      createOrder: 'no',
+      editOrder: 'no',
+      deleteOrder: 'no',
+      reprintReceipt: 'no',
+      paymentAccess: 'no',
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
-      addProduct: 'supervised',
-      editProduct: 'yes',
-      deleteProduct: 'no',
-      viewReports: 'supervised',
-      exportData: 'no',
-      manageUsers: 'no',
-      manageSettings: 'no',
+      viewReports: 'no',
+      viewSettings: 'no',
+      editSettings: 'no',
     },
     createdAt: new Date('2024-01-01'),
-  },
+  }
 ];
 
 // Hardcoded users for development
@@ -188,25 +293,45 @@ export const hardcodedUsers: User[] = [
 ];
 
 export const rightLabels: Record<keyof UserRights, string> = {
-  posAccess: 'POS Access',
-  processRefunds: 'Process Refunds',
-  applyDiscounts: 'Apply Discounts',
+  viewDashboard: 'View Dashboard',
+  exportDashboard: 'Export Dashboard Data',
+  viewCustomers: 'View Customers',
+  createCustomer: 'Add Customer',
+  editCustomer: 'Edit Customer',
+  deleteCustomer: 'Delete Customer',
+  viewUsers: 'View Users/Employees',
+  createUser: 'Add User',
+  editUser: 'Edit User',
+  deleteUser: 'Delete User',
+  manageUserRoles: 'Manage User Roles',
+  viewProducts: 'View Products/Services',
+  createProduct: 'Add Product',
+  editProduct: 'Edit Product',
+  deleteProduct: 'Delete Product',
+  viewPayments: 'View Payments Log',
+  processPayments: 'Process Payment',
+  viewOrders: 'View Orders / POS',
+  createOrder: 'Create Order',
+  editOrder: 'Edit Order',
+  deleteOrder: 'Delete Order',
+  reprintReceipt: 'Reprint Receipt',
+  paymentAccess: 'Receive Order Payment',
   viewInventory: 'View Inventory',
   stockAdjustment: 'Stock Adjustment',
   stockTake: 'Stock Take',
-  addProduct: 'Add Products',
-  editProduct: 'Edit Products',
-  deleteProduct: 'Delete Products',
   viewReports: 'View Reports',
-  exportData: 'Export Data',
-  manageUsers: 'Manage Users',
-  manageSettings: 'Manage Settings',
+  viewSettings: 'View Settings',
+  editSettings: 'Modify Settings',
 };
 
-export const rightCategories = {
-  'POS & Sales': ['posAccess', 'processRefunds', 'applyDiscounts'] as (keyof UserRights)[],
-  'Inventory': ['viewInventory', 'stockAdjustment', 'stockTake'] as (keyof UserRights)[],
-  'Products': ['addProduct', 'editProduct', 'deleteProduct'] as (keyof UserRights)[],
-  'Reports': ['viewReports', 'exportData'] as (keyof UserRights)[],
-  'Administration': ['manageUsers', 'manageSettings'] as (keyof UserRights)[],
+export const rightCategories: Record<string, (keyof UserRights)[]> = {
+  'Dashboard': ['viewDashboard', 'exportDashboard'],
+  'Orders & POS': ['viewOrders', 'createOrder', 'editOrder', 'deleteOrder', 'reprintReceipt', 'paymentAccess'],
+  'Customers': ['viewCustomers', 'createCustomer', 'editCustomer', 'deleteCustomer'],
+  'Products & Services': ['viewProducts', 'createProduct', 'editProduct', 'deleteProduct'],
+  'Users & Employees': ['viewUsers', 'createUser', 'editUser', 'deleteUser', 'manageUserRoles'],
+  'Inventory': ['viewInventory', 'stockAdjustment', 'stockTake'],
+  'Payments': ['viewPayments', 'processPayments'],
+  'Reports': ['viewReports'],
+  'Settings': ['viewSettings', 'editSettings'],
 };
