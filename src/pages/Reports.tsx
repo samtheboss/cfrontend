@@ -419,21 +419,23 @@ export default function Reports() {
         </Card>
       </div>
 
-      <div className="flex items-center gap-4 bg-muted/50 p-4 rounded-lg border mb-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-muted/50 p-4 rounded-lg border mb-6">
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-muted-foreground" />
           <span className="text-sm font-medium">Report Period:</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Label className="text-xs">From</Label>
-          <Input type="date" className="w-auto bg-background" value={startDate} onChange={e => setStartDate(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs">From</Label>
+            <Input type="date" className="w-full sm:w-auto bg-background" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs">To</Label>
+            <Input type="date" className="w-full sm:w-auto bg-background" value={endDate} onChange={e => setEndDate(e.target.value)} />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Label className="text-xs">To</Label>
-          <Input type="date" className="w-auto bg-background" value={endDate} onChange={e => setEndDate(e.target.value)} />
-        </div>
-        <div className="ml-auto">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+        <div className="sm:ml-auto w-full sm:w-auto">
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="w-full sm:w-auto">
             {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
             Refresh Data
           </Button>
@@ -441,13 +443,13 @@ export default function Reports() {
       </div>
 
       <Tabs defaultValue="stock" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="stock">Stock Report</TabsTrigger>
-          <TabsTrigger value="sales">Sales Report</TabsTrigger>
-          <TabsTrigger value="returns">Returns</TabsTrigger>
-          <TabsTrigger value="payments">Payments Report</TabsTrigger>
-          <TabsTrigger value="fast-moving">Fast Moving Items</TabsTrigger>
-          <TabsTrigger value="history">Inventory History</TabsTrigger>
+        <TabsList className="w-full justify-start overflow-x-auto flex-nowrap scrollbar-none h-auto p-1 bg-muted/50">
+          <TabsTrigger value="stock" className="whitespace-nowrap min-w-fit">Stock Report</TabsTrigger>
+          <TabsTrigger value="sales" className="whitespace-nowrap min-w-fit">Sales Report</TabsTrigger>
+          <TabsTrigger value="returns" className="whitespace-nowrap min-w-fit">Returns</TabsTrigger>
+          <TabsTrigger value="payments" className="whitespace-nowrap min-w-fit">Payments Report</TabsTrigger>
+          <TabsTrigger value="fast-moving" className="whitespace-nowrap min-w-fit">Fast Moving Items</TabsTrigger>
+          <TabsTrigger value="history" className="whitespace-nowrap min-w-fit">Inventory History</TabsTrigger>
         </TabsList>
 
         {/* Stock Report Tab */}
@@ -467,64 +469,60 @@ export default function Reports() {
                 </div>
               </div>
 
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>Variant</th>
-                    <th>Category</th>
-                    <th className="text-right">Cost</th>
-                    <th className="text-right">Price</th>
-                    <th className="text-right">Stock</th>
-                    <th className="text-right">Total Cost</th>
-                    <th className="text-right">Total Retail</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeVariants.map((variant) => {
-                    const product = products.find(p => p.id === variant.productId); // Assuming link or match
-                    // activeVariants was derived from products, so we need to find parent.
-                    // Wait, activeVariants maps `p.variants`. It doesn't have `productId` unless added.
-                    // Let's re-derive activeVariants to include product info or look it up.
-                    // Actually, let's map over products and their variants to render rows.
-                    return null;
-                  })}
-                  {activeProducts.flatMap(product =>
-                    product.variants.filter(v => v.isActive !== false).map(variant => {
-                      const totalCost = variant.stock * variant.cost;
-                      const totalRetail = variant.stock * variant.price;
-                      let statusColor = "bg-success";
-                      let statusText = "In Stock";
-                      if (variant.stock === 0) {
-                        statusColor = "bg-destructive";
-                        statusText = "Out of Stock";
-                      } else if (variant.stock <= variant.lowStockThreshold) {
-                        statusColor = "bg-warning";
-                        statusText = "Low Stock";
-                      }
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="min-w-[800px] inline-block align-middle p-4 sm:p-0">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Product</th>
+                        <th>Variant</th>
+                        <th>Category</th>
+                        <th className="text-right">Cost</th>
+                        <th className="text-right">Price</th>
+                        <th className="text-right">Stock</th>
+                        <th className="text-right">Total Cost</th>
+                        <th className="text-right">Total Retail</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeProducts.flatMap(product =>
+                        product.variants.filter(v => v.isActive !== false).map(variant => {
+                          const totalCost = variant.stock * variant.cost;
+                          const totalRetail = variant.stock * variant.price;
+                          let statusColor = "bg-success";
+                          let statusText = "In Stock";
+                          if (variant.stock === 0) {
+                            statusColor = "bg-destructive";
+                            statusText = "Out of Stock";
+                          } else if (variant.stock <= variant.lowStockThreshold) {
+                            statusColor = "bg-warning";
+                            statusText = "Low Stock";
+                          }
 
-                      return (
-                        <tr key={variant.id}>
-                          <td className="font-medium">{product.name}</td>
-                          <td className="text-muted-foreground text-sm">{Object.values(variant.attributes).join(' / ') || 'Default'}</td>
-                          <td>{product.category}</td>
-                          <td className="text-right">${variant.cost.toFixed(2)}</td>
-                          <td className="text-right">${variant.price.toFixed(2)}</td>
-                          <td className="text-right font-bold">{variant.stock}</td>
-                          <td className="text-right">${totalCost.toFixed(2)}</td>
-                          <td className="text-right">${totalRetail.toFixed(2)}</td>
-                          <td>
-                            <span className={`px-2 py-1 rounded-full text-xs text-white ${statusColor}`}>
-                              {statusText}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                          return (
+                            <tr key={variant.id}>
+                              <td className="font-medium">{product.name}</td>
+                              <td className="text-muted-foreground text-sm">{Object.values(variant.attributes).join(' / ') || 'Default'}</td>
+                              <td>{product.category}</td>
+                              <td className="text-right">${variant.cost.toFixed(2)}</td>
+                              <td className="text-right">${variant.price.toFixed(2)}</td>
+                              <td className="text-right font-bold">{variant.stock}</td>
+                              <td className="text-right">${totalCost.toFixed(2)}</td>
+                              <td className="text-right">${totalRetail.toFixed(2)}</td>
+                              <td>
+                                <span className={`px-2 py-1 rounded-full text-xs text-white ${statusColor}`}>
+                                  {statusText}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -582,32 +580,36 @@ export default function Reports() {
               <CardTitle>Detailed Sales History</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Items</th>
-                    <th>Payment</th>
-                    <th>Subtotal</th>
-                    <th>Tax</th>
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSales.map((sale) => (
-                    <tr key={sale.id}>
-                      <td>{format(new Date(sale.timestamp), 'MMM d, yyyy HH:mm')}</td>
-                      <td>
-                        {sale.items.map(i => `${i.productName} (${i.adjustment})`).join(', ')}
-                      </td>
-                      <td className="capitalize">{sale.status === 'COMPLETED' ? 'Paid' : sale.status.toLowerCase()}</td>
-                      <td>${(sale.subtotal || 0).toFixed(2)}</td>
-                      <td>${(sale.tax || sale.taxAmount || 0).toFixed(2)}</td>
-                      <td className="font-semibold">${(sale.total || sale.totalAmount || 0).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="min-w-[700px] inline-block align-middle p-4 sm:p-0">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Items</th>
+                        <th>Payment</th>
+                        <th>Subtotal</th>
+                        <th>Tax</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSales.map((sale) => (
+                        <tr key={sale.id}>
+                          <td>{format(new Date(sale.timestamp), 'MMM d, yyyy HH:mm')}</td>
+                          <td>
+                            {sale.items.map(i => `${i.productName} (${i.adjustment})`).join(', ')}
+                          </td>
+                          <td className="capitalize">{sale.status === 'COMPLETED' ? 'Paid' : sale.status.toLowerCase()}</td>
+                          <td>${(sale.subtotal || 0).toFixed(2)}</td>
+                          <td>${(sale.tax || sale.taxAmount || 0).toFixed(2)}</td>
+                          <td className="font-semibold">${(sale.total || sale.totalAmount || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -633,28 +635,32 @@ export default function Reports() {
                 </Card>
               </div>
 
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Return Ref</th>
-                    <th>Items Returned</th>
-                    <th>Reason / Notes</th>
-                    <th className="text-right">Refund Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredReturns.map((r) => (
-                    <tr key={r.id}>
-                      <td>{format(new Date(r.timestamp), 'MMM d, yyyy HH:mm')}</td>
-                      <td>{r.journalNumber}</td>
-                      <td>{r.items.map(i => `${i.productName} (${Math.abs(i.adjustment)})`).join(', ')}</td>
-                      <td>{r.notes || '-'}</td>
-                      <td className="text-right font-medium text-destructive">-${(r.totalAmount || (r as any).amountPaid || 0).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="min-w-[700px] inline-block align-middle p-4 sm:p-0">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Return Ref</th>
+                        <th>Items Returned</th>
+                        <th>Reason / Notes</th>
+                        <th className="text-right">Refund Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredReturns.map((r) => (
+                        <tr key={r.id}>
+                          <td>{format(new Date(r.timestamp), 'MMM d, yyyy HH:mm')}</td>
+                          <td>{r.journalNumber}</td>
+                          <td>{r.items.map(i => `${i.productName} (${Math.abs(i.adjustment)})`).join(', ')}</td>
+                          <td>{r.notes || '-'}</td>
+                          <td className="text-right font-medium text-destructive">-${(r.totalAmount || (r as any).amountPaid || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -677,19 +683,23 @@ export default function Reports() {
                   </Card>
                 ))}
               </div>
-              <table className="data-table">
-                <thead><tr><th>Date</th><th>Ref</th><th>Method</th><th className="text-right">Amount</th></tr></thead>
-                <tbody>
-                  {payments.map(p => (
-                    <tr key={p.id}>
-                      <td>{format(p.date, 'MMM d, yyyy HH:mm')}</td>
-                      <td>{p.ref}</td>
-                      <td>{p.method}</td>
-                      <td className="text-right font-medium">${p.amount.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="min-w-[600px] inline-block align-middle p-4 sm:p-0">
+                  <table className="data-table">
+                    <thead><tr><th>Date</th><th>Ref</th><th>Method</th><th className="text-right">Amount</th></tr></thead>
+                    <tbody>
+                      {payments.map(p => (
+                        <tr key={p.id}>
+                          <td>{format(p.date, 'MMM d, yyyy HH:mm')}</td>
+                          <td>{p.ref}</td>
+                          <td>{p.method}</td>
+                          <td className="text-right font-medium">${p.amount.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -709,24 +719,28 @@ export default function Reports() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Product</th>
-                    <th className="text-right">Qty Sold</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bestSellers.map((item, idx) => (
-                    <tr key={idx}>
-                      <td className="font-mono text-sm">#{idx + 1}</td>
-                      <td className="font-medium">{item.name}</td>
-                      <td className="text-right font-bold">{item.sales}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="min-w-[500px] inline-block align-middle p-4 sm:p-0">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Rank</th>
+                        <th>Product</th>
+                        <th className="text-right">Qty Sold</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bestSellers.map((item, idx) => (
+                        <tr key={idx}>
+                          <td className="font-mono text-sm">#{idx + 1}</td>
+                          <td className="font-medium">{item.name}</td>
+                          <td className="text-right font-bold">{item.sales}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -737,8 +751,8 @@ export default function Reports() {
               <CardTitle>Detailed Stock Movement</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col md:flex-row gap-4 mb-6 items-end">
-                <div className="w-full md:w-1/4 space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6 items-end">
+                <div className="space-y-2">
                   <Label>Location</Label>
                   <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
                     <SelectTrigger>
@@ -754,7 +768,7 @@ export default function Reports() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="w-full md:w-1/4 space-y-2">
+                <div className="space-y-2">
                   <Label>Product</Label>
                   <Select value={selectedProductId} onValueChange={(val) => {
                     setSelectedProductId(val);
@@ -772,8 +786,8 @@ export default function Reports() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="w-full md:w-1/4 space-y-2">
-                  <Label>Variant(s) Leave empty to view all variants.</Label>
+                <div className="space-y-2">
+                  <Label>Variant(s)</Label>
                   <MultiSelect
                     options={variantOptions}
                     selected={selectedVariantIds}
@@ -784,11 +798,11 @@ export default function Reports() {
                 </div>
                 <div className="space-y-2">
                   <Label>Start Date</Label>
-                  <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                  <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full" />
                 </div>
                 <div className="space-y-2">
                   <Label>End Date</Label>
-                  <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                  <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full" />
                 </div>
               </div>
 
@@ -807,42 +821,46 @@ export default function Reports() {
                     </div>
                   </div>
 
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Variant (Info)</th>
-                        <th>Reference</th>
-                        <th className="text-right">In/Out</th>
-                        <th className="text-right">Running Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {movements.length > 0 ? (
-                        movements.map((move, i) => (
-                          <tr key={i}>
-                            <td>{format(move.date, 'MMM d, yyyy HH:mm')}</td>
-                            <td className="capitalize">{move.type}</td>
-                            <td className="text-sm text-muted-foreground">{move.variantInfo || '-'}</td>
-                            <td className="text-sm text-muted-foreground">{move.reference}</td>
-                            <td className={`text-right font-mono ${move.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {move.quantity > 0 ? '+' : ''}{move.quantity}
-                            </td>
-                            <td className="text-right font-mono font-medium">
-                              {move.runningBalance}
-                            </td>
+                  <div className="overflow-x-auto -mx-4 sm:mx-0">
+                    <div className="min-w-[800px] inline-block align-middle p-4 sm:p-0">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Variant (Info)</th>
+                            <th>Reference</th>
+                            <th className="text-right">In/Out</th>
+                            <th className="text-right">Running Balance</th>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="text-center py-8 text-muted-foreground">
-                            No movements found in this period.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody>
+                          {movements.length > 0 ? (
+                            movements.map((move, i) => (
+                              <tr key={i}>
+                                <td>{format(move.date, 'MMM d, yyyy HH:mm')}</td>
+                                <td className="capitalize">{move.type}</td>
+                                <td className="text-sm text-muted-foreground">{move.variantInfo || '-'}</td>
+                                <td className="text-sm text-muted-foreground">{move.reference}</td>
+                                <td className={`text-right font-mono ${move.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {move.quantity > 0 ? '+' : ''}{move.quantity}
+                                </td>
+                                <td className="text-right font-mono font-medium">
+                                  {move.runningBalance}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                                No movements found in this period.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
@@ -923,39 +941,43 @@ export default function Reports() {
               <CardTitle>Recent Stock Movements</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Ref #</th>
-                    <th>Items</th>
-                    <th>Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.filter(t => t.type === 'ADJUSTMENT').slice(0, 10).map((adj) => (
-                    <tr key={adj.id}>
-                      <td>{format(new Date(adj.timestamp), 'MMM d, HH:mm')}</td>
-                      <td className="font-mono text-xs font-bold text-primary">{adj.journalNumber}</td>
-                      <td>
-                        <div className="space-y-1">
-                          {adj.items.map((item, i) => (
-                            <div key={i} className="text-[11px] flex justify-between gap-4">
-                              <span>{item.productName} ({item.sku})</span>
-                              <span className={item.adjustment > 0 ? 'text-success font-bold' : 'text-destructive font-bold'}>
-                                {item.adjustment > 0 ? '+' : ''}{item.adjustment}
-                              </span>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="min-w-[500px] inline-block align-middle p-4 sm:p-0">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Ref #</th>
+                        <th>Items</th>
+                        <th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.filter(t => t.type === 'ADJUSTMENT').slice(0, 10).map((adj) => (
+                        <tr key={adj.id}>
+                          <td>{format(new Date(adj.timestamp), 'MMM d, HH:mm')}</td>
+                          <td className="font-mono text-xs font-bold text-primary">{adj.journalNumber}</td>
+                          <td>
+                            <div className="space-y-1">
+                              {adj.items.map((item, i) => (
+                                <div key={i} className="text-[11px] flex justify-between gap-4">
+                                  <span>{item.productName} ({item.sku})</span>
+                                  <span className={item.adjustment > 0 ? 'text-success font-bold' : 'text-destructive font-bold'}>
+                                    {item.adjustment > 0 ? '+' : ''}{item.adjustment}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="text-xs text-muted-foreground italic truncate max-w-[150px]">
-                        {adj.notes || '---'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          </td>
+                          <td className="text-xs text-muted-foreground italic truncate max-w-[150px]">
+                            {adj.notes || '---'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

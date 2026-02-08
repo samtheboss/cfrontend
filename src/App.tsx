@@ -21,6 +21,8 @@ import Customers from "./pages/Customers";
 import Locations from "./pages/Locations";
 import InventoryTransactions from "./pages/InventoryTransactions";
 import Slides from "./pages/Slides";
+import Promotions from "./pages/Promotions";
+import OnlineOrders from "./pages/OnlineOrders";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -48,7 +50,9 @@ const App = () => (
               <Route path="/customers" element={<ProtectedRoute requiredRight="viewCustomers"><Customers /></ProtectedRoute>} />
               <Route path="/locations" element={<ProtectedRoute requiredRight="viewSettings"><Locations /></ProtectedRoute>} />
               <Route path="/journal" element={<ProtectedRoute requiredRight="viewInventory"><InventoryTransactions /></ProtectedRoute>} />
+              <Route path="/orders" element={<ProtectedRoute requiredRight="viewOrders"><OnlineOrders /></ProtectedRoute>} />
               <Route path="/slides" element={<ProtectedRoute requiredRight="viewSettings"><Slides /></ProtectedRoute>} />
+              <Route path="/promotions" element={<ProtectedRoute requiredRight="viewProducts"><Promotions /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

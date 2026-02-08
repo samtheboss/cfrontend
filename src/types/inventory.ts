@@ -176,6 +176,16 @@ export interface Sale extends InventoryTransaction {
   salePayments: { method: string; amount: number; reference?: string }[];
   amountPaid: number;
   changeAmount: number;
+  customerPhone?: string;
+  customerEmail?: string;
+  shippingLocation?: string;
+  shippingFee?: number;
+  shippingAddress?: string;
+  shippingCity?: string;
+  shippingPostalCode?: string;
+  deliveryStatus?: 'PENDING' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'RETURNED';
+  trackingNumber?: string;
+  courierName?: string;
 }
 
 export interface CartItem {
@@ -194,4 +204,18 @@ export interface ActiveOrder {
   items: CartItem[];
   timestamp: Date;
   note?: string;
+}
+export interface Promotion {
+  id?: number;
+  productId: string | number;
+  variantId?: string | number;
+  discountType: 'FIXED_PRICE' | 'PERCENTAGE' | 'AMOUNT_OFF';
+  discountValue: number;
+  startDate: string | Date;
+  endDate: string | Date;
+  description?: string;
+  isActive: boolean;
+  active?: boolean;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
 }

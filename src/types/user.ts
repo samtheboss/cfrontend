@@ -67,6 +67,7 @@ export interface User {
   groupId: string; // Reference to user group
   locationId?: string; // Main location
   assignedLocations?: string[]; // Allowed locations
+  role: string;
   createdAt: Date;
 }
 
@@ -266,6 +267,7 @@ export const hardcodedUsers: User[] = [
     groupId: 'group-admin',
     locationId: 'loc-1',
     assignedLocations: ['loc-1', 'loc-2'],
+    role: 'ADMIN',
     createdAt: new Date('2024-01-01'),
   },
   {
@@ -277,6 +279,7 @@ export const hardcodedUsers: User[] = [
     groupId: 'group-manager',
     locationId: 'loc-1',
     assignedLocations: ['loc-1'],
+    role: 'MANAGER',
     createdAt: new Date('2024-01-15'),
   },
   {
@@ -288,6 +291,7 @@ export const hardcodedUsers: User[] = [
     groupId: 'group-cashier',
     locationId: 'loc-2',
     assignedLocations: ['loc-2'],
+    role: 'USER',
     createdAt: new Date('2024-02-01'),
   },
 ];

@@ -140,6 +140,8 @@ export default function Users() {
   const { locations } = useInventory();
   const { toast } = useToast();
 
+  const staffUsers = allUsers.filter(u => u.role !== 'CUSTOMER');
+
   // User dialogs
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -245,7 +247,7 @@ export default function Users() {
   };
 
   const handleDeleteGroup = (group: UserGroup) => {
-    const usersInGroup = allUsers.filter(u => u.groupId === group.id);
+    const usersInGroup = staffUsers.filter(u => u.groupId === group.id);
     if (usersInGroup.length > 0) {
       toast({
         title: 'Cannot delete',
@@ -308,7 +310,7 @@ export default function Users() {
           <TabsList>
             <TabsTrigger value="users" className="flex items-center gap-2">
               <UsersIcon className="h-4 w-4" />
-              Users ({allUsers.length})
+              Users ({staffUsers.length})
             </TabsTrigger>
             <TabsTrigger value="groups" className="flex items-center gap-2">
               <Shield className="h-4 w-4" />
@@ -341,7 +343,7 @@ export default function Users() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allUsers.map((user) => {
+                    {staffUsers.map((user) => {
                       const userRights = getUserRights(user);
                       const group = getGroupById(user.groupId);
                       const yesCount = Object.values(userRights).filter(v => v === 'yes').length;
@@ -443,7 +445,7 @@ export default function Users() {
                   </TableHeader>
                   <TableBody>
                     {allGroups.map((group) => {
-                      const memberCount = allUsers.filter(u => u.groupId === group.id).length;
+                      const memberCount = staffUsers.filter(u => u.groupId === group.id).length;
                       const yesCount = Object.values(group.rights).filter(v => v === 'yes').length;
                       const supervisedCount = Object.values(group.rights).filter(v => v === 'supervised').length;
                       const noCount = Object.values(group.rights).filter(v => v === 'no').length;
@@ -487,7 +489,7 @@ export default function Users() {
                                   size="sm"
                                   onClick={() => handleDeleteGroup(group)}
                                   className="text-destructive hover:text-destructive"
-                                  disabled={allUsers.some(u => u.groupId === group.id)}
+                                  disabled={staffUsers.some(u => u.groupId === group.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>

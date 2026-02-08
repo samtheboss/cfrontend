@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category } from '@/types/inventory';
+import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category, Promotion } from '@/types/inventory';
 import { mockProducts, mockLocations, mockAdjustments, mockCustomers } from '@/data/mockData';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -12,6 +12,7 @@ interface InventoryContextType {
     customers: Customer[];
     transactions: InventoryTransaction[];
     settings: SystemSettings | null;
+    promotions: Promotion[];
     isLoading: boolean;
 
     // Actions
@@ -40,6 +41,14 @@ interface InventoryContextType {
     addCustomer: (customer: Partial<Customer>) => Promise<void>;
     updateCustomer: (customer: Customer) => Promise<void>;
     deleteCustomer: (customerId: string) => Promise<void>;
+
+    // Promotions
+    addPromotion: (promotion: Partial<Promotion>) => Promise<void>;
+    addBulkPromotions: (promotions: Partial<Promotion>[]) => Promise<void>;
+    updatePromotion: (promotion: Promotion) => Promise<void>;
+    updateBulkPromotions: (promotions: Promotion[]) => Promise<void>;
+    deletePromotion: (id: number) => Promise<void>;
+    deleteBulkPromotions: (ids: number[]) => Promise<void>;
 
     // Settings
     updateSettings: (settings: SystemSettings) => Promise<void>;
@@ -74,6 +83,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const [categories, setCategories] = useState<Category[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
+    const [promotions, setPromotions] = useState<Promotion[]>([]);
     const [settings, setSettings] = useState<SystemSettings | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -111,13 +121,14 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 queryParams = `&startDate=${start.toISOString()}&endDate=${end.toISOString()}`;
             }
 
-            const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, settingsRes] = await Promise.all([
+            const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, promotionsRes, settingsRes] = await Promise.all([
                 apiFetch<ApiResponse<Product[]>>('/api/products'),
                 apiFetch<ApiResponse<Category[]>>('/api/categories'),
                 apiFetch<ApiResponse<InventoryTransaction[]>>(`/api/transactions?${queryParams.replace('&', '')}`), // Remove leading & if basic param
                 apiFetch<ApiResponse<Sale[]>>(`/api/transactions?type=SALE${queryParams}`),
                 apiFetch<ApiResponse<Location[]>>('/api/locations'),
                 apiFetch<ApiResponse<Customer[]>>('/api/customers'),
+                apiFetch<ApiResponse<Promotion[]>>('/api/promotions'),
                 apiFetch<ApiResponse<SystemSettings>>('/api/system-settings'),
             ]);
             setProducts(productsRes.data);
@@ -126,6 +137,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             setSalesHistory(salesRes.data || []);
             setLocations(locationsRes.data);
             setCustomers(customersRes.data);
+            setPromotions(promotionsRes.data || []);
             setSettings(settingsRes.data);
         } catch (error) {
             console.error('Failed to fetch inventory data:', error);
@@ -396,6 +408,80 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    const addPromotion = async (promotionData: Partial<Promotion>) => {
+        try {
+            await apiFetch('/api/promotions', {
+                method: 'POST',
+                body: JSON.stringify(promotionData),
+            });
+            await fetchInventoryData();
+            toast.success('Promotion added successfully');
+        } catch (error) {
+            toast.error('Failed to add promotion');
+        }
+    };
+
+    const addBulkPromotions = async (promotionsData: Partial<Promotion>[]) => {
+        try {
+            await apiFetch('/api/promotions/bulk', {
+                method: 'POST',
+                body: JSON.stringify(promotionsData),
+            });
+            await fetchInventoryData();
+            toast.success('Bulk promotions added successfully');
+        } catch (error) {
+            toast.error('Failed to add bulk promotions');
+        }
+    };
+
+    const updatePromotion = async (promotion: Promotion) => {
+        try {
+            await apiFetch('/api/promotions', {
+                method: 'POST', // Backend uses save (upsert)
+                body: JSON.stringify(promotion),
+            });
+            await fetchInventoryData();
+            toast.success('Promotion updated successfully');
+        } catch (error) {
+            toast.error('Failed to update promotion');
+        }
+    };
+
+    const updateBulkPromotions = async (promotionsData: Promotion[]) => {
+        try {
+            await apiFetch('/api/promotions/bulk', {
+                method: 'POST',
+                body: JSON.stringify(promotionsData),
+            });
+            await fetchInventoryData();
+            toast.success('Promotions updated successfully');
+        } catch (error) {
+            toast.error('Failed to update promotions');
+        }
+    };
+
+    const deletePromotion = async (id: number) => {
+        try {
+            await apiFetch(`/api/promotions/${id}`, {
+                method: 'DELETE',
+            });
+            await fetchInventoryData();
+            toast.success('Promotion deleted successfully');
+        } catch (error) {
+            toast.error('Failed to delete promotion');
+        }
+    };
+
+    const deleteBulkPromotions = async (ids: number[]) => {
+        try {
+            await Promise.all(ids.map(id => apiFetch(`/api/promotions/${id}`, { method: 'DELETE' })));
+            await fetchInventoryData();
+            toast.success('Selected promotions deleted successfully');
+        } catch (error) {
+            toast.error('Failed to delete some promotions');
+        }
+    };
+
     const updateStock = (variantId: string, locationId: string, delta: number) => {
         setProducts(prev => prev.map(product => {
             const variantIndex = product.variants.findIndex(v => v.id === variantId);
@@ -430,6 +516,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 categories,
                 customers,
                 transactions,
+                promotions,
                 isLoading,
                 addProduct,
                 updateProduct,
@@ -449,6 +536,12 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 addCustomer,
                 updateCustomer,
                 deleteCustomer,
+                addPromotion,
+                addBulkPromotions,
+                updatePromotion,
+                updateBulkPromotions,
+                deletePromotion,
+                deleteBulkPromotions,
                 processSale,
                 updateStock,
                 settings,

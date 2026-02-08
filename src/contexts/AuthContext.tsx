@@ -48,6 +48,7 @@ const mapBackendUserToFrontend = (backendUser: any): User => {
     phoneNumber: backendUser.phoneNumber,
     groupId: backendUser.userGroupId || (backendUser.role === 'ADMIN' ? 'group-admin' : 'group-inventory'),
     locationId: backendUser.locationId,
+    role: backendUser.role || 'USER',
     createdAt: new Date(),
   };
 };
@@ -266,7 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteGroup = async (groupId: string) => {
-    const usersInGroup = users.filter((u) => u.groupId === groupId);
+    const usersInGroup = users.filter((u) => u.groupId === groupId && u.role !== 'CUSTOMER');
     if (usersInGroup.length > 0) return;
 
     try {

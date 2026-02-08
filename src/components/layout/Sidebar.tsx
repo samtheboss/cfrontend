@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Image as ImageIcon,
+  Truck,
   X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -35,6 +36,7 @@ const navigation: NavigationItem[] = [
   { name: 'Inventory', href: '/inventory', icon: Boxes, requiredRight: 'viewInventory' },
   { name: 'Stock Adjustment', href: '/adjustments', icon: SlidersHorizontal, requiredRight: 'stockAdjustment' },
   { name: 'Point of Sale', href: '/pos', icon: ShoppingCart, requiredRight: 'viewOrders' },
+  { name: 'Online Orders', href: '/orders', icon: Truck, requiredRight: 'viewOrders' },
   { name: 'Stock Take', href: '/stock-take', icon: ClipboardList, requiredRight: 'stockTake' },
   { name: 'Stock Transfer', href: '/transfers', icon: ArrowRightLeft, requiredRight: 'stockAdjustment' },
   { name: 'Reports', href: '/reports', icon: BarChart3, requiredRight: 'viewReports' },
@@ -43,6 +45,7 @@ const navigation: NavigationItem[] = [
   { name: 'Locations', href: '/locations', icon: MapPin, requiredRight: 'viewSettings' },
   { name: 'Users', href: '/users', icon: Users, requiredRight: 'viewUsers' },
   { name: 'Banners', href: '/slides', icon: ImageIcon, requiredRight: 'viewSettings' },
+  { name: 'Promotions', href: '/promotions', icon: Boxes, requiredRight: 'viewProducts' },
 ];
 
 interface SidebarProps {

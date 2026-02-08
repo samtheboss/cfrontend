@@ -288,8 +288,9 @@ export default function POS() {
   const addToCart = (variant: ProductVariant, productName: string) => {
     // Force string lookup for map key
     const availableStock = variant.locationStock[selectedLocationId.toString()] || 0;
+    const allowNegative = settings?.allowNegativeStock ?? false;
 
-    if (availableStock <= 0) {
+    if (availableStock <= 0 && !allowNegative) {
       toast.error(`No stock available at ${selectedLocation?.name || 'selected location'}`);
       return;
     }
@@ -297,7 +298,7 @@ export default function POS() {
     setCart(prev => {
       const existing = prev.find(item => item.variantId === variant.id);
       if (existing) {
-        if (existing.quantity >= availableStock) {
+        if (existing.quantity >= availableStock && !allowNegative) {
           toast.error(`Cannot add more. Only ${availableStock} in stock at ${selectedLocation?.name}`);
           return prev;
         }
@@ -326,7 +327,7 @@ export default function POS() {
       if (item.variantId === variantId) {
         const newQuantity = item.quantity + delta;
         if (newQuantity <= 0) return item;
-        if (newQuantity > item.maxStock) {
+        if (newQuantity > item.maxStock && !settings?.allowNegativeStock) {
           toast.error('Cannot exceed available stock');
           return item;
         }
@@ -1416,7 +1417,7 @@ export default function POS() {
 
       {/* Variant Selection Dialog */}
       <Dialog open={variantDialogOpen} onOpenChange={setVariantDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>{selectedProduct?.name}</DialogTitle>
             <DialogDescription>
@@ -1425,25 +1426,27 @@ export default function POS() {
           </DialogHeader>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-            <div className="aspect-square bg-muted rounded-lg overflow-hidden">
+            <div className="aspect-video md:aspect-square bg-muted rounded-lg overflow-hidden">
               {selectedProduct?.images[0] ? (
                 <img src={selectedProduct.images[0].startsWith('http') ? selectedProduct.images[0] : `${BASE_URL}${selectedProduct.images[0]}`} alt={selectedProduct.name} className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground">No image available</div>
+                <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">No image available</div>
               )}
             </div>
-            <div className="flex flex-col gap-3 h-[400px] overflow-y-auto pr-2">
+            <div className="flex flex-col gap-3 max-h-[50vh] md:h-[400px] overflow-y-auto pr-2">
               {selectedProduct?.variants
                 .filter(v => v.isActive !== false)
                 .map((variant) => {
                   // correct stock check
                   const locationStock = variant.locationStock[selectedLocationId.toString()] || 0;
+                  const isOutOfStock = locationStock <= 0;
+                  const canAdd = !isOutOfStock || settings?.allowNegativeStock;
 
                   return (
                     <div
                       key={variant.id}
-                      className={`p-3 border rounded-lg cursor-pointer transition-all hover:border-primary flex flex-col gap-2 ${locationStock === 0 ? 'opacity-50 grayscale cursor-not-allowed' : 'bg-card'}`}
-                      onClick={() => locationStock > 0 && selectedProduct && addToCart(variant, selectedProduct.name)}
+                      className={`p-3 border rounded-lg cursor-pointer transition-all hover:border-primary flex flex-col gap-2 ${!canAdd ? 'opacity-50 grayscale cursor-not-allowed' : 'bg-card'}`}
+                      onClick={() => canAdd && selectedProduct && addToCart(variant, selectedProduct.name)}
                     >
                       <div className="flex justify-between items-start">
                         <div>
