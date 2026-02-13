@@ -66,7 +66,7 @@ export default function SignIn() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <div className="relative">
@@ -78,6 +78,7 @@ export default function SignIn() {
                     onChange={(e) => setUsername(e.target.value)}
                     className="pl-9"
                     required
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -93,6 +94,7 @@ export default function SignIn() {
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-9"
                     required
+                    autoComplete="new-password"
                   />
                 </div>
               </div>

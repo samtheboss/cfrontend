@@ -522,6 +522,7 @@ export default function Users() {
                     placeholder="johndoe"
                     value={newUser.username}
                     onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))}
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-2">
@@ -532,6 +533,7 @@ export default function Users() {
                     placeholder="••••••••"
                     value={newUser.password}
                     onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
+                    autoComplete="new-password"
                   />
                 </div>
               </div>
