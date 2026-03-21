@@ -51,6 +51,8 @@ export default function StockTransfer() {
     );
     const [expandedJournals, setExpandedJournals] = useState<Set<string>>(new Set());
     const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [idempotencyKey, setIdempotencyKey] = useState<string>(`tr-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
 
     const toggleJournal = (id: string) => {
         const next = new Set(expandedJournals);
@@ -149,12 +151,14 @@ export default function StockTransfer() {
             return;
         }
 
+        setIsSubmitting(true);
         try {
             await createTransfer({
                 type: 'TRANSFER',
                 fromLocationId,
                 toLocationId,
                 notes,
+                idempotencyKey,
                 items: pendingItems.map(item => ({
                     variantId: item.variantId,
                     productName: item.productName,
@@ -165,8 +169,11 @@ export default function StockTransfer() {
 
             setPendingItems([]);
             setNotes('');
+            setIdempotencyKey(`tr-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
         } catch (error) {
             // Error handled by context
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -358,12 +365,12 @@ export default function StockTransfer() {
                                     </div>
 
                                     <div className="flex justify-end gap-4">
-                                        <Button variant="outline" onClick={() => setPendingItems([])}>
+                                        <Button variant="outline" onClick={() => setPendingItems([])} disabled={isSubmitting}>
                                             Clear All
                                         </Button>
-                                        <Button onClick={submitTransfer} className="bg-primary text-primary-foreground">
+                                        <Button onClick={submitTransfer} className="bg-primary text-primary-foreground" disabled={isSubmitting}>
                                             <Send className="h-4 w-4 mr-2" />
-                                            Complete Transfer
+                                            {isSubmitting ? 'Processing...' : 'Complete Transfer'}
                                         </Button>
                                     </div>
                                 </div>

@@ -69,7 +69,9 @@ export default function Promotions() {
             p.category.toLowerCase().includes(productSearch.toLowerCase());
         const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
         return matchesSearch && matchesCategory;
-    }).slice(0, 5);
+    });
+
+    const displayProducts = filteredProducts.slice(0, 5);
 
     const handleProductSelect = (product: Product) => {
         if (selectedProducts.find(p => p.id === product.id)) {
@@ -81,7 +83,10 @@ export default function Promotions() {
     };
 
     const handleSelectAllFiltered = () => {
-        const toAdd = filteredProducts.filter(p => !selectedProducts.find(sp => sp.id === p.id));
+        const toAdd = filteredProducts
+            .filter(p => !selectedProducts.find(sp => sp.id === p.id))
+            .slice(0, 50); // Limit to 50 at a time to prevent UI lag
+
         if (toAdd.length > 0) {
             setSelectedProducts(prev => [...prev, ...toAdd]);
         }
@@ -266,24 +271,26 @@ export default function Promotions() {
                             {productSearch && (
                                 <div className="absolute top-[180px] left-0 right-0 z-50 bg-popover border rounded-md shadow-lg mt-1 overflow-hidden">
                                     <div className="p-1 border-b bg-muted/30 flex justify-between items-center px-3">
-                                        <span className="text-[10px] font-bold text-muted-foreground uppercase">Results</span>
+                                        <span className="text-[10px] font-bold text-muted-foreground uppercase">Results ({filteredProducts.length})</span>
                                         <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={handleSelectAllFiltered}>
-                                            Add All {filteredProducts.length}
+                                            Add All {filteredProducts.length > 50 ? '50' : filteredProducts.length}
                                         </Button>
                                     </div>
-                                    {filteredProducts.map(p => (
-                                        <div
-                                            key={p.id}
-                                            className="p-2 hover:bg-muted cursor-pointer flex items-center justify-between gap-2"
-                                            onClick={() => handleProductSelect(p)}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <Package className="h-4 w-4 text-muted-foreground" />
-                                                <span className="text-sm">{p.name}</span>
+                                    <div className="max-h-[250px] overflow-y-auto">
+                                        {displayProducts.map(p => (
+                                            <div
+                                                key={p.id}
+                                                className="p-2 hover:bg-muted cursor-pointer flex items-center justify-between gap-2"
+                                                onClick={() => handleProductSelect(p)}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <Package className="h-4 w-4 text-muted-foreground" />
+                                                    <span className="text-sm">{p.name}</span>
+                                                </div>
+                                                <Badge variant="outline" className="text-[10px]">{p.category}</Badge>
                                             </div>
-                                            <Badge variant="outline" className="text-[10px]">{p.category}</Badge>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                     {filteredProducts.length === 0 && (
                                         <div className="p-3 text-sm text-center text-muted-foreground">No products found</div>
                                     )}
@@ -292,7 +299,12 @@ export default function Promotions() {
 
                             {selectedProducts.length > 0 && (
                                 <div className="grid gap-2 border rounded-md p-3 bg-muted/20">
-                                    <Label className="text-xs font-bold uppercase text-muted-foreground mb-1">Items in this Promotion</Label>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <Label className="text-xs font-bold uppercase text-muted-foreground">Items in this Promotion ({selectedProducts.length})</Label>
+                                        <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setSelectedProducts([])}>
+                                            Clear All
+                                        </Button>
+                                    </div>
                                     <div className="max-h-[150px] overflow-y-auto space-y-2 pr-1">
                                         {selectedProducts.map(p => (
                                             <div key={p.id} className="flex items-center justify-between bg-background p-2 rounded border shadow-sm">

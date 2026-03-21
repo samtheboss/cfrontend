@@ -45,6 +45,7 @@ export default function Locations() {
         address: '',
         isMain: false,
     });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const filteredLocations = locations.filter(l =>
         l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -54,20 +55,34 @@ export default function Locations() {
     const handleAddLocation = async () => {
         if (!newLocation.name) return;
 
-        await addLocation({
-            name: newLocation.name,
-            address: newLocation.address,
-            isMain: newLocation.isMain,
-        });
+        setIsSubmitting(true);
+        try {
+            await addLocation({
+                name: newLocation.name,
+                address: newLocation.address,
+                isMain: newLocation.isMain,
+            });
 
-        setNewLocation({ name: '', address: '', isMain: false });
-        setIsAddDialogOpen(false);
+            setNewLocation({ name: '', address: '', isMain: false });
+            setIsAddDialogOpen(false);
+        } catch (error) {
+            console.error('Error adding location:', error);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleUpdateLocation = async () => {
         if (!editingLocation) return;
-        await updateLocation(editingLocation);
-        setEditingLocation(null);
+        setIsSubmitting(true);
+        try {
+            await updateLocation(editingLocation);
+            setEditingLocation(null);
+        } catch (error) {
+            console.error('Error updating location:', error);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -207,8 +222,10 @@ export default function Locations() {
                             </div>
                         </div>
                         <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                            <Button onClick={handleAddLocation} disabled={!newLocation.name}>Add Location</Button>
+                            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                            <Button onClick={handleAddLocation} disabled={!newLocation.name || isSubmitting}>
+                                {isSubmitting ? 'Adding...' : 'Add Location'}
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
@@ -251,8 +268,10 @@ export default function Locations() {
                             </div>
                         )}
                         <DialogFooter>
-                            <Button variant="outline" onClick={() => setEditingLocation(null)}>Cancel</Button>
-                            <Button onClick={handleUpdateLocation} disabled={!editingLocation?.name}>Save Changes</Button>
+                            <Button variant="outline" onClick={() => setEditingLocation(null)} disabled={isSubmitting}>Cancel</Button>
+                            <Button onClick={handleUpdateLocation} disabled={!editingLocation?.name || isSubmitting}>
+                                {isSubmitting ? 'Saving...' : 'Save Changes'}
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>

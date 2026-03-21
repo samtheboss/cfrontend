@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { StockTakeItem, Location } from '@/types/inventory';
-import { ClipboardList, Search, Check, AlertTriangle, Package, ChevronDown, ChevronRight, Barcode, Save, Filter, FolderOpen } from 'lucide-react';
+import { ClipboardList, Search, Check, AlertTriangle, Package, ChevronDown, ChevronRight, Barcode, Save, Filter, FolderOpen, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +25,20 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from '@/components/ui/command';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { InventoryTransaction } from '@/types/inventory';
 
@@ -40,12 +54,14 @@ export default function StockTake() {
     const [stockTakeItems, setStockTakeItems] = useState<StockTakeItem[]>([]);
     const [countedItems, setCountedItems] = useState<Set<string>>(new Set());
     const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
-    const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
+    const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+    const [isCategoryPopoverOpen, setIsCategoryPopoverOpen] = useState(false);
     const [barcodeQuery, setBarcodeQuery] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isDraftDialogOpen, setIsDraftDialogOpen] = useState(false);
     const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
     const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
 
     // Initialize stock take (Active only)
     const startStockTake = () => {
@@ -70,6 +86,7 @@ export default function StockTake() {
         setStockTakeItems(items);
         setCountedItems(new Set());
         setExpandedProducts(new Set());
+        setIdempotencyKey(`st-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
         setIsCountingMode(true);
         toast.success('Stock take started');
     };
@@ -104,12 +121,31 @@ export default function StockTake() {
         }
     };
 
+    // Derive unique category list from stock take items
+    const availableCategories = useMemo(() => {
+        const cats = new Set<string>();
+        stockTakeItems.forEach(i => {
+            const p = products.find(prod => prod.name === i.productName);
+            if (p?.category) cats.add(p.category.trim());
+        });
+        return Array.from(cats).sort();
+    }, [stockTakeItems, products]);
+
+    const toggleCategory = (cat: string) => {
+        setSelectedCategories(prev => {
+            const next = new Set(prev);
+            if (next.has(cat)) next.delete(cat);
+            else next.add(cat);
+            return next;
+        });
+    };
+
     const filteredItems = stockTakeItems.filter(item => {
         const matchesSearch = item.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
             item.variantSku.toLowerCase().includes(searchQuery.toLowerCase());
 
         const product = products.find(p => p.name === item.productName);
-        const matchesCategory = selectedCategoryId === 'all' || (product && product.category === selectedCategoryId);
+        const matchesCategory = selectedCategories.size === 0 || (product && selectedCategories.has(product.category.trim()));
 
         return matchesSearch && matchesCategory;
     });
@@ -129,10 +165,15 @@ export default function StockTake() {
         return acc;
     }, {} as Record<string, StockTakeItem[]>);
 
-    const filteredGroupNames = Object.keys(groupedItems).filter(name =>
-        name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        groupedItems[name].some(v => v.variantSku.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    const filteredGroupNames = Object.keys(groupedItems).filter(name => {
+        const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            groupedItems[name].some(v => v.variantSku.toLowerCase().includes(searchQuery.toLowerCase()));
+
+        const product = products.find(p => p.name === name);
+        const matchesCategory = selectedCategories.size === 0 || (product && selectedCategories.has(product.category.trim()));
+
+        return matchesSearch && matchesCategory;
+    });
 
     const totalVariance = itemsWithVariance.reduce((sum, item) => sum + item.variance, 0);
 
@@ -208,6 +249,7 @@ export default function StockTake() {
                 status: status,
                 timestamp: new Date(transactionDate + 'T00:00:00').toISOString(),
                 notes: status === 'DRAFT' ? `Draft stock take at ${locations.find(l => l.id.toString() === selectedLocationId)?.name}` : `Physical inventory count at ${locations.find(l => l.id.toString() === selectedLocationId)?.name}`,
+                idempotencyKey: idempotencyKey,
                 items: countedItemsList.map(item => ({
                     variantId: item.variantId,
                     sku: item.variantSku,
@@ -422,22 +464,51 @@ export default function StockTake() {
                         </form>
                     </div>
 
-                    <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
-                        <SelectTrigger className="w-48">
-                            <Filter className="h-4 w-4 mr-2" />
-                            <SelectValue placeholder="All Categories" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Categories</SelectItem>
-                            {/* Find unique category names from items */}
-                            {Array.from(new Set(stockTakeItems.map(i => {
-                                const p = products.find(prod => prod.name === i.productName);
-                                return p?.category;
-                            }))).filter(Boolean).map(cat => (
-                                <SelectItem key={cat} value={cat!}>{cat}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <Popover open={isCategoryPopoverOpen} onOpenChange={setIsCategoryPopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-48 justify-start gap-2">
+                                <Filter className="h-4 w-4 shrink-0" />
+                                {selectedCategories.size === 0 ? (
+                                    <span className="text-muted-foreground">All Categories</span>
+                                ) : (
+                                    <span className="truncate">{selectedCategories.size} selected</span>
+                                )}
+                                {selectedCategories.size > 0 && (
+                                    <span
+                                        role="button"
+                                        className="ml-auto shrink-0 rounded-full p-0.5 hover:bg-muted"
+                                        onClick={(e) => { e.stopPropagation(); setSelectedCategories(new Set()); }}
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </span>
+                                )}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-0" align="start">
+                            <Command>
+                                <CommandInput placeholder="Search categories..." />
+                                <CommandList>
+                                    <CommandEmpty>No categories found.</CommandEmpty>
+                                    <CommandGroup>
+                                        {availableCategories.map(cat => (
+                                            <CommandItem
+                                                key={cat}
+                                                value={cat}
+                                                onSelect={() => toggleCategory(cat)}
+                                                className="gap-2"
+                                            >
+                                                <Checkbox
+                                                    checked={selectedCategories.has(cat)}
+                                                    className="pointer-events-none"
+                                                />
+                                                <span>{cat}</span>
+                                            </CommandItem>
+                                        ))}
+                                    </CommandGroup>
+                                </CommandList>
+                            </Command>
+                        </PopoverContent>
+                    </Popover>
                 </div>
 
                 {/* Items Grid */}

@@ -39,18 +39,35 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
+import { getProductPriceInfo } from '@/lib/pricing';
 
 
 
 export default function POS() {
   const navigate = useNavigate();
-  const { products, locations, settings, customers: contextCustomers, transactions, createSale, createReturn, checkReturnableItems, addCustomer, activeOrders, holdOrder, discardOrder, salesHistory, refreshData } = useInventory();
+  const {
+    products = [],
+    locations = [],
+    settings = null,
+    customers: contextCustomers = [],
+    transactions = [],
+    promotions = [],
+    createSale,
+    createReturn,
+    checkReturnableItems,
+    addCustomer,
+    activeOrders = [],
+    holdOrder,
+    discardOrder,
+    salesHistory = [],
+    refreshData
+  } = useInventory() || {};
   const { user, logout } = useAuth();
 
   // Location selector - default to user's location or main location
   const defaultLocationId = (user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString();
   const [selectedLocationId, setSelectedLocationId] = useState<string>(defaultLocationId);
-  const selectedLocation = locations.find(l => l.id.toString() === selectedLocationId);
+  const selectedLocation = locations?.find(l => l.id?.toString() === selectedLocationId);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,6 +120,7 @@ export default function POS() {
   const [isPollingMpesa, setIsPollingMpesa] = useState(false);
   const [mpesaStatus, setMpesaStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'>('IDLE');
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
 
   // Receipt Preview States
   const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
@@ -113,6 +131,10 @@ export default function POS() {
   // Reference to track if we should stop polling
   const stopPollingRef = useRef(false);
   const pollSessionRef = useRef(0);
+
+  // Navigation confirmation
+  const [navConfirmOpen, setNavConfirmOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'HOME' | 'LOGOUT' | null>(null);
 
   // Get all variants with product info (Active only)
   const allVariants = products
@@ -285,9 +307,9 @@ export default function POS() {
     currentPage * ITEMS_PER_PAGE
   );
 
-  const addToCart = (variant: ProductVariant, productName: string) => {
+  const addToCart = (variant: ProductVariant, productName: string, productObj?: Product) => {
     // Force string lookup for map key
-    const availableStock = variant.locationStock[selectedLocationId.toString()] || 0;
+    const availableStock = variant.locationStock?.[selectedLocationId?.toString()] || 0;
     const allowNegative = settings?.allowNegativeStock ?? false;
 
     if (availableStock <= 0 && !allowNegative) {
@@ -297,6 +319,12 @@ export default function POS() {
 
     setCart(prev => {
       const existing = prev.find(item => item.variantId === variant.id);
+
+      // Calculate promotional price - use passed product object if available for better reliability
+      const product = productObj || products.find(p => p.id?.toString() === variant?.productId?.toString());
+      const priceInfo = product ? getProductPriceInfo(product, variant.id, promotions || []) : { currentPrice: variant.price, promotion: null };
+      const currentPrice = priceInfo.promotion ? priceInfo.currentPrice : variant.price;
+
       if (existing) {
         if (existing.quantity >= availableStock && !allowNegative) {
           toast.error(`Cannot add more. Only ${availableStock} in stock at ${selectedLocation?.name}`);
@@ -304,7 +332,7 @@ export default function POS() {
         }
         return prev.map(item =>
           item.variantId === variant.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, quantity: item.quantity + 1, price: currentPrice } // Update price in case it changed
             : item
         );
       }
@@ -314,12 +342,13 @@ export default function POS() {
         variantSku: variant.sku,
         attributes: variant.attributes,
         quantity: 1,
-        price: variant.price,
+        price: currentPrice,
         maxStock: availableStock
       }];
     });
     setVariantDialogOpen(false);
-    toast.success(`Added ${productName} (${Object.values(variant.attributes).join(' / ')}) to cart`);
+    const attrStr = Object.values(variant.attributes).join(' / ');
+    toast.success(`Added ${productName}${attrStr ? ` (${attrStr})` : ''} to cart`);
   };
 
   const updateQuantity = (variantId: string, delta: number) => {
@@ -510,6 +539,7 @@ export default function POS() {
       totalAmount: total,
       amountPaid: totalPaid,
       changeAmount: Math.max(0, totalPaid - total),
+      idempotencyKey: idempotencyKey,
       items: cart.map(item => ({
         variantId: item.variantId,
         sku: item.variantSku,
@@ -537,9 +567,51 @@ export default function POS() {
     }
   };
 
+  const handleHomeClick = () => {
+    if (cart.length > 0) {
+      setPendingAction('HOME');
+      setNavConfirmOpen(true);
+    } else {
+      navigate('/');
+    }
+  };
+
   const handleLogout = () => {
-    logout();
-    navigate('/signin');
+    if (cart.length > 0) {
+      setPendingAction('LOGOUT');
+      setNavConfirmOpen(true);
+    } else {
+      logout();
+      navigate('/signin');
+    }
+  };
+
+  const confirmNavigation = (action: 'HOLD' | 'CLEAR') => {
+    if (action === 'HOLD') {
+      // Create order object similar to handleHoldOrder
+      const order: ActiveOrder = {
+        id: `hold-${Date.now()}`,
+        customer: selectedCustomer,
+        items: [...cart],
+        timestamp: new Date()
+      };
+      holdOrder(order);
+      setCart([]);
+      toast.success('Order held successfully');
+    } else if (action === 'CLEAR') {
+      setCart([]);
+    }
+
+    // Execute the pending navigation
+    if (pendingAction === 'HOME') {
+      navigate('/');
+    } else if (pendingAction === 'LOGOUT') {
+      logout();
+      navigate('/signin');
+    }
+
+    setNavConfirmOpen(false);
+    setPendingAction(null);
   };
   const handleMpesaPush = async () => {
     if (!mpesaPhone) {
@@ -662,7 +734,7 @@ export default function POS() {
     // Convert sale items to cart items (finding current max stock)
     const newCart: CartItem[] = sale.items.map(item => {
       // Find current variant info to get max stock
-      const variant = allVariants.find(v => v.id === item.variantId);
+      const variant = allVariants?.find(v => v.id?.toString() === item.variantId?.toString());
       return {
         ...item,
         variantSku: item.sku,
@@ -753,6 +825,7 @@ export default function POS() {
     })).filter(item => (limitMap[item.variantId]?.remaining || 0) > 0)); // Only include items that can be returned? 
     // Actually, keep all but ensure max is enforced. Better to keep them so we can show "Fully Returned".
 
+    setIdempotencyKey(`ret-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
     setReturnDialogOpen(true);
   };
 
@@ -780,10 +853,12 @@ export default function POS() {
       return;
     }
 
+    setIsProcessing(true);
     try {
       await createReturn({
         type: 'RETURN',
         originalSaleId: saleToReturn.id,
+        idempotencyKey,
         items: itemsToReturn.map(item => ({
           variantId: item.variantId,
           adjustment: item.quantity, // Positive for return
@@ -798,6 +873,8 @@ export default function POS() {
       setReturnItems([]);
     } catch (error) {
       console.error("Return failed", error);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -848,7 +925,7 @@ export default function POS() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 border-b bg-card gap-3">
             <div className="flex items-center justify-between sm:justify-start gap-3">
               <div className="flex items-center gap-3">
-                <Button variant="outline" size="icon" onClick={() => navigate('/')} title="Home" className="h-9 w-9">
+                <Button variant="outline" size="icon" onClick={handleHomeClick} title="Home" className="h-9 w-9">
                   <Home className="h-4 w-4" />
                 </Button>
                 <Button variant="outline" size="icon" onClick={handleLogout} title="Log out" className="h-9 w-9 text-destructive hover:text-destructive">
@@ -966,8 +1043,15 @@ export default function POS() {
                     key={product.id}
                     className="cursor-pointer group hover:border-primary transition-all border rounded overflow-hidden bg-card shadow-sm flex flex-col"
                     onClick={() => {
-                      setSelectedProduct(product);
-                      setVariantDialogOpen(true);
+                      const activeVariants = product.variants.filter(v => v.isActive !== false);
+                      if (activeVariants.length === 1) {
+                        addToCart(activeVariants[0], product.name, product);
+                      } else if (activeVariants.length === 0) {
+                        toast.error(`${product.name} has no available variants. Please add a variant first.`);
+                      } else {
+                        setSelectedProduct(product);
+                        setVariantDialogOpen(true);
+                      }
                     }}
                   >
                     <div className="aspect-square relative bg-muted overflow-hidden flex items-center justify-center">
@@ -991,13 +1075,34 @@ export default function POS() {
                     </div>
                     <div className="p-2 flex-1 flex flex-col">
                       <h4 className="font-medium text-xs line-clamp-2 leading-tight min-h-[2.4em]" title={product.name}>{product.name}</h4>
-                      <div className="mt-auto flex items-center justify-between gap-1">
-                        <span className="font-semibold text-xs text-primary">
-                          {settings?.currency || '$'}{Math.min(...product.variants.map(v => v.price)).toFixed(0)}
-                        </span>
-                        <span className={`text-[9px] px-1 py-0.5 rounded ${totalStock > 0 ? 'bg-muted text-muted-foreground' : 'bg-red-100 text-red-600'}`}>
-                          {totalStock} qty • {variantCount} var
-                        </span>
+                      <div className="mt-auto flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex flex-col">
+                            {(() => {
+                              const priceInfo = getProductPriceInfo(product, undefined, promotions || []);
+                              return (
+                                <>
+                                  <span className={cn("font-bold text-xs", priceInfo.isOnSale ? "text-red-500" : "text-primary")}>
+                                    {settings?.currency || '$'}{priceInfo.currentPrice.toFixed(0)}
+                                  </span>
+                                  {priceInfo.isOnSale && (
+                                    <span className="text-[10px] text-muted-foreground line-through">
+                                      {settings?.currency || '$'}{priceInfo.originalPrice.toFixed(0)}
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                          <span className={`text-[9px] px-1 py-0.5 rounded ${totalStock > 0 ? 'bg-muted text-muted-foreground' : 'bg-red-100 text-red-600'}`}>
+                            {totalStock} qty
+                          </span>
+                        </div>
+                        {variantCount > 1 && (
+                          <span className="text-[9px] text-muted-foreground">
+                            {variantCount} variants
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1245,6 +1350,7 @@ export default function POS() {
             setCheckoutRequestId(null);
             setIsPollingMpesa(false);
             stopPollingRef.current = false;
+            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
           }
         }
       }}>
@@ -1438,7 +1544,7 @@ export default function POS() {
                 .filter(v => v.isActive !== false)
                 .map((variant) => {
                   // correct stock check
-                  const locationStock = variant.locationStock[selectedLocationId.toString()] || 0;
+                  const locationStock = variant.locationStock?.[selectedLocationId?.toString()] || 0;
                   const isOutOfStock = locationStock <= 0;
                   const canAdd = !isOutOfStock || settings?.allowNegativeStock;
 
@@ -1446,7 +1552,7 @@ export default function POS() {
                     <div
                       key={variant.id}
                       className={`p-3 border rounded-lg cursor-pointer transition-all hover:border-primary flex flex-col gap-2 ${!canAdd ? 'opacity-50 grayscale cursor-not-allowed' : 'bg-card'}`}
-                      onClick={() => canAdd && selectedProduct && addToCart(variant, selectedProduct.name)}
+                      onClick={() => canAdd && selectedProduct && addToCart(variant, selectedProduct.name, selectedProduct)}
                     >
                       <div className="flex justify-between items-start">
                         <div>
@@ -1459,7 +1565,23 @@ export default function POS() {
                             <p className="text-[10px] text-muted-foreground uppercase">{variant.sku}</p>
                           )}
                         </div>
-                        <span className="font-bold text-primary">${variant.price.toFixed(2)}</span>
+                        <div className="flex flex-col items-end">
+                          {(() => {
+                            const priceInfo = getProductPriceInfo(selectedProduct, variant.id, promotions || []);
+                            return (
+                              <>
+                                <span className={cn("font-bold text-sm", priceInfo.isOnSale ? "text-red-500" : "text-primary")}>
+                                  {settings?.currency || '$'}{priceInfo.currentPrice.toFixed(2)}
+                                </span>
+                                {priceInfo.isOnSale && (
+                                  <span className="text-[10px] text-muted-foreground line-through">
+                                    {settings?.currency || '$'}{priceInfo.originalPrice.toFixed(2)}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
                       </div>
                       <div className="flex justify-between items-center text-xs">
                         <span className={locationStock <= variant.lowStockThreshold ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
@@ -1733,9 +1855,9 @@ export default function POS() {
               <span className="text-xl font-bold">${calculateReturnTotal().toFixed(2)}</span>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setReturnDialogOpen(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={submitReturn} disabled={calculateReturnTotal() <= 0}>
-                Confirm Return
+              <Button variant="outline" onClick={() => setReturnDialogOpen(false)} disabled={isProcessing}>Cancel</Button>
+              <Button variant="destructive" onClick={submitReturn} disabled={calculateReturnTotal() <= 0 || isProcessing}>
+                {isProcessing ? 'Processing...' : 'Confirm Return'}
               </Button>
             </DialogFooter>
           </div>
@@ -1821,6 +1943,31 @@ export default function POS() {
                 Print Receipt
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Navigation Confirmation Dialog */}
+      <Dialog open={navConfirmOpen} onOpenChange={setNavConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unsaved Changes</DialogTitle>
+            <DialogDescription>
+              You have items in your cart. Would you like to hold this order or clear the cart before leaving?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setNavConfirmOpen(false)} className="sm:mr-auto">
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={() => confirmNavigation('HOLD')}>
+              <PauseCircle className="h-4 w-4 mr-2" />
+              Hold Order
+            </Button>
+            <Button variant="destructive" onClick={() => confirmNavigation('CLEAR')}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Clear Cart
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

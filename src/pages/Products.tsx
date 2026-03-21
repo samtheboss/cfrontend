@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
-import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Star } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Star, RefreshCw } from 'lucide-react';
 import { apiFetch, BASE_URL } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -83,6 +83,7 @@ export default function Products() {
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ... (existing code omitted) ...
 
@@ -98,6 +99,7 @@ export default function Products() {
     name: '',
     description: '',
     category: '',
+    barcode: '',
     attributes: [{ name: '', values: '' }] as { name: string; values: string }[],
     variants: [] as ProductVariant[],
     images: [] as string[],
@@ -152,9 +154,23 @@ export default function Products() {
     handleAttributeChange(newAttributes);
   };
 
-  const generateVariants = (attributes: ProductAttribute[], basePrice: number, baseCost: number, productId: string, productName: string): ProductVariant[] => {
-    if (attributes.length === 0) return [];
-
+  const generateVariants = (attributes: ProductAttribute[], basePrice: number, baseCost: number, productId: string, productName: string, manualBarcode?: string): ProductVariant[] => {
+    if (attributes.length === 0) {
+      // Create a single default variant with the base price/cost
+      return [{
+        id: `${productId}-v0`,
+        productId,
+        sku: generateSKU(productName, {}),
+        barcode: manualBarcode || generateBarcode(),
+        attributes: {},
+        price: basePrice,
+        cost: baseCost,
+        stock: 0,
+        locationStock: {},
+        lowStockThreshold: 10,
+        isActive: true
+      }];
+    }
     const combinations: Record<string, string>[] = [];
 
     const generateCombinations = (index: number, current: Record<string, string>) => {
@@ -175,7 +191,7 @@ export default function Products() {
       id: `${productId}-v${i}`,
       productId,
       sku: generateSKU(productName, combo),
-      barcode: generateBarcode(),
+      barcode: manualBarcode || generateBarcode(),
       attributes: combo,
       price: basePrice,
       cost: baseCost,
@@ -377,6 +393,7 @@ export default function Products() {
       name: '',
       description: '',
       category: '',
+      barcode: '',
       attributes: [{ name: '', values: '' }],
       variants: [],
       images: [],
@@ -395,6 +412,7 @@ export default function Products() {
       name: product.name,
       description: product.description,
       category: product.category,
+      barcode: product.variants[0]?.barcode || '',
       attributes: product.attributes.map(attr => ({
         name: attr.name,
         values: attr.values.join(', ')
@@ -411,50 +429,52 @@ export default function Products() {
   };
 
   const handleCreateProduct = async () => {
-    const productId = editingId || `p${Date.now()}`;
-    const parsedAttributes: any[] = newProduct.attributes
-      .filter(a => a.name && a.values)
-      .map((a, i) => ({
-        id: undefined,
-        name: a.name,
-        values: a.values.split(',').map(v => v.trim())
-      }));
-
-    const isNumeric = (val: any) => {
-      if (val === null || val === undefined) return false;
-      const num = Number(val);
-      return !isNaN(num) && num > 0; // Backend IDs are positive Longs
-    };
-
-    const sanitizeId = (id: any) => isNumeric(id) ? (typeof id === 'string' ? parseInt(id) : id) : undefined;
-
-    const variants = (newProduct.variants?.length || 0) > 0 ? newProduct.variants.map((v, i) => ({
-      ...v,
-      id: sanitizeId(v.id),
-      productId: sanitizeId(editingId),
-      isActive: v.isActive !== false
-    })) : generateVariants(
-      parsedAttributes,
-      parseFloat(newProduct.basePrice) || 0,
-      parseFloat(newProduct.baseCost) || 0,
-      productId,
-      newProduct.name
-    ).map(v => ({ ...v, id: undefined, productId: sanitizeId(editingId) }));
-
-    const productData: any = {
-      id: sanitizeId(editingId),
-      name: newProduct.name,
-      description: newProduct.description,
-      category: newProduct.category,
-      attributes: parsedAttributes,
-      variants,
-      images: newProduct.images.map(img => img.replace(BASE_URL, '')).filter(img => img.trim() !== ''),
-      availableOnline: !!newProduct.availableOnline,
-      isActive: newProduct.isActive !== false,
-      isFeatured: !!newProduct.isFeatured,
-    };
-
+    setIsSubmitting(true);
     try {
+      const productId = editingId || `p${Date.now()}`;
+      const parsedAttributes: any[] = newProduct.attributes
+        .filter(a => a.name && a.values)
+        .map((a, i) => ({
+          id: undefined,
+          name: a.name,
+          values: a.values.split(',').map(v => v.trim())
+        }));
+
+      const isNumeric = (val: any) => {
+        if (val === null || val === undefined) return false;
+        const num = Number(val);
+        return !isNaN(num) && num > 0; // Backend IDs are positive Longs
+      };
+
+      const sanitizeId = (id: any) => isNumeric(id) ? (typeof id === 'string' ? parseInt(id) : id) : undefined;
+
+      const variants = (newProduct.variants?.length || 0) > 0 ? newProduct.variants.map((v, i) => ({
+        ...v,
+        id: sanitizeId(v.id),
+        productId: sanitizeId(editingId),
+        isActive: v.isActive !== false
+      })) : generateVariants(
+        parsedAttributes,
+        parseFloat(newProduct.basePrice) || 0,
+        parseFloat(newProduct.baseCost) || 0,
+        productId,
+        newProduct.name,
+        newProduct.barcode || undefined
+      ).map(v => ({ ...v, id: undefined, productId: sanitizeId(editingId) }));
+
+      const productData: any = {
+        id: sanitizeId(editingId),
+        name: newProduct.name,
+        description: newProduct.description,
+        category: newProduct.category,
+        attributes: parsedAttributes,
+        variants,
+        images: newProduct.images.map(img => img.replace(BASE_URL, '')).filter(img => img.trim() !== ''),
+        availableOnline: !!newProduct.availableOnline,
+        isActive: newProduct.isActive !== false,
+        isFeatured: !!newProduct.isFeatured,
+      };
+
       if (editingId) {
         await contextUpdateProduct(productData);
       } else {
@@ -463,7 +483,9 @@ export default function Products() {
       resetForm();
       setIsAddDialogOpen(false);
     } catch (error) {
-      // Error handling is already in context
+      console.error('Error creating/updating product:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -618,6 +640,27 @@ export default function Products() {
                       onChange={(e) => handleBasePriceChange('baseCost', e.target.value)}
                       placeholder="12.00"
                     />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="barcode">Barcode</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="barcode"
+                      value={newProduct.barcode}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, barcode: e.target.value }))}
+                      placeholder="Enter barcode or generate one"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => setNewProduct(prev => ({ ...prev, barcode: generateBarcode() }))}
+                      title="Generate barcode"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
 
@@ -1028,8 +1071,8 @@ export default function Products() {
               </div>
               <DialogFooter className="flex-shrink-0">
                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreateProduct} disabled={!newProduct.name}>
-                  {editingId ? 'Update Product' : 'Create Product'}
+                <Button onClick={handleCreateProduct} disabled={!newProduct.name || isSubmitting}>
+                  {isSubmitting ? (editingId ? 'Updating...' : 'Creating...') : (editingId ? 'Update Product' : 'Create Product')}
                 </Button>
               </DialogFooter>
             </DialogContent>

@@ -60,6 +60,7 @@ export default function StockAdjustment() {
   const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
   const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [showAllProducts, setShowAllProducts] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(`adj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
 
   const toggleJournal = (id: string) => {
     const next = new Set(expandedJournals);
@@ -91,8 +92,15 @@ export default function StockAdjustment() {
     );
 
   const handleProductSelect = (product: Product) => {
-    setSelectedProduct(product);
-    setVariantDialogOpen(true);
+    const activeVariants = product.variants.filter(v => v.isActive !== false);
+    if (activeVariants.length === 1) {
+      addToAdjustment(activeVariants[0], product.name);
+    } else if (activeVariants.length === 0) {
+      toast.error(`${product.name} has no available variants. Please add a variant first.`);
+    } else {
+      setSelectedProduct(product);
+      setVariantDialogOpen(true);
+    }
   };
 
   const addToAdjustment = (variant: ProductVariant, productName: string) => {
@@ -247,6 +255,7 @@ export default function StockAdjustment() {
         notes: reason || (status === 'DRAFT' ? 'Held Adjustment' : ''),
         status: status,
         timestamp: new Date(transactionDate + 'T00:00:00').toISOString(),
+        idempotencyKey: idempotencyKey,
         items: itemsToSubmit.map(p => ({
           variantId: p.variantId,
           sku: p.sku,
@@ -266,6 +275,7 @@ export default function StockAdjustment() {
       setPendingAdjustments([]);
       setReason('');
       setCurrentTransactionId(null);
+      setIdempotencyKey(`adj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
     } catch (error) {
       // Error handled by context
     } finally {
