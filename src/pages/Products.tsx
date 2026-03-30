@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
-import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Star, RefreshCw } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Star, RefreshCw, ChefHat, Settings, Tag, AlertTriangle, Layers } from 'lucide-react';
 import { apiFetch, BASE_URL } from '@/lib/api';
+import { RecipeDialog } from '@/components/inventory/RecipeDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +39,6 @@ import { StockBadge } from '@/components/inventory/StockBadge';
 import { getStockStatus } from '@/types/inventory';
 import { useInventory } from '@/contexts/InventoryContext';
 import { ImportProductsDialog } from '@/components/inventory/ImportProductsDialog';
-import { Settings, Tag, AlertTriangle } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,7 +62,10 @@ export default function Products() {
     addProduct: contextAddProduct,
     updateProduct: contextUpdateProduct,
     deleteProduct: contextDeleteProduct,
-    deleteProducts: contextDeleteProducts
+    deleteProducts: contextDeleteProducts,
+    recipes: contextRecipes,
+    addRecipe,
+    updateRecipe,
   } = useInventory();
   const { toast } = useToast();
 
@@ -85,30 +88,46 @@ export default function Products() {
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ... (existing code omitted) ...
-
-
-
   // Sync with context products if they change
   useEffect(() => {
     setProducts(contextProducts);
   }, [contextProducts]);
 
-  // New product form state
-  const [newProduct, setNewProduct] = useState({
+  const [newProduct, setNewProduct] = useState<{
+    name: string;
+    description: string;
+    category: string;
+    barcode: string;
+    attributes: { name: string; values: string }[];
+    variants: ProductVariant[];
+    images: string[];
+    basePrice: string;
+    baseCost: string;
+    type: 'RAW_MATERIAL' | 'FINISHED_GOOD';
+    availableOnline: boolean;
+    isActive: boolean;
+    isFeatured: boolean;
+    unit: string;
+  }>({
     name: '',
     description: '',
     category: '',
     barcode: '',
-    attributes: [{ name: '', values: '' }] as { name: string; values: string }[],
-    variants: [] as ProductVariant[],
-    images: [] as string[],
+    attributes: [{ name: '', values: '' }],
+    variants: [],
+    images: [],
     basePrice: '',
     baseCost: '',
+    type: 'FINISHED_GOOD',
     availableOnline: false,
     isActive: true,
     isFeatured: false,
+    unit: 'PCS',
   });
+
+  const [recipeEditorOpen, setRecipeEditorOpen] = useState(false);
+  const [currentRecipeVariantIndex, setCurrentRecipeVariantIndex] = useState<number | null>(null);
+  const [variantRecipes, setVariantRecipes] = useState<Record<number, Partial<Recipe>>>({});
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -399,11 +418,14 @@ export default function Products() {
       images: [],
       basePrice: '',
       baseCost: '',
+      type: 'FINISHED_GOOD',
       availableOnline: false,
       isActive: true,
       isFeatured: false,
+      unit: 'PCS',
     });
     setEditingId(null);
+    setVariantRecipes({});
   };
 
   const handleEditProduct = (product: Product) => {
@@ -421,10 +443,23 @@ export default function Products() {
       images: (product.images || []).map(img => img.replace(BASE_URL, '')),
       basePrice: product.variants[0]?.price.toString() || '',
       baseCost: product.variants[0]?.cost.toString() || '',
+      type: product.type || 'FINISHED_GOOD',
       availableOnline: product.availableOnline,
       isActive: product.isActive !== undefined ? product.isActive : true,
       isFeatured: !!product.isFeatured,
+      unit: product.unit || 'PCS',
     });
+
+    // Extract recipes for variants
+    const recipesMap: Record<number, Partial<Recipe>> = {};
+    product.variants.forEach((v, index) => {
+      const recipe = contextRecipes.find(r => r.variantId?.toString() === v.id?.toString());
+      if (recipe) {
+        recipesMap[index] = recipe;
+      }
+    });
+    setVariantRecipes(recipesMap);
+
     setIsAddDialogOpen(true);
   };
 
@@ -467,19 +502,41 @@ export default function Products() {
         name: newProduct.name,
         description: newProduct.description,
         category: newProduct.category,
+        type: newProduct.type,
         attributes: parsedAttributes,
         variants,
         images: newProduct.images.map(img => img.replace(BASE_URL, '')).filter(img => img.trim() !== ''),
         availableOnline: !!newProduct.availableOnline,
         isActive: newProduct.isActive !== false,
         isFeatured: !!newProduct.isFeatured,
+        unit: newProduct.unit,
       };
 
+      let savedProduct: Product;
       if (editingId) {
-        await contextUpdateProduct(productData);
+        savedProduct = await contextUpdateProduct(productData);
       } else {
-        await contextAddProduct(productData);
+        savedProduct = await contextAddProduct(productData);
       }
+
+      // Save recipes for variants that have them
+      for (const [indexStr, recipe] of Object.entries(variantRecipes)) {
+        const index = parseInt(indexStr);
+        const variant = savedProduct.variants[index];
+        if (variant && variant.hasRecipe && recipe.ingredients && recipe.ingredients.length > 0) {
+          const recipeData = {
+            ...recipe,
+            name: recipe.name || `Recipe for ${newProduct.name} (${variant.sku || variant.id || index})`,
+            variantId: variant.id
+          };
+          if (recipe.id) {
+            await updateRecipe(recipeData as Recipe);
+          } else {
+            await addRecipe(recipeData as Recipe);
+          }
+        }
+      }
+
       resetForm();
       setIsAddDialogOpen(false);
     } catch (error) {
@@ -617,6 +674,41 @@ export default function Products() {
                           {category.name}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="type">Product Type</Label>
+                  <Select
+                    value={newProduct.type}
+                    onValueChange={(value) => setNewProduct(prev => ({ ...prev, type: value as any }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="FINISHED_GOOD">Output (Finished Good)</SelectItem>
+                      <SelectItem value="RAW_MATERIAL">Raw Material (Ingredient)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="unit">Measurement Unit</Label>
+                  <Select
+                    value={newProduct.unit}
+                    onValueChange={(value) => setNewProduct(prev => ({ ...prev, unit: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PCS">Pieces (PCS)</SelectItem>
+                      <SelectItem value="KG">Kilograms (KG)</SelectItem>
+                      <SelectItem value="G">Grams (G)</SelectItem>
+                      <SelectItem value="L">Liters (L)</SelectItem>
+                      <SelectItem value="ML">Milliliters (ML)</SelectItem>
+                      <SelectItem value="PACK">Pack</SelectItem>
+                      <SelectItem value="BOX">Box</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -798,7 +890,7 @@ export default function Products() {
                                 className="h-8"
                                 value={variant.stock}
                                 onChange={(e) => {
-                                  const val = parseInt(e.target.value) || 0;
+                                  const val = parseFloat(e.target.value) || 0;
                                   setNewProduct(prev => ({
                                     ...prev,
                                     variants: prev.variants.map((v, i) => i === index ? { ...v, stock: val } : v)
@@ -820,6 +912,7 @@ export default function Products() {
                             <th className="p-2 w-24">Price</th>
                             <th className="p-2 w-24">Cost</th>
                             <th className="p-2 w-24">Stock</th>
+                            <th className="p-2 w-16">Recipe</th>
                             <th className="p-2 w-20">Image</th>
                             <th className="p-2 w-10"></th>
                           </tr>
@@ -827,8 +920,9 @@ export default function Products() {
                         <tbody>
                           {newProduct.variants?.map((variant, index) => (
                             <tr key={index} className="border-t">
-                              <td className="p-2">
+                              <td className="p-2 flex items-center gap-2">
                                 {Object.entries(variant.attributes).map(([k, v]) => `${v}`).join(' / ')}
+                                {variant.hasRecipe && <ChefHat className="h-3 w-3 text-primary" />}
                               </td>
                               <td className="p-2">
                                 <Input
@@ -864,13 +958,45 @@ export default function Products() {
                                   className="h-8"
                                   value={variant.stock}
                                   onChange={(e) => {
-                                    const val = parseInt(e.target.value) || 0;
+                                    const val = parseFloat(e.target.value) || 0;
                                     setNewProduct(prev => ({
                                       ...prev,
                                       variants: prev.variants.map((v, i) => i === index ? { ...v, stock: val } : v)
                                     }));
                                   }}
                                 />
+                              </td>
+                              <td className="p-2 text-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <Switch
+                                    checked={!!variant.hasRecipe}
+                                    onCheckedChange={(checked) => {
+                                      setNewProduct(prev => ({
+                                        ...prev,
+                                        variants: prev.variants.map((v, i) => i === index ? { ...v, hasRecipe: checked } : v)
+                                      }));
+                                    }}
+                                    className="scale-75"
+                                  />
+                                  {variant.hasRecipe && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      type="button"
+                                      onClick={() => {
+                                        setCurrentRecipeVariantIndex(index);
+                                        setRecipeEditorOpen(true);
+                                        if (!variantRecipes[index]) {
+                                          const existingRecipe = contextRecipes.find(r => r.variantId?.toString() === variant.id?.toString());
+                                          setVariantRecipes(prev => ({ ...prev, [index]: existingRecipe || { variantId: variant.id, ingredients: [], yield: 1 } }));
+                                        }
+                                      }}
+                                    >
+                                      <Settings className="h-3 w-3 text-muted-foreground" />
+                                    </Button>
+                                  )}
+                                </div>
                               </td>
                               <td className="p-2">
                                 <div className="flex items-center gap-2">
@@ -1265,6 +1391,12 @@ export default function Products() {
               </div>
               <div className="flex items-center gap-4">
                 <div className="hidden md:flex gap-2">
+                  {product.type === 'RAW_MATERIAL' && (
+                    <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
+                      <Tag className="h-3 w-3 mr-1" />
+                      Raw Material
+                    </Badge>
+                  )}
                   {product.availableOnline && (
                     <Badge variant="default" className="text-xs bg-primary/20 text-primary hover:bg-primary/30">
                       <Globe className="h-3 w-3 mr-1" />
@@ -1278,7 +1410,7 @@ export default function Products() {
                     </Badge>
                   )}
                   <Badge variant="outline" className="text-xs">
-                    Total Qty: {(product.variants || []).reduce((sum, v) => sum + v.stock, 0)}
+                    Total Qty: {(product.variants || []).reduce((sum, v) => sum + v.stock, 0).toFixed(3)}
                   </Badge>
                   <Badge
                     variant={product.isActive !== false ? "secondary" : "destructive"}
@@ -1360,7 +1492,7 @@ export default function Products() {
                           </td>
                           <td className="text-xs md:text-sm">${variant.price.toFixed(2)}</td>
                           <td className="text-xs md:text-sm">${variant.cost.toFixed(2)}</td>
-                          <td className="text-xs md:text-sm">{variant.stock}</td>
+                          <td className="text-xs md:text-sm">{variant.stock.toFixed(3)} <span className="text-muted-foreground text-[10px]">{product.unit || 'PCS'}</span></td>
                           <td>
                             <StockBadge status={getStockStatus(variant.stock, variant.lowStockThreshold)} />
                           </td>
@@ -1418,6 +1550,33 @@ export default function Products() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Recipe Editor Dialog */}
+      <RecipeDialog 
+        isOpen={recipeEditorOpen}
+        onOpenChange={setRecipeEditorOpen}
+        recipe={currentRecipeVariantIndex !== null ? variantRecipes[currentRecipeVariantIndex] : null}
+        targetVariantId={currentRecipeVariantIndex !== null ? newProduct.variants[currentRecipeVariantIndex]?.id : undefined}
+        onSave={(savedRecipe) => {
+          if (currentRecipeVariantIndex !== null) {
+            setVariantRecipes(prev => ({ ...prev, [currentRecipeVariantIndex]: savedRecipe }));
+            // Update the local variant's hasRecipe flag
+            setNewProduct(prev => ({
+              ...prev,
+              variants: prev.variants.map((v, i) => i === currentRecipeVariantIndex ? { ...v, hasRecipe: true } : v)
+            }));
+          }
+        }}
+        onSaveOnly={currentRecipeVariantIndex !== null && !newProduct.variants[currentRecipeVariantIndex]?.id ? (recipe) => {
+          if (currentRecipeVariantIndex !== null) {
+            setVariantRecipes(prev => ({ ...prev, [currentRecipeVariantIndex]: recipe }));
+            setNewProduct(prev => ({
+              ...prev,
+              variants: prev.variants.map((v, i) => i === currentRecipeVariantIndex ? { ...v, hasRecipe: true } : v)
+            }));
+          }
+        } : undefined}
+      />
     </AppLayout >
   );
 }

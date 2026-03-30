@@ -79,6 +79,7 @@ export default function StockTake() {
                             systemStock: stock,
                             countedStock: 0,
                             variance: 0,
+                            unit: product.unit || 'PCS',
                             attributes: variant.attributes
                         };
                     })
@@ -94,7 +95,7 @@ export default function StockTake() {
     const updateCount = (variantId: string, count: number) => {
         setStockTakeItems(prev => prev.map(item => {
             if (item.variantId === variantId) {
-                const variance = count - item.systemStock;
+                const variance = parseFloat((count - item.systemStock).toFixed(3));
                 return { ...item, countedStock: count, variance };
             }
             return item;
@@ -584,18 +585,19 @@ export default function StockTake() {
                                                         <div className="flex flex-wrap items-center justify-between md:justify-end gap-6 sm:gap-10">
                                                             <div className="text-center bg-muted/50 px-2 py-1 rounded min-w-[60px]">
                                                                 <p className="text-[10px] uppercase font-bold text-muted-foreground">System</p>
-                                                                <p className="font-bold text-sm">{item.systemStock}</p>
+                                                                <p className="font-bold text-sm">{item.systemStock.toFixed(3)} <span className="text-[10px] font-normal">{item.unit}</span></p>
                                                             </div>
 
                                                             <div className="flex flex-col items-center">
                                                                 <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Physical Count</p>
                                                                 <Input
                                                                     type="number"
+                                                                    step="0.001"
                                                                     min="0"
                                                                     value={item.countedStock || ''}
-                                                                    onChange={(e) => updateCount(item.variantId, parseInt(e.target.value) || 0)}
+                                                                    onChange={(e) => updateCount(item.variantId, parseFloat(e.target.value) || 0)}
                                                                     className="text-center h-9 w-24 font-bold"
-                                                                    placeholder="0"
+                                                                    placeholder="0.000"
                                                                 />
                                                             </div>
 
@@ -608,7 +610,7 @@ export default function StockTake() {
                                                                         item.variance < 0 && 'text-destructive',
                                                                         item.variance === 0 && isCounted && 'text-muted-foreground'
                                                                     )}>
-                                                                        {item.variance > 0 ? '+' : ''}{isCounted ? item.variance : '-'}
+                                                                        {item.variance > 0 ? '+' : ''}{isCounted ? item.variance.toFixed(3) : '-'} <span className="text-[10px] font-normal">{item.unit}</span>
                                                                     </p>
                                                                     {isCounted && (
                                                                         <div className={cn(

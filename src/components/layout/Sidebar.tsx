@@ -16,7 +16,9 @@ import {
   ChevronRight,
   Image as ImageIcon,
   Truck,
-  X
+  X,
+  ChefHat,
+  ShoppingBag
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -38,6 +40,8 @@ const navigation: NavigationItem[] = [
   { name: 'Point of Sale', href: '/pos', icon: ShoppingCart, requiredRight: 'viewOrders' },
   { name: 'Online Orders', href: '/orders', icon: Truck, requiredRight: 'viewOrders' },
   { name: 'Stock Take', href: '/stock-take', icon: ClipboardList, requiredRight: 'stockTake' },
+  { name: 'Recipes/Production', href: '/recipes', icon: ChefHat, requiredRight: 'manageRecipes' },
+  { name: 'Purchasing', href: '/purchasing', icon: ShoppingBag, requiredRight: 'managePurchasing' },
   { name: 'Stock Transfer', href: '/transfers', icon: ArrowRightLeft, requiredRight: 'stockAdjustment' },
   { name: 'Reports', href: '/reports', icon: BarChart3, requiredRight: 'viewReports' },
   { name: 'Stock Journal', href: '/journal', icon: History, requiredRight: 'viewInventory' },

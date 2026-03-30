@@ -23,6 +23,8 @@ import InventoryTransactions from "./pages/InventoryTransactions";
 import Slides from "./pages/Slides";
 import Promotions from "./pages/Promotions";
 import OnlineOrders from "./pages/OnlineOrders";
+import Recipes from "./pages/Recipes";
+import Purchasing from "./pages/Purchasing";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +45,8 @@ const App = () => (
               <Route path="/pos" element={<ProtectedRoute requiredRight="viewOrders"><POS /></ProtectedRoute>} />
               <Route path="/adjustments" element={<ProtectedRoute requiredRight="stockAdjustment"><StockAdjustment /></ProtectedRoute>} />
               <Route path="/stock-take" element={<ProtectedRoute requiredRight="stockTake"><StockTake /></ProtectedRoute>} />
+              <Route path="/recipes" element={<ProtectedRoute requiredRight="manageRecipes"><Recipes /></ProtectedRoute>} />
+              <Route path="/purchasing" element={<ProtectedRoute requiredRight="managePurchasing"><Purchasing /></ProtectedRoute>} />
               <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute requiredRight="viewSettings"><Settings /></ProtectedRoute>} />

@@ -138,7 +138,7 @@ export default function POS() {
 
   // Get all variants with product info (Active only)
   const allVariants = products
-    .filter(p => p.isActive !== false)
+    .filter(p => p.isActive !== false && p.type === 'FINISHED_GOOD')
     .flatMap(product =>
       product.variants
         .filter(v => v.isActive !== false)
@@ -311,8 +311,9 @@ export default function POS() {
     // Force string lookup for map key
     const availableStock = variant.locationStock?.[selectedLocationId?.toString()] || 0;
     const allowNegative = settings?.allowNegativeStock ?? false;
+    const skipStockCheck = variant.hasRecipe;
 
-    if (availableStock <= 0 && !allowNegative) {
+    if (availableStock <= 0 && !allowNegative && !skipStockCheck) {
       toast.error(`No stock available at ${selectedLocation?.name || 'selected location'}`);
       return;
     }
@@ -326,7 +327,7 @@ export default function POS() {
       const currentPrice = priceInfo.promotion ? priceInfo.currentPrice : variant.price;
 
       if (existing) {
-        if (existing.quantity >= availableStock && !allowNegative) {
+        if (existing.quantity >= availableStock && !allowNegative && !skipStockCheck) {
           toast.error(`Cannot add more. Only ${availableStock} in stock at ${selectedLocation?.name}`);
           return prev;
         }
@@ -343,7 +344,8 @@ export default function POS() {
         attributes: variant.attributes,
         quantity: 1,
         price: currentPrice,
-        maxStock: availableStock
+        maxStock: availableStock,
+        hasRecipe: variant.hasRecipe
       }];
     });
     setVariantDialogOpen(false);
@@ -356,7 +358,7 @@ export default function POS() {
       if (item.variantId === variantId) {
         const newQuantity = item.quantity + delta;
         if (newQuantity <= 0) return item;
-        if (newQuantity > item.maxStock && !settings?.allowNegativeStock) {
+        if (newQuantity > item.maxStock && !settings?.allowNegativeStock && !item.hasRecipe) {
           toast.error('Cannot exceed available stock');
           return item;
         }
@@ -1067,7 +1069,7 @@ export default function POS() {
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Plus className="text-white h-4 w-4" />
                       </div>
-                      {totalStock <= 0 && (
+                      {totalStock <= 0 && !product.variants.some(v => v.hasRecipe) && (
                         <div className="absolute bottom-1 right-1">
                           <span className="text-[8px] text-red-600 font-bold bg-white/90 px-1 py-0.5 rounded shadow-sm">OUT OF STOCK</span>
                         </div>
@@ -1095,7 +1097,7 @@ export default function POS() {
                             })()}
                           </div>
                           <span className={`text-[9px] px-1 py-0.5 rounded ${totalStock > 0 ? 'bg-muted text-muted-foreground' : 'bg-red-100 text-red-600'}`}>
-                            {totalStock} qty
+                            {totalStock.toFixed(3)} qty
                           </span>
                         </div>
                         {variantCount > 1 && (
@@ -1354,18 +1356,20 @@ export default function POS() {
           }
         }
       }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Complete Payment</DialogTitle>
-            <DialogDescription>
-              Total amount due: ${total.toFixed(2)}
-              {selectedCustomer && (
-                <span className="block mt-1">Customer: {selectedCustomer.name}</span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-md h-[95vh] sm:h-auto flex flex-col p-0 overflow-hidden">
+          <div className="p-4 md:p-6 pb-2 shrink-0">
+            <DialogHeader>
+              <DialogTitle>Complete Payment</DialogTitle>
+              <DialogDescription>
+                Total amount due: ${total.toFixed(2)}
+                {selectedCustomer && (
+                  <span className="block mt-1">Customer: {selectedCustomer.name}</span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
-          <div className="space-y-4 py-4">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 pt-0 min-h-0 space-y-4">
             {/* Payment Summary */}
             <div className="grid grid-cols-3 gap-2 text-center p-3 bg-muted/50 rounded-lg">
               <div>
@@ -1505,19 +1509,21 @@ export default function POS() {
                 Balance remaining: ${(total - totalPaid).toFixed(2)}
               </div>
             )}
-
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckoutOpen(false)} disabled={isProcessing}>Cancel</Button>
-            <Button
-              onClick={handleCheckout}
-              disabled={totalPaid < total - 0.01 || isProcessing} // Small epsilon for float comparison
-              className={totalPaid >= total - 0.01 ? 'bg-green-600 hover:bg-green-700' : ''}
-            >
-              {isProcessing ? 'Processing...' : 'Complete Sale'}
-            </Button>
-          </DialogFooter>
+          <div className="p-4 md:p-6 border-t shrink-0 bg-background pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            <DialogFooter className="flex flex-row justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setCheckoutOpen(false)} disabled={isProcessing}>Cancel</Button>
+              <Button
+                size="sm"
+                onClick={handleCheckout}
+                disabled={totalPaid < total - 0.01 || isProcessing}
+                className={totalPaid >= total - 0.01 ? 'bg-green-600 hover:bg-green-700' : ''}
+              >
+                {isProcessing ? 'Processing...' : 'Complete Sale'}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1546,7 +1552,7 @@ export default function POS() {
                   // correct stock check
                   const locationStock = variant.locationStock?.[selectedLocationId?.toString()] || 0;
                   const isOutOfStock = locationStock <= 0;
-                  const canAdd = !isOutOfStock || settings?.allowNegativeStock;
+                  const canAdd = !isOutOfStock || settings?.allowNegativeStock || variant.hasRecipe;
 
                   return (
                     <div
@@ -1585,9 +1591,9 @@ export default function POS() {
                       </div>
                       <div className="flex justify-between items-center text-xs">
                         <span className={locationStock <= variant.lowStockThreshold ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
-                          {locationStock} in stock
+                          {locationStock.toFixed(3)} in stock
                         </span>
-                        {locationStock === 0 && <Badge variant="destructive" className="text-[9px]">Out of Stock</Badge>}
+                        {locationStock <= 0 && !variant.hasRecipe && <Badge variant="destructive" className="text-[9px]">Out of Stock</Badge>}
                       </div>
                     </div>
                   )
@@ -1715,47 +1721,49 @@ export default function POS() {
                 <div className="space-y-2">
                   {filteredSalesHistory.map(sale => (
                     <div key={sale.id} className="border rounded-lg bg-card overflow-hidden">
-                      <div className="flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer"
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer gap-3"
                         onClick={() => toggleExpandOrder(sale.id)}>
-                        <div className="flex gap-4 items-center">
-                          <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+                        <div className="flex gap-3 md:gap-4 items-center">
+                          <div className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-green-100 flex items-center justify-center text-green-600 shrink-0">
                             <FileText className="h-5 w-5" />
                           </div>
-                          <div>
-                            <div className="font-medium">
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm md:text-base truncate">
                               Sale #{sale.id.toString().slice(-6)}
                             </div>
-                            <div className="text-sm text-muted-foreground flex gap-2">
+                            <div className="text-[11px] md:text-sm text-muted-foreground flex items-center gap-1 md:gap-2">
                               <span>{format(sale.timestamp, 'MMM d, HH:mm')}</span>
                               <span>•</span>
-                              <span className="capitalize">{sale.paymentMethod}</span>
+                              <span className="capitalize truncate">{sale.paymentMethod}</span>
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="font-semibold text-right">
+                        <div className="flex items-center justify-between sm:justify-end gap-2 md:gap-4 flex-wrap">
+                          <div className="font-bold text-right text-xs md:text-base shrink-0">
                             ${(sale.total || (sale as any).totalAmount || 0).toFixed(2)}
                           </div>
-                          <Button size="sm" variant="outline" onClick={(e) => {
-                            e.stopPropagation();
-                            handleReceiptAction(`${BASE_URL}/api/transactions/sale/${sale.id}/receipt`);
-                          }} title="View/Print Receipt">
-                            <Receipt className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={(e) => {
-                            e.stopPropagation();
-                            handleReorder(sale);
-                          }}>
-                            Re-order
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenReturn(sale);
-                          }}>
-                            <RotateCcw className="h-4 w-4 mr-2" />
-                            Return
-                          </Button>
-                          {expandedOrderId === sale.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          <div className="flex items-center gap-1 md:gap-1.5 flex-wrap justify-end">
+                            <Button size="sm" variant="outline" className="h-7 w-7 md:h-8 md:w-8 p-0" onClick={(e) => {
+                              e.stopPropagation();
+                              handleReceiptAction(`${BASE_URL}/api/transactions/sale/${sale.id}/receipt`);
+                            }} title="View/Print Receipt">
+                              <Receipt className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 px-1.5 md:h-8 md:px-2 text-[10px] md:text-xs" onClick={(e) => {
+                              e.stopPropagation();
+                              handleReorder(sale);
+                            }}>
+                              Re-order
+                            </Button>
+                            <Button size="sm" variant="destructive" className="h-7 px-1.5 md:h-8 md:px-2 text-[10px] md:text-xs" onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenReturn(sale);
+                            }}>
+                              <RotateCcw className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
+                              Return
+                            </Button>
+                            {expandedOrderId === sale.id ? <ChevronUp className="h-4 w-4 ml-0.5" /> : <ChevronDown className="h-4 w-4 ml-0.5" />}
+                          </div>
                         </div>
                       </div>
 

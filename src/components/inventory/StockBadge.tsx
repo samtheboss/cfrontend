@@ -16,7 +16,7 @@ export function StockBadge({ status, stock }: StockBadgeProps) {
       {status === 'in-stock' && 'In Stock'}
       {status === 'low-stock' && 'Low Stock'}
       {status === 'out-of-stock' && 'Out of Stock'}
-      {stock !== undefined && ` (${stock})`}
+      {stock !== undefined && ` (${stock.toFixed(3)})`}
     </span>
   );
 }

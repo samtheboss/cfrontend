@@ -40,6 +40,8 @@ export interface UserRights {
   viewInventory: RightValue;
   stockAdjustment: RightValue;
   stockTake: RightValue;
+  manageRecipes: RightValue;
+  managePurchasing: RightValue;
 
   // Reports
   viewReports: RightValue;
@@ -99,6 +101,8 @@ export const defaultRights: UserRights = {
   viewInventory: 'no',
   stockAdjustment: 'no',
   stockTake: 'no',
+  manageRecipes: 'no',
+  managePurchasing: 'no',
   viewReports: 'no',
   viewSettings: 'no',
   editSettings: 'no',
@@ -137,6 +141,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
+      manageRecipes: 'yes',
+      managePurchasing: 'yes',
       viewReports: 'yes',
       viewSettings: 'yes',
       editSettings: 'yes',
@@ -174,6 +180,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
+      manageRecipes: 'yes',
+      managePurchasing: 'yes',
       viewReports: 'yes',
       viewSettings: 'yes',
       editSettings: 'supervised',
@@ -211,6 +219,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewInventory: 'yes',
       stockAdjustment: 'no',
       stockTake: 'no',
+      manageRecipes: 'no',
+      managePurchasing: 'no',
       viewReports: 'no',
       viewSettings: 'no',
       editSettings: 'no',
@@ -248,6 +258,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
+      manageRecipes: 'yes',
+      managePurchasing: 'yes',
       viewReports: 'no',
       viewSettings: 'no',
       editSettings: 'no',
@@ -323,6 +335,8 @@ export const rightLabels: Record<keyof UserRights, string> = {
   viewInventory: 'View Inventory',
   stockAdjustment: 'Stock Adjustment',
   stockTake: 'Stock Take',
+  manageRecipes: 'Manage Recipes/Production',
+  managePurchasing: 'Manage Purchasing/Suppliers',
   viewReports: 'View Reports',
   viewSettings: 'View Settings',
   editSettings: 'Modify Settings',
@@ -334,7 +348,7 @@ export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Customers': ['viewCustomers', 'createCustomer', 'editCustomer', 'deleteCustomer'],
   'Products & Services': ['viewProducts', 'createProduct', 'editProduct', 'deleteProduct'],
   'Users & Employees': ['viewUsers', 'createUser', 'editUser', 'deleteUser', 'manageUserRoles'],
-  'Inventory': ['viewInventory', 'stockAdjustment', 'stockTake'],
+  'Inventory': ['viewInventory', 'stockAdjustment', 'stockTake', 'manageRecipes', 'managePurchasing'],
   'Payments': ['viewPayments', 'processPayments'],
   'Reports': ['viewReports'],
   'Settings': ['viewSettings', 'editSettings'],

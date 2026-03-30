@@ -128,7 +128,7 @@ export default function Inventory() {
       <div className="grid grid-cols-4 gap-4 mb-6">
         <Card className="p-4">
           <p className="text-sm text-muted-foreground">Total Items</p>
-          <p className="text-2xl font-semibold">{totalItems.toLocaleString()}</p>
+          <p className="text-2xl font-semibold">{totalItems.toFixed(3)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-muted-foreground">In Stock</p>
@@ -270,7 +270,7 @@ export default function Inventory() {
                         </div>
                       </td>
                       <td className="font-medium">{priceRange}</td>
-                      <td className="font-semibold">{totalStock}</td>
+                      <td className="font-semibold">{totalStock.toFixed(3)}</td>
                       <td className="text-muted-foreground">-</td>
                       <td className="flex items-center justify-between">
                         <StockBadge status={getStockStatus(totalStock, 10)} />
@@ -307,8 +307,8 @@ export default function Inventory() {
                             </div>
                           </td>
                           <td>${variant.price.toFixed(2)}</td>
-                          <td className="font-semibold">{vStock}</td>
-                          <td className="text-xs text-muted-foreground">{variant.lowStockThreshold}</td>
+                          <td className="font-semibold">{vStock.toFixed(3)}</td>
+                          <td className="text-xs text-muted-foreground">{variant.lowStockThreshold.toFixed(3)}</td>
                           <td>
                             <StockBadge status={getStockStatus(vStock, variant.lowStockThreshold)} />
                           </td>

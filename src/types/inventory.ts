@@ -33,17 +33,36 @@ export interface ProductVariant {
   price: number;
   cost: number;
   wasPrice?: number;
-  stock: number; // For backward compatibility or aggregate
-  locationStock: Record<string, number>; // locationId -> quantity
+  stock: number; // Decimal support (e.g. 5.5 kg)
+  locationStock: Record<string, number>; // locationId -> quantity (decimal)
   lowStockThreshold: number;
   isActive: boolean;
   image?: string;
+  hasRecipe?: boolean;
+}
+
+export interface RecipeIngredient {
+  id?: string;
+  componentVariantId: string;
+  componentName?: string;
+  quantity: number;
+}
+
+export interface Recipe {
+  id?: string;
+  name: string;
+  variantId: string;
+  ingredients: RecipeIngredient[];
+  autoProduce: boolean;
+  manualProduce: boolean;
+  yield: number;
 }
 
 export interface Product {
-  id: string;
-  name: string;
-  description: string;
+    id: string;
+    name: string;
+    type: 'RAW_MATERIAL' | 'FINISHED_GOOD';
+    description: string;
   category: string;
   attributes: ProductAttribute[];
   variants: ProductVariant[];
@@ -89,8 +108,25 @@ export interface StockTakeItem {
   attributes?: Record<string, string>;
 }
 
-export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE' | 'RETURN';
+export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE' | 'RETURN' | 'RECEIVED' | 'PRODUCTION';
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED' | 'DRAFT';
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  isActive: boolean;
+}
+
+export interface PurchaseOrder extends InventoryTransaction {
+  supplierId: string;
+  totalAmount: number;
+  paymentStatus: 'PENDING' | 'PAID' | 'PARTIAL';
+  referenceNumber?: string;
+}
 
 export interface InventoryTransaction {
   id?: string;

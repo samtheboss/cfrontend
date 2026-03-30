@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category, Promotion } from '@/types/inventory';
+import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category, Promotion, Recipe, Supplier } from '@/types/inventory';
 import { mockProducts, mockLocations, mockAdjustments, mockCustomers } from '@/data/mockData';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -13,11 +13,13 @@ interface InventoryContextType {
     transactions: InventoryTransaction[];
     settings: SystemSettings | null;
     promotions: Promotion[];
+    recipes: Recipe[];
+    suppliers: Supplier[];
     isLoading: boolean;
 
     // Actions
-    addProduct: (product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
-    updateProduct: (product: Product) => Promise<void>;
+    addProduct: (product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Product>;
+    updateProduct: (product: Product) => Promise<Product>;
     deleteProduct: (productId: string) => Promise<void>;
     deleteProducts: (productIds: string[]) => Promise<void>;
 
@@ -49,6 +51,15 @@ interface InventoryContextType {
     updateBulkPromotions: (promotions: Promotion[]) => Promise<void>;
     deletePromotion: (id: number) => Promise<void>;
     deleteBulkPromotions: (ids: number[]) => Promise<void>;
+
+    // Recipes
+    addRecipe: (recipe: Partial<Recipe>) => Promise<Recipe>;
+    updateRecipe: (recipe: Recipe) => Promise<Recipe>;
+    deleteRecipe: (id: string) => Promise<void>;
+
+    // Suppliers
+    addSupplier: (supplier: Partial<Supplier>) => Promise<void>;
+    updateSupplier: (supplier: Supplier) => Promise<void>;
 
     // Settings
     updateSettings: (settings: SystemSettings) => Promise<void>;
@@ -84,6 +95,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
     const [promotions, setPromotions] = useState<Promotion[]>([]);
+    const [recipes, setRecipes] = useState<Recipe[]>([]);
+    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [settings, setSettings] = useState<SystemSettings | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -121,7 +134,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 queryParams = `&startDate=${start.toISOString()}&endDate=${end.toISOString()}`;
             }
 
-            const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, promotionsRes, settingsRes] = await Promise.all([
+            const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, promotionsRes, recipesRes, suppliersRes, settingsRes] = await Promise.all([
                 apiFetch<ApiResponse<Product[]>>('/api/products'),
                 apiFetch<ApiResponse<Category[]>>('/api/categories'),
                 apiFetch<ApiResponse<InventoryTransaction[]>>(`/api/transactions?${queryParams.replace('&', '')}`), // Remove leading & if basic param
@@ -129,6 +142,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 apiFetch<ApiResponse<Location[]>>('/api/locations'),
                 apiFetch<ApiResponse<Customer[]>>('/api/customers'),
                 apiFetch<ApiResponse<Promotion[]>>('/api/promotions'),
+                apiFetch<ApiResponse<Recipe[]>>('/api/recipes'),
+                apiFetch<ApiResponse<Supplier[]>>('/api/suppliers'),
                 apiFetch<ApiResponse<SystemSettings>>('/api/system-settings'),
             ]);
             setProducts(productsRes.data);
@@ -138,6 +153,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             setLocations(locationsRes.data);
             setCustomers(customersRes.data);
             setPromotions(promotionsRes.data || []);
+            setRecipes(recipesRes.data);
+            setSuppliers(suppliersRes.data);
             setSettings(settingsRes.data);
         } catch (error) {
             console.error('Failed to fetch inventory data:', error);
@@ -158,12 +175,13 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
     const addProduct = async (productData: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => {
         try {
-            await apiFetch('/api/products', {
+            const response = await apiFetch<ApiResponse<Product>>('/api/products', {
                 method: 'POST',
                 body: JSON.stringify(productData),
             });
             await fetchInventoryData();
             toast.success('Product added successfully');
+            return response.data;
         } catch (error) {
             toast.error('Failed to add product');
             throw error;
@@ -172,12 +190,13 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
     const updateProduct = async (product: Product) => {
         try {
-            await apiFetch('/api/products', {
+            const response = await apiFetch<ApiResponse<Product>>('/api/products', {
                 method: 'POST', // Backend uses save (upsert)
                 body: JSON.stringify(product),
             });
             await fetchInventoryData();
             toast.success('Product updated successfully');
+            return response.data;
         } catch (error) {
             toast.error('Failed to update product');
             throw error;
@@ -491,11 +510,11 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             const variant = { ...newVariants[variantIndex] };
             const newLocationStock = { ...variant.locationStock };
 
-            newLocationStock[locationId] = (newLocationStock[locationId] || 0) + delta;
+            newLocationStock[locationId] = parseFloat(((newLocationStock[locationId] || 0) + delta).toFixed(3));
 
             // Update aggregate stock for backward compatibility
             variant.locationStock = newLocationStock;
-            variant.stock = Object.values(newLocationStock).reduce((sum, q) => sum + q, 0);
+            variant.stock = parseFloat(Object.values(newLocationStock).reduce((sum, q: number) => sum + q, 0).toFixed(3));
 
             newVariants[variantIndex] = variant;
             return { ...product, variants: newVariants };
@@ -598,6 +617,30 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 holdOrder,
                 discardOrder,
                 salesHistory,
+                recipes,
+                suppliers,
+                addRecipe: async (recipe): Promise<Recipe> => {
+                    const response = await apiFetch<ApiResponse<Recipe>>('/api/recipes', { method: 'POST', body: JSON.stringify(recipe) });
+                    await fetchInventoryData();
+                    return response.data;
+                },
+                updateRecipe: async (recipe): Promise<Recipe> => {
+                    const response = await apiFetch<ApiResponse<Recipe>>(`/api/recipes/${recipe.id}`, { method: 'PUT', body: JSON.stringify(recipe) });
+                    await fetchInventoryData();
+                    return response.data;
+                },
+                deleteRecipe: async (id) => {
+                    await apiFetch(`/api/recipes/${id}`, { method: 'DELETE' });
+                    await fetchInventoryData();
+                },
+                addSupplier: async (supplier) => {
+                    await apiFetch('/api/suppliers', { method: 'POST', body: JSON.stringify(supplier) });
+                    await fetchInventoryData();
+                },
+                updateSupplier: async (supplier) => {
+                    await apiFetch(`/api/suppliers/${supplier.id}`, { method: 'PUT', body: JSON.stringify(supplier) });
+                    await fetchInventoryData();
+                },
                 refreshData: fetchInventoryData,
             }}
         >

@@ -164,13 +164,13 @@ export default function InventoryTransactions() {
                                                                                     {variants.map((v, idx) => (
                                                                                         <div key={idx} className="grid grid-cols-4 gap-4 px-4 py-2 items-center text-sm">
                                                                                             <div className="font-mono text-xs text-muted-foreground">{v.sku}</div>
-                                                                                            <div className="text-center">{v.quantityBefore ?? '-'}</div>
+                                                                                            <div className="text-center">{v.quantityBefore != null ? v.quantityBefore.toFixed(3) : '-'}</div>
                                                                                             <div className="flex justify-center">
                                                                                                 <Badge variant={v.adjustment > 0 ? 'default' : v.adjustment < 0 ? 'destructive' : 'secondary'} className="h-5 text-[10px] font-bold">
-                                                                                                    {v.adjustment > 0 ? '+' : ''}{v.adjustment}
+                                                                                                    {v.adjustment > 0 ? '+' : ''}{v.adjustment.toFixed(3)}
                                                                                                 </Badge>
                                                                                             </div>
-                                                                                            <div className="text-center font-bold text-primary">{v.quantityAfter ?? '-'}</div>
+                                                                                            <div className="text-center font-bold text-primary">{v.quantityAfter != null ? v.quantityAfter.toFixed(3) : '-'}</div>
                                                                                         </div>
                                                                                     ))}
                                                                                 </div>
