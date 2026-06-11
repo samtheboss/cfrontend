@@ -18,7 +18,8 @@ import {
   Truck,
   X,
   ChefHat,
-  ShoppingBag
+  ShoppingBag,
+  Wallet
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,7 @@ const navigation: NavigationItem[] = [
   { name: 'Stock Take', href: '/stock-take', icon: ClipboardList, requiredRight: 'stockTake' },
   { name: 'Recipes/Production', href: '/recipes', icon: ChefHat, requiredRight: 'manageRecipes' },
   { name: 'Purchasing', href: '/purchasing', icon: ShoppingBag, requiredRight: 'managePurchasing' },
+  { name: 'Supplier Accounts', href: '/supplier-accounts', icon: Wallet, requiredRight: 'managePurchasing' },
   { name: 'Stock Transfer', href: '/transfers', icon: ArrowRightLeft, requiredRight: 'stockAdjustment' },
   { name: 'Reports', href: '/reports', icon: BarChart3, requiredRight: 'viewReports' },
   { name: 'Stock Journal', href: '/journal', icon: History, requiredRight: 'viewInventory' },

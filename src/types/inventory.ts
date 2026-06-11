@@ -125,6 +125,7 @@ export interface PurchaseOrder extends InventoryTransaction {
   supplierId: string;
   totalAmount: number;
   paymentStatus: 'PENDING' | 'PAID' | 'PARTIAL';
+  paymentMethod?: string;
   referenceNumber?: string;
 }
 

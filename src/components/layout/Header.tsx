@@ -1,5 +1,5 @@
-import { useNavigate } from 'react-router-dom';
-import { Bell, Search, User, LogOut, Settings, Menu } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Bell, Search, User, LogOut, Settings, Grid } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,23 +21,29 @@ interface HeaderProps {
 export function Header({ title, onMenuClick }: HeaderProps) {
   const { user, logout, getGroupById } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = () => {
     logout();
     navigate('/signin');
   };
 
+  const isHome = location.pathname === '/';
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6">
       <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onMenuClick}
-          className="lg:hidden"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+        {!isHome && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/')}
+            className="gap-1.5 text-muted-foreground hover:text-foreground h-9 px-2 rounded-lg"
+          >
+            <Grid className="h-4 w-4 text-primary" />
+            <span className="hidden sm:inline text-xs font-semibold">Main Menu</span>
+          </Button>
+        )}
         <h1 className="text-lg md:text-xl font-semibold text-foreground truncate max-w-[150px] sm:max-w-none">{title}</h1>
       </div>
 

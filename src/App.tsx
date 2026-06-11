@@ -8,6 +8,7 @@ import { InventoryProvider } from "@/contexts/InventoryContext";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import SignIn from "./pages/SignIn";
 import Dashboard from "./pages/Dashboard";
+import DashboardMenu from "./pages/DashboardMenu";
 import Products from "./pages/Products";
 import Inventory from "./pages/Inventory";
 import POS from "./pages/POS";
@@ -25,6 +26,8 @@ import Promotions from "./pages/Promotions";
 import OnlineOrders from "./pages/OnlineOrders";
 import Recipes from "./pages/Recipes";
 import Purchasing from "./pages/Purchasing";
+import SupplierAccounts from "./pages/SupplierAccounts";
+import Accommodation from "./pages/Accommodation";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,7 +42,8 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/signin" element={<SignIn />} />
-              <Route path="/" element={<ProtectedRoute requiredRight="viewDashboard"><Dashboard /></ProtectedRoute>} />
+              <Route path="/" element={<ProtectedRoute requiredRight="viewDashboard"><DashboardMenu /></ProtectedRoute>} />
+              <Route path="/stats" element={<ProtectedRoute requiredRight="viewDashboard"><Dashboard /></ProtectedRoute>} />
               <Route path="/products" element={<ProtectedRoute requiredRight="viewProducts"><Products /></ProtectedRoute>} />
               <Route path="/inventory" element={<ProtectedRoute requiredRight="viewInventory"><Inventory /></ProtectedRoute>} />
               <Route path="/pos" element={<ProtectedRoute requiredRight="viewOrders"><POS /></ProtectedRoute>} />
@@ -47,6 +51,8 @@ const App = () => (
               <Route path="/stock-take" element={<ProtectedRoute requiredRight="stockTake"><StockTake /></ProtectedRoute>} />
               <Route path="/recipes" element={<ProtectedRoute requiredRight="manageRecipes"><Recipes /></ProtectedRoute>} />
               <Route path="/purchasing" element={<ProtectedRoute requiredRight="managePurchasing"><Purchasing /></ProtectedRoute>} />
+              <Route path="/supplier-accounts" element={<ProtectedRoute requiredRight="managePurchasing"><SupplierAccounts /></ProtectedRoute>} />
+              <Route path="/accommodation" element={<ProtectedRoute requiredRight="viewDashboard"><Accommodation /></ProtectedRoute>} />
               <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute requiredRight="viewSettings"><Settings /></ProtectedRoute>} />

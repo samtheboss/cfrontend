@@ -37,6 +37,7 @@ import {
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { getProductPriceInfo } from '@/lib/pricing';
@@ -119,6 +120,7 @@ export default function POS() {
   const [mpesaPhone, setMpesaPhone] = useState('');
   const [isPollingMpesa, setIsPollingMpesa] = useState(false);
   const [mpesaStatus, setMpesaStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'>('IDLE');
+  const [useStkPush, setUseStkPush] = useState(true);
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
 
@@ -1424,11 +1426,24 @@ export default function POS() {
                           disabled={isPollingMpesa && method === 'mobile'}
                         />
                       </div>
+                      {method === 'mobile' && (
+                        <div className="col-span-2 flex items-center justify-between border-t border-b py-2 my-1">
+                          <div className="space-y-0.5">
+                            <Label htmlFor="toggle-stk-pos" className="text-xs font-medium">Use M-Pesa STK Push</Label>
+                            <p className="text-[10px] text-muted-foreground">Send payment prompt to customer's phone</p>
+                          </div>
+                          <Switch
+                            id="toggle-stk-pos"
+                            checked={useStkPush}
+                            onCheckedChange={setUseStkPush}
+                          />
+                        </div>
+                      )}
                       <div className="space-y-1">
                         <Label htmlFor={`ref-${method}`} className="text-xs">
-                          {method === 'mobile' ? 'M-Pesa Phone' : 'Reference (Optional)'}
+                          {method === 'mobile' ? (useStkPush ? 'M-Pesa Phone' : 'Reference Code') : 'Reference (Optional)'}
                         </Label>
-                        {method === 'mobile' ? (
+                        {method === 'mobile' && useStkPush ? (
                           <div className="flex gap-2">
                             <Input
                               id="mpesa-phone"
