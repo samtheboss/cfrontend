@@ -40,7 +40,7 @@ interface InventoryContextType {
     deleteLocation: (locationId: string) => Promise<void>;
 
     // Customers
-    addCustomer: (customer: Partial<Customer>) => Promise<void>;
+    addCustomer: (customer: Partial<Customer>) => Promise<Customer>;
     updateCustomer: (customer: Customer) => Promise<void>;
     deleteCustomer: (customerId: string) => Promise<void>;
 
@@ -391,14 +391,16 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
     const addCustomer = async (customerData: Partial<Customer>) => {
         try {
-            await apiFetch('/api/customers', {
+            const response = await apiFetch<ApiResponse<Customer>>('/api/customers', {
                 method: 'POST',
                 body: JSON.stringify(customerData),
             });
             await fetchInventoryData();
             toast.success('Customer added successfully');
+            return response.data;
         } catch (error) {
             toast.error('Failed to add customer');
+            throw error;
         }
     };
 

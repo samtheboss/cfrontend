@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { User, UserGroup, UserRights, hardcodedUsers, hardcodedUserGroups } from '@/types/user';
+import { User, UserGroup, UserRights, hardcodedUsers, hardcodedUserGroups, defaultRights } from '@/types/user';
 import { apiFetch } from '@/lib/api';
 import { isTokenExpired, getTokenExpirationTime } from '@/lib/auth';
 
@@ -313,56 +313,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         viewInventory: 'yes',
         stockAdjustment: 'yes',
         stockTake: 'yes',
+        manageRecipes: 'yes',
+        managePurchasing: 'yes',
         viewReports: 'yes',
         viewSettings: 'yes',
         editSettings: 'yes',
+        viewAccommodation: 'yes',
+        manageAccommodation: 'yes',
+        managePromotions: 'yes',
       };
     }
 
     const group = getGroupById(targetUser.groupId);
     // Return group rights or safe defaults
-    return group?.rights || {
-      viewDashboard: 'no',
-      exportDashboard: 'no',
-      viewCustomers: 'no',
-      createCustomer: 'no',
-      editCustomer: 'no',
-      deleteCustomer: 'no',
-      viewUsers: 'no',
-      createUser: 'no',
-      editUser: 'no',
-      deleteUser: 'no',
-      manageUserRoles: 'no',
-      viewProducts: 'no',
-      createProduct: 'no',
-      editProduct: 'no',
-      deleteProduct: 'no',
-      viewPayments: 'no',
-      processPayments: 'no',
-      viewOrders: 'no',
-      createOrder: 'no',
-      editOrder: 'no',
-      deleteOrder: 'no',
-      reprintReceipt: 'no',
-      paymentAccess: 'no',
-      viewInventory: 'no',
-      stockAdjustment: 'no',
-      stockTake: 'no',
-      viewReports: 'no',
-      viewSettings: 'no',
-      editSettings: 'no',
-    };
+    return { ...defaultRights, ...(group?.rights || {}) };
   };
 
   const getLandingPage = (targetUser: User): string => {
-    const rights = getUserRights(targetUser);
-    if (rights.viewDashboard === 'yes') return '/';
-    if (rights.viewOrders === 'yes') return '/pos';
-    if (rights.viewProducts === 'yes') return '/products';
-    if (rights.viewInventory === 'yes') return '/inventory';
-    if (rights.viewCustomers === 'yes') return '/customers';
-    if (rights.viewReports === 'yes') return '/reports';
-    return '/'; // Final fallback
+    // Always land on the module selection hub so users with multiple rights can choose where to go.
+    return '/';
   };
 
   return (

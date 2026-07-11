@@ -233,6 +233,9 @@ export interface CartItem {
   quantity: number;
   price: number;
   maxStock: number;
+  cartItemId?: string;
+  printed?: boolean;
+  hasRecipe?: boolean;
 }
 
 export interface ActiveOrder {

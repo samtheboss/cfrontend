@@ -53,9 +53,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { useCurrency } from '@/hooks/useCurrency';
 
 export default function OnlineOrders() {
     const { salesHistory, updateTransaction, settings, refreshData, isLoading } = useInventory();
+  const { sym } = useCurrency();
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('ALL');
     const [selectedOrder, setSelectedOrder] = useState<Sale | null>(null);

@@ -1,22 +1,38 @@
-import { useState, useMemo } from 'react';
+import * as React from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye, RefreshCw, Loader2 } from 'lucide-react';
+import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye, RefreshCw, Loader2, Upload, Trash, Calendar, Users, MapPin, Tag, Edit } from 'lucide-react';
 import { format, isAfter, isBefore, isEqual, compareAsc } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { MultiSelect, Option } from '@/components/ui/multi-select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { BASE_URL, apiFetch } from '@/lib/api';
+import { toast } from 'sonner';
+import { useCurrency } from '@/hooks/useCurrency';
 
 export default function Reports() {
-  const { products, transactions, locations, refreshData } = useInventory();
-  // Wait, locations IS used in getStockMovements (line 123+). I must keep it.
+  const { products, transactions, locations, refreshData, customers, categories } = useInventory();
+  const { allUsers } = useAuth();
+  const { sym } = useCurrency();
 
-  // Report State (Global Filters)
+    // Report State (Global Filters)
   const [startDate, setStartDate] = useState<string>('2024-01-01');
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
@@ -108,41 +124,35 @@ export default function Reports() {
     return Object.entries(trend).map(([day, sales]) => ({ day, sales }));
   }, [filteredSales]);
 
-  // Payments Data (Filtered)
-  const payments = useMemo(() => {
-    const all: { id: string, date: Date, ref: string, method: string, amount: number }[] = [];
-    filteredSales.forEach(s => {
-      const saleRef = s.journalNumber;
-      if ((s as any).payments && (s as any).payments.length > 0) {
-        (s as any).payments.forEach((p: any, idx: number) => {
-          all.push({
-            id: `${s.id}-p-${idx}`,
-            date: new Date(s.timestamp),
-            ref: saleRef,
-            method: p.method,
-            amount: p.amount
-          });
-        });
-      } else {
-        all.push({
-          id: `${s.id}-p-default`,
-          date: new Date(s.timestamp),
-          ref: saleRef,
-          method: (s as any).paymentMethod || 'CASH',
-          amount: s.total || s.totalAmount || 0
-        });
+  // Payments Data (Fetched from combined API)
+  const [combinedPayments, setCombinedPayments] = useState<any[]>([]);
+  const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchPayments = async () => {
+      setIsPaymentsLoading(true);
+      try {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        const res = await apiFetch<any>(`/api/reports/payments?startDate=${start.toISOString()}&endDate=${end.toISOString()}`);
+        setCombinedPayments(res.data || []);
+      } catch (err: any) {
+        toast.error('Failed to load payments: ' + err.message);
+      } finally {
+        setIsPaymentsLoading(false);
       }
-    });
-    return all.sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [filteredSales]);
+    };
+    fetchPayments();
+  }, [startDate, endDate]);
 
   const paymentStats = useMemo(() => {
     const stats: Record<string, number> = {};
-    payments.forEach(p => {
+    combinedPayments.forEach(p => {
       stats[p.method] = (stats[p.method] || 0) + p.amount;
     });
     return stats;
-  }, [payments]);
+  }, [combinedPayments]);
 
   // Stock Movement Report State
   const [selectedProductId, setSelectedProductId] = useState<string>(''); // Product ID
@@ -373,7 +383,7 @@ export default function Reports() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Sales</p>
-                <p className="text-2xl font-bold">${totalSales.toFixed(2)}</p>
+                <p className="text-2xl font-bold">{sym}{totalSales.toFixed(2)}</p>
               </div>
             </div>
           </CardContent>
@@ -399,7 +409,7 @@ export default function Reports() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Inventory Value</p>
-                <p className="text-2xl font-bold">${totalInventoryValue.toLocaleString()}</p>
+                <p className="text-2xl font-bold">{sym}{totalInventoryValue.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -450,7 +460,7 @@ export default function Reports() {
           <TabsTrigger value="payments" className="whitespace-nowrap min-w-fit">Payments Report</TabsTrigger>
           <TabsTrigger value="fast-moving" className="whitespace-nowrap min-w-fit">Fast Moving Items</TabsTrigger>
           <TabsTrigger value="history" className="whitespace-nowrap min-w-fit">Inventory History</TabsTrigger>
-        </TabsList>
+                  </TabsList>
 
         {/* Stock Report Tab */}
         <TabsContent value="stock" className="space-y-6">
@@ -465,7 +475,7 @@ export default function Reports() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-muted-foreground">Total Inventory Value (Cost)</p>
-                  <p className="text-2xl font-bold">${totalInventoryValue.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">{sym}{totalInventoryValue.toLocaleString()}</p>
                 </div>
               </div>
 
@@ -505,11 +515,11 @@ export default function Reports() {
                               <td className="font-medium">{product.name}</td>
                               <td className="text-muted-foreground text-sm">{Object.values(variant.attributes).join(' / ') || 'Default'}</td>
                               <td>{product.category}</td>
-                              <td className="text-right">${variant.cost.toFixed(2)}</td>
-                              <td className="text-right">${variant.price.toFixed(2)}</td>
+                              <td className="text-right">{sym}{variant.cost.toFixed(2)}</td>
+                              <td className="text-right">{sym}{variant.price.toFixed(2)}</td>
                               <td className="text-right font-bold">{variant.stock}</td>
-                              <td className="text-right">${totalCost.toFixed(2)}</td>
-                              <td className="text-right">${totalRetail.toFixed(2)}</td>
+                              <td className="text-right">{sym}{totalCost.toFixed(2)}</td>
+                              <td className="text-right">{sym}{totalRetail.toFixed(2)}</td>
                               <td>
                                 <span className={`px-2 py-1 rounded-full text-xs text-white ${statusColor}`}>
                                   {statusText}
@@ -532,7 +542,7 @@ export default function Reports() {
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle></CardHeader>
-              <CardContent><div className="text-2xl font-bold">${totalSales.toLocaleString()}</div></CardContent>
+              <CardContent><div className="text-2xl font-bold">{sym}{totalSales.toLocaleString()}</div></CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Tax</CardTitle></CardHeader>
@@ -601,9 +611,9 @@ export default function Reports() {
                             {sale.items.map(i => `${i.productName} (${i.adjustment})`).join(', ')}
                           </td>
                           <td className="capitalize">{sale.status === 'COMPLETED' ? 'Paid' : sale.status.toLowerCase()}</td>
-                          <td>${(sale.subtotal || 0).toFixed(2)}</td>
-                          <td>${(sale.tax || sale.taxAmount || 0).toFixed(2)}</td>
-                          <td className="font-semibold">${(sale.total || sale.totalAmount || 0).toFixed(2)}</td>
+                          <td>{sym}{(sale.subtotal || 0).toFixed(2)}</td>
+                          <td>{sym}{(sale.tax || sale.taxAmount || 0).toFixed(2)}</td>
+                          <td className="font-semibold">{sym}{(sale.total || sale.totalAmount || 0).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -678,7 +688,7 @@ export default function Reports() {
                       <CardTitle className="text-sm font-medium uppercase text-muted-foreground">{method}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                      <div className="text-2xl font-bold">{sym}{amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                     </CardContent>
                   </Card>
                 ))}
@@ -686,14 +696,24 @@ export default function Reports() {
               <div className="overflow-x-auto -mx-4 sm:mx-0">
                 <div className="min-w-[600px] inline-block align-middle p-4 sm:p-0">
                   <table className="data-table">
-                    <thead><tr><th>Date</th><th>Ref</th><th>Method</th><th className="text-right">Amount</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Source</th><th>Customer</th><th>Ref</th><th>Method</th><th className="text-right">Amount</th></tr></thead>
                     <tbody>
-                      {payments.map(p => (
+                      {isPaymentsLoading ? (
+                        <tr><td colSpan={6} className="text-center py-4"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></td></tr>
+                      ) : combinedPayments.length === 0 ? (
+                        <tr><td colSpan={6} className="text-center py-4 text-muted-foreground">No payments found for this period.</td></tr>
+                      ) : combinedPayments.map(p => (
                         <tr key={p.id}>
-                          <td>{format(p.date, 'MMM d, yyyy HH:mm')}</td>
-                          <td>{p.ref}</td>
-                          <td>{p.method}</td>
-                          <td className="text-right font-medium">${p.amount.toFixed(2)}</td>
+                          <td>{format(new Date(p.date), 'MMM d, yyyy HH:mm')}</td>
+                          <td>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${p.source === 'POS' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'}`}>
+                              {p.source}
+                            </span>
+                          </td>
+                          <td className="font-medium text-xs">{p.customerName || '-'}</td>
+                          <td className="text-xs text-muted-foreground">{p.reference || '-'}</td>
+                          <td className="font-bold text-xs">{p.method}</td>
+                          <td className="text-right font-medium text-emerald-600 dark:text-emerald-400">KES {p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -925,11 +945,11 @@ export default function Reports() {
                   </div>
                   <div className="flex justify-between items-center p-4 bg-muted/50 rounded-lg">
                     <span className="text-muted-foreground">Cost Value</span>
-                    <span className="text-2xl font-bold">${totalInventoryValue.toLocaleString()}</span>
+                    <span className="text-2xl font-bold">{sym}{totalInventoryValue.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-muted/50 rounded-lg">
                     <span className="text-muted-foreground">Retail Value</span>
-                    <span className="text-2xl font-bold">${totalRetailValue.toLocaleString()}</span>
+                    <span className="text-2xl font-bold">{sym}{totalRetailValue.toLocaleString()}</span>
                   </div>
                 </div>
               </CardContent>
@@ -981,7 +1001,12 @@ export default function Reports() {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
-    </AppLayout>
+
+              </Tabs>
+
+      
+      
+      
+          </AppLayout>
   );
 }

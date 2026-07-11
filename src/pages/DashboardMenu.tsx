@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -33,258 +34,202 @@ import {
   Printer,
   RefreshCw,
   Settings,
-  Search
+  Search,
+  ChevronRight,
+  TrendingUp,
+  Sparkles
 } from 'lucide-react';
 
 interface MenuCard {
   name: string;
+  description: string;
   href: string;
   icon: any;
-  iconColorClass: string;
-  iconBgClass: string;
+  iconGradientClass: string;
   requiredRight?: string;
   hasRedDot?: boolean;
   isComingSoon?: boolean;
+  category: 'core' | 'catalog' | 'purchasing' | 'management';
 }
 
 export default function DashboardMenu() {
   const { user, getUserRights } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState<'all' | 'core' | 'catalog' | 'purchasing' | 'management'>('all');
 
   const rights = user ? getUserRights(user) : null;
 
   const menuItems: MenuCard[] = [
     {
-      name: 'Dashboard',
+      name: 'Dashboard Stats',
+      description: 'Overview of business performance and key metrics',
       href: '/stats',
       icon: LayoutDashboard,
-      iconColorClass: 'text-rose-600',
-      iconBgClass: 'bg-rose-50 dark:bg-rose-950/20',
-      requiredRight: 'viewDashboard'
+      iconGradientClass: 'from-rose-500 to-pink-500 shadow-rose-500/20',
+      requiredRight: 'viewDashboard',
+      category: 'management'
     },
     {
-      name: 'POS',
+      name: 'Point of Sale (POS)',
+      description: 'Process quick counter sales and checkout transactions',
       href: '/pos',
       icon: ShoppingCart,
-      iconColorClass: 'text-amber-600',
-      iconBgClass: 'bg-amber-50 dark:bg-amber-950/20',
+      iconGradientClass: 'from-amber-500 to-orange-550 shadow-amber-500/20',
       requiredRight: 'viewOrders',
-      hasRedDot: true
+      hasRedDot: true,
+      category: 'core'
+    },
+    {
+      name: 'Hotel & Accommodation',
+      description: 'Guest room assignments, bookings, and schedules',
+      href: '/accommodation',
+      icon: Bed,
+      iconGradientClass: 'from-emerald-500 to-teal-500 shadow-emerald-500/20',
+      requiredRight: 'viewAccommodation',
+      hasRedDot: true,
+      category: 'core'
     },
     {
       name: 'Online Orders',
+      description: 'View and manage orders received from e-commerce',
       href: '/orders',
       icon: ShoppingBag,
-      iconColorClass: 'text-indigo-600',
-      iconBgClass: 'bg-indigo-50 dark:bg-indigo-950/20',
+      iconGradientClass: 'from-indigo-500 to-blue-500 shadow-indigo-500/20',
       requiredRight: 'viewOrders',
-      hasRedDot: true
+      hasRedDot: true,
+      category: 'core'
     },
     {
       name: 'Customer Listing',
+      description: 'Manage guest details, accounts, and contact history',
       href: '/customers',
       icon: Users,
-      iconColorClass: 'text-teal-600',
-      iconBgClass: 'bg-teal-50 dark:bg-teal-950/20',
-      requiredRight: 'viewCustomers'
+      iconGradientClass: 'from-cyan-500 to-blue-500 shadow-cyan-500/20',
+      requiredRight: 'viewCustomers',
+      category: 'catalog'
     },
     {
       name: 'Inventory & Stock',
+      description: 'Track stock takes, transfers, and warehouse counts',
       href: '/inventory',
       icon: Boxes,
-      iconColorClass: 'text-sky-600',
-      iconBgClass: 'bg-sky-50 dark:bg-sky-950/20',
-      requiredRight: 'viewInventory'
+      iconGradientClass: 'from-sky-500 to-blue-600 shadow-sky-500/20',
+      requiredRight: 'viewInventory',
+      category: 'catalog'
     },
     {
       name: 'Purchases & Procurement',
+      description: 'Supplier purchase orders, receiving, and ledgers',
       href: '/purchasing',
       icon: Truck,
-      iconColorClass: 'text-pink-600',
-      iconBgClass: 'bg-pink-50 dark:bg-pink-950/20',
-      requiredRight: 'managePurchasing'
+      iconGradientClass: 'from-pink-500 to-red-500 shadow-pink-500/20',
+      requiredRight: 'managePurchasing',
+      category: 'purchasing'
     },
     {
-      name: 'Hotel & Accomodation',
-      href: '/accommodation',
-      icon: Bed,
-      iconColorClass: 'text-emerald-600',
-      iconBgClass: 'bg-emerald-50 dark:bg-emerald-950/20',
-      hasRedDot: true
-    },
-    {
-      name: 'Production',
+      name: 'Production & Recipes',
+      description: 'Raw materials formulas and product assembly',
       href: '/recipes',
       icon: ChefHat,
-      iconColorClass: 'text-rose-600',
-      iconBgClass: 'bg-rose-50 dark:bg-rose-950/20',
-      requiredRight: 'manageRecipes'
+      iconGradientClass: 'from-orange-500 to-red-500 shadow-orange-500/20',
+      requiredRight: 'manageRecipes',
+      category: 'catalog'
     },
     {
-      name: 'Suppier Accounts',
+      name: 'Supplier Accounts',
+      description: 'Procurement bills, credits, and payables',
       href: '/supplier-accounts',
       icon: Wallet,
-      iconColorClass: 'text-blue-600',
-      iconBgClass: 'bg-blue-50 dark:bg-blue-950/20',
-      requiredRight: 'managePurchasing'
-    },
-    {
-      name: 'User Shifts',
-      href: '#',
-      icon: Clock,
-      iconColorClass: 'text-purple-600',
-      iconBgClass: 'bg-purple-50 dark:bg-purple-950/20',
-      isComingSoon: true
-    },
-    {
-      name: 'API Payments',
-      href: '#',
-      icon: Link2,
-      iconColorClass: 'text-teal-600',
-      iconBgClass: 'bg-teal-50 dark:bg-teal-950/20',
-      isComingSoon: true
-    },
-    {
-      name: 'TIMS Transactions',
-      href: '#',
-      icon: Calculator,
-      iconColorClass: 'text-amber-800',
-      iconBgClass: 'bg-amber-100/50 dark:bg-amber-950/20',
-      isComingSoon: true
-    },
-    {
-      name: 'Kitchen Display (KDS)',
-      href: '#',
-      icon: Tv,
-      iconColorClass: 'text-red-600',
-      iconBgClass: 'bg-red-50 dark:bg-red-950/20',
-      isComingSoon: true
-    },
-    {
-      name: 'Customer Order Display (COD)',
-      href: '#',
-      icon: MonitorPlay,
-      iconColorClass: 'text-cyan-600',
-      iconBgClass: 'bg-cyan-50 dark:bg-cyan-950/20',
-      isComingSoon: true
-    },
-    {
-      name: 'Payment Methods',
-      href: '#',
-      icon: CreditCard,
-      iconColorClass: 'text-blue-600',
-      iconBgClass: 'bg-blue-50 dark:bg-blue-950/20',
-      requiredRight: 'viewSettings',
-      isComingSoon: true
+      iconGradientClass: 'from-indigo-600 to-purple-600 shadow-indigo-600/20',
+      requiredRight: 'managePurchasing',
+      category: 'purchasing'
     },
     {
       name: 'Company Branches',
+      description: 'Manage store outlets and location parameters',
       href: '/locations',
       icon: GitBranch,
-      iconColorClass: 'text-purple-600',
-      iconBgClass: 'bg-purple-50 dark:bg-purple-950/20',
-      requiredRight: 'viewSettings'
+      iconGradientClass: 'from-violet-500 to-fuchsia-500 shadow-violet-500/20',
+      requiredRight: 'viewSettings',
+      category: 'management'
     },
     {
       name: 'Users & Access',
+      description: 'Staff profiles, system credentials, and permissions',
       href: '/users',
       icon: UserCheck,
-      iconColorClass: 'text-emerald-600',
-      iconBgClass: 'bg-emerald-50 dark:bg-emerald-950/20',
-      requiredRight: 'viewUsers'
+      iconGradientClass: 'from-emerald-500 to-green-500 shadow-emerald-500/20',
+      requiredRight: 'viewUsers',
+      category: 'management'
     },
     {
       name: 'System Reports',
+      description: 'Export sales reports, stock values, and tax sheets',
       href: '/reports',
       icon: BarChart3,
-      iconColorClass: 'text-amber-800',
-      iconBgClass: 'bg-amber-100/50 dark:bg-amber-950/20',
-      requiredRight: 'viewReports'
+      iconGradientClass: 'from-amber-600 to-orange-700 shadow-amber-600/20',
+      requiredRight: 'viewReports',
+      category: 'management'
     },
     {
-      name: 'Loyalty Cards',
-      href: '#',
-      icon: Heart,
-      iconColorClass: 'text-purple-600',
-      iconBgClass: 'bg-purple-50 dark:bg-purple-950/20',
-      isComingSoon: true
+      name: 'Custom Reports',
+      description: 'Upload and execute Jasper report templates dynamically',
+      href: '/custom-reports',
+      icon: FolderInput,
+      iconGradientClass: 'from-amber-500 to-yellow-600 shadow-amber-500/20',
+      requiredRight: 'viewReports',
+      category: 'management'
     },
     {
-      name: 'Coupons ,promotions & Vouchers',
+      name: 'Coupons & Vouchers',
+      description: 'Active customer loyalty discounts and vouchers',
       href: '/promotions',
       icon: Ticket,
-      iconColorClass: 'text-amber-600',
-      iconBgClass: 'bg-amber-50 dark:bg-amber-950/20',
-      requiredRight: 'viewProducts'
+      iconGradientClass: 'from-rose-500 to-orange-500 shadow-rose-500/20',
+      requiredRight: 'managePromotions',
+      category: 'catalog'
     },
     {
-      name: 'Products',
+      name: 'Products & Variants',
+      description: 'Catalog products, sizing variants, and retail pricing',
       href: '/products',
       icon: Barcode,
-      iconColorClass: 'text-blue-600',
-      iconBgClass: 'bg-blue-50 dark:bg-blue-950/20',
-      requiredRight: 'viewProducts'
-    },
-    {
-      name: 'Inventory',
-      href: '/inventory',
-      icon: FolderInput,
-      iconColorClass: 'text-amber-800',
-      iconBgClass: 'bg-amber-100/50 dark:bg-amber-950/20',
-      requiredRight: 'viewInventory'
-    },
-    {
-      name: 'Recurring Bills',
-      href: '#',
-      icon: CalendarRange,
-      iconColorClass: 'text-emerald-600',
-      iconBgClass: 'bg-emerald-50 dark:bg-emerald-950/20',
-      isComingSoon: true
-    },
-    {
-      name: 'Scheduled Jobs',
-      href: '#',
-      icon: CalendarClock,
-      iconColorClass: 'text-purple-600',
-      iconBgClass: 'bg-purple-50 dark:bg-purple-950/20',
-      isComingSoon: true
-    },
-    {
-      name: 'System Updates',
-      href: '#',
-      icon: RefreshCw,
-      iconColorClass: 'text-blue-600',
-      iconBgClass: 'bg-blue-50 dark:bg-blue-950/20',
-      isComingSoon: true
+      iconGradientClass: 'from-blue-600 to-sky-500 shadow-blue-600/20',
+      requiredRight: 'viewProducts',
+      category: 'catalog'
     },
     {
       name: 'System Settings',
+      description: 'Configure receipts, currency, taxes, and integrations',
       href: '/settings',
       icon: Settings,
-      iconColorClass: 'text-rose-600',
-      iconBgClass: 'bg-rose-50 dark:bg-rose-950/20',
-      requiredRight: 'viewSettings'
+      iconGradientClass: 'from-slate-600 to-slate-800 shadow-slate-600/20',
+      requiredRight: 'viewSettings',
+      category: 'management'
     }
   ];
 
   const filteredItems = useMemo(() => {
     return menuItems.filter(item => {
-      // Hide coming soon modules
-      if (item.isComingSoon) {
-        return false;
-      }
       // 1. Right check
       if (item.requiredRight && rights && rights[item.requiredRight as any] === 'no') {
         return false;
       }
-      // 2. Search check
+      // 2. Category check
+      if (activeCategory !== 'all' && item.category !== activeCategory) {
+        return false;
+      }
+      // 3. Search check
       if (searchQuery.trim() !== '') {
-        return item.name.toLowerCase().includes(searchQuery.toLowerCase());
+        return (
+          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.description.toLowerCase().includes(searchQuery.toLowerCase())
+        );
       }
       return true;
     });
-  }, [rights, searchQuery]);
+  }, [rights, searchQuery, activeCategory]);
 
   const handleCardClick = (item: MenuCard) => {
     if (item.isComingSoon) {
@@ -295,56 +240,148 @@ export default function DashboardMenu() {
   };
 
   return (
-    <AppLayout title="Main Menu">
-      <div className="flex flex-col items-center w-full space-y-8 py-4 px-2 md:px-6">
-        {/* Search Bar */}
-        <div className="relative w-full max-w-lg shadow-sm">
-          <Search className="absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-muted-foreground/70" />
-          <Input
-            placeholder="Search modules..."
-            className="w-full pl-10 h-11 text-sm bg-background border-slate-200/80 rounded-xl"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
+    <AppLayout title="Main Modules">
+      <div className="space-y-8 py-2 max-w-7xl mx-auto px-4">
+        
+        {/* Welcome Section */}
+        <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800">
+          <div className="absolute top-0 right-0 p-8 opacity-10">
+            <Sparkles className="h-40 w-40 animate-pulse text-indigo-400" />
+          </div>
+          <div className="relative z-10 space-y-4 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-450 border border-indigo-500/20 text-xs font-semibold">
+              <TrendingUp className="h-3.5 w-3.5" />
+              Smart Business Hub
+            </div>
+            <div>
+              <h2 className="text-xl sm:text-3xl font-black tracking-tight">
+                Welcome back, {user?.name || 'Administrator'}!
+              </h2>
+              <p className="text-slate-400 text-sm mt-1">
+                Choose a module below to process sales, oversee hotel reservations, or manage store operations.
+              </p>
+            </div>
+            
+            {/* Search Input */}
+            <div className="relative max-w-md shadow-md pt-2">
+              <Search className="absolute left-3.5 top-[calc(50%+4px)] h-4.5 w-4.5 -translate-y-1/2 text-slate-450" />
+              <Input
+                placeholder="Search modules (e.g. POS, bookings)..."
+                className="w-full pl-10 h-11 text-sm bg-slate-800/40 border-slate-700/60 text-white rounded-xl placeholder:text-slate-500 focus-visible:ring-indigo-500/30"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* Modules Grid */}
-        <div className="w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-          {filteredItems.map(item => (
-            <div
-              key={item.name}
-              onClick={() => handleCardClick(item)}
+        {/* Category Filters */}
+        <div className="flex overflow-x-auto scrollbar-none gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
+          {[
+            { id: 'all', label: 'All Modules' },
+            { id: 'core', label: 'Operations & POS' },
+            { id: 'catalog', label: 'Inventory & Catalog' },
+            { id: 'purchasing', label: 'Purchasing & Ledger' },
+            { id: 'management', label: 'Admin & Reports' }
+          ].map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id as any)}
               className={cn(
-                "relative group flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/50 rounded-2xl cursor-pointer transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl hover:border-primary/20",
-                item.isComingSoon && "opacity-80"
+                "px-4 py-2 text-xs font-semibold rounded-xl transition-all whitespace-nowrap border border-transparent",
+                activeCategory === cat.id
+                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
               )}
             >
-              {/* Icon Container */}
-              <div className={cn(
-                "relative flex h-14 w-14 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-110",
-                item.iconBgClass
-              )}>
-                <item.icon className={cn("h-6 w-6", item.iconColorClass)} />
+              {cat.label}
+            </button>
+          ))}
+        </div>
 
-                {/* Optional Red Dot */}
+        {/* Highlighted Operations Grid */}
+        {activeCategory === 'all' && searchQuery.trim() === '' && (
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Core Services</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {menuItems
+                .filter(item => item.name === 'Point of Sale (POS)' || item.name === 'Hotel & Accommodation')
+                .map(item => (
+                  <Card 
+                    key={item.name} 
+                    onClick={() => handleCardClick(item)}
+                    className="relative group border border-slate-150/80 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-3xl p-5 cursor-pointer shadow-sm hover:shadow-xl hover:border-indigo-500/30 transition-all duration-300 overflow-hidden flex flex-row items-center gap-4"
+                  >
+                    <div className={cn(
+                      "flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg shrink-0",
+                      item.iconGradientClass
+                    )}>
+                      <item.icon className="h-8 w-8" />
+                    </div>
+                    <div className="flex-grow min-w-0 pr-6">
+                      <h4 className="font-bold text-base text-slate-800 dark:text-slate-100 group-hover:text-indigo-650 transition-colors flex items-center gap-2">
+                        {item.name}
+                        <ChevronRight className="h-4 w-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                        {item.description}
+                      </p>
+                    </div>
+                    {item.hasRedDot && (
+                      <span className="absolute top-4 right-4 flex h-3 w-3 rounded-full bg-indigo-500 ring-4 ring-white dark:ring-slate-900" />
+                    )}
+                  </Card>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* Regular Modules Grid */}
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            {activeCategory === 'all' ? 'All Functions' : 'Filtered Modules'}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {filteredItems.map(item => (
+              <div
+                key={item.name}
+                onClick={() => handleCardClick(item)}
+                className="group flex items-start gap-4 p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-2xl cursor-pointer hover:border-slate-200 dark:hover:border-slate-700/80 shadow-card hover:shadow-lg transition-all duration-300 relative overflow-hidden"
+              >
+                {/* Icon Circle */}
+                <div className={cn(
+                  "flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md group-hover:scale-105 transition-transform shrink-0",
+                  item.iconGradientClass
+                )}>
+                  <item.icon className="h-5 w-5" />
+                </div>
+                
+                {/* Text Content */}
+                <div className="space-y-1 min-w-0">
+                  <h4 className="font-bold text-sm text-slate-700 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white transition-colors truncate">
+                    {item.name}
+                  </h4>
+                  <p className="text-[11px] leading-relaxed text-slate-400 line-clamp-2">
+                    {item.description}
+                  </p>
+                </div>
+
+                {/* Arrow indicator on hover */}
+                <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+
                 {item.hasRedDot && (
-                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 rounded-full bg-rose-600 ring-2 ring-white dark:ring-slate-900" />
+                  <span className="absolute top-3 right-3 flex h-2 w-2 rounded-full bg-indigo-500 ring-2 ring-white dark:ring-slate-900" />
                 )}
               </div>
+            ))}
+          </div>
 
-              {/* Title */}
-              <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 text-center mt-3 leading-tight group-hover:text-primary transition-colors line-clamp-2">
-                {item.name}
-              </span>
-
-              {/* Coming Soon Indicator */}
-              {item.isComingSoon && (
-                <span className="absolute bottom-1 right-2 text-[8px] font-bold text-muted-foreground/60 uppercase">
-                  Soon
-                </span>
-              )}
+          {filteredItems.length === 0 && (
+            <div className="text-center py-12 text-slate-400 border border-dashed rounded-3xl bg-slate-50/30">
+              <Search className="h-10 w-10 mx-auto mb-3 opacity-20" />
+              <p className="text-sm">No modules found matching "{searchQuery}"</p>
             </div>
-          ))}
+          )}
         </div>
       </div>
     </AppLayout>

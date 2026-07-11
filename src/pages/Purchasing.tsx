@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from '@/components/ui/badge';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
+import { useCurrency } from '@/hooks/useCurrency';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -42,6 +43,7 @@ interface POItem {
 
 export default function Purchasing() {
   const { products, locations, suppliers, addSupplier, updateSupplier, refreshData } = useInventory();
+  const { sym } = useCurrency();
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -744,11 +746,11 @@ export default function Purchasing() {
                 <div className="flex items-center gap-4 text-xs font-medium">
                   <div>
                     <span className="text-muted-foreground">PO Total:</span>{" "}
-                    <span className="font-bold text-sm">${poTotal.toFixed(2)}</span>
+                    <span className="font-bold text-sm">{sym}{poTotal.toFixed(2)}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Paid:</span>{" "}
-                    <span className="font-bold text-sm text-green-600">${totalPaid.toFixed(2)}</span>
+                    <span className="font-bold text-sm text-green-600">{sym}{totalPaid.toFixed(2)}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Remaining:</span>{" "}
@@ -1084,15 +1086,15 @@ export default function Purchasing() {
                   <div className="grid grid-cols-3 gap-3 bg-muted/40 p-3 rounded-lg text-sm">
                     <div className="text-center">
                       <p className="text-muted-foreground text-xs">Total Amount</p>
-                      <p className="font-bold text-base">${totalAmount.toFixed(2)}</p>
+                      <p className="font-bold text-base">{sym}{totalAmount.toFixed(2)}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-muted-foreground text-xs">Total Paid</p>
-                      <p className="font-bold text-base text-green-600">${totalPaid.toFixed(2)}</p>
+                      <p className="font-bold text-base text-green-600">{sym}{totalPaid.toFixed(2)}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-muted-foreground text-xs">Remaining Balance</p>
-                      <p className={`font-bold text-base ${remaining > 0 ? 'text-red-600' : 'text-blue-600'}`}>${remaining.toFixed(2)}</p>
+                      <p className={`font-bold text-base ${remaining > 0 ? 'text-red-600' : 'text-blue-600'}`}>{sym}{remaining.toFixed(2)}</p>
                     </div>
                   </div>
                 );
@@ -1208,11 +1210,11 @@ export default function Purchasing() {
                     <div className="flex items-center gap-4 text-xs font-medium">
                       <div>
                         <span className="text-muted-foreground">Balance Due:</span>{" "}
-                        <span className="font-bold text-sm">${Math.max(0, totalAmount - existingPaid).toFixed(2)}</span>
+                        <span className="font-bold text-sm">{sym}{Math.max(0, totalAmount - existingPaid).toFixed(2)}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Paying Now:</span>{" "}
-                        <span className="font-bold text-sm text-green-600">${newPaid.toFixed(2)}</span>
+                        <span className="font-bold text-sm text-green-600">{sym}{newPaid.toFixed(2)}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">After Payment:</span>{" "}

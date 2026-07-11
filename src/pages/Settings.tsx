@@ -9,13 +9,51 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Building2, Receipt, Bell, Database, Loader2, Globe } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
 import ShippingSettings from '@/components/settings/ShippingSettings';
 import EcommerceSettingsUI from '@/components/settings/EcommerceSettingsUI';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Settings() {
-  const { settings, updateSettings, isLoading } = useInventory();
+  const { settings, updateSettings, isLoading, categories = [] } = useInventory();
   const [formData, setFormData] = useState<SystemSettings | null>(null);
+  const [localPrinterName, setLocalPrinterName] = useState(() => localStorage.getItem('localPrinterName') || 'Receipt Printer');
+  const [printers, setPrinters] = useState<string[]>([]);
+  const [isFetchingPrinters, setIsFetchingPrinters] = useState(false);
+  const [printerMappings, setPrinterMappings] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const fetchPrinters = async () => {
+      setIsFetchingPrinters(true);
+      try {
+        const response = await fetch('http://localhost:9000/printers');
+        if (response.ok) {
+          const data = await response.json();
+          setPrinters(data);
+        }
+      } catch (err) {
+        console.warn("Local print service offline, cannot fetch printer list.");
+      } finally {
+        setIsFetchingPrinters(false);
+      }
+    };
+    fetchPrinters();
+  }, []);
+
+  useEffect(() => {
+    if (categories.length > 0) {
+      setPrinterMappings(prev => {
+        const mappings = { ...prev };
+        categories.forEach(cat => {
+          if (!mappings[cat.name]) {
+            mappings[cat.name] = localStorage.getItem(`printer_mapping_${cat.name}`) || 'Receipt Printer';
+          }
+        });
+        return mappings;
+      });
+    }
+  }, [categories]);
 
   useEffect(() => {
     if (settings) {
@@ -36,6 +74,10 @@ export default function Settings() {
   const handleSave = async () => {
     if (formData) {
       await updateSettings(formData);
+      localStorage.setItem('localPrinterName', localPrinterName);
+      Object.entries(printerMappings).forEach(([catName, printerName]) => {
+        localStorage.setItem(`printer_mapping_${catName}`, printerName);
+      });
     }
   };
 
@@ -179,6 +221,98 @@ export default function Settings() {
                   checked={formData.allowNegativeStock}
                   onCheckedChange={(checked) => updateField('allowNegativeStock', checked)}
                 />
+              </div>
+              <div className="flex items-center justify-between border-t pt-4">
+                <div className="space-y-0.5 flex-1 pr-4">
+                  <Label htmlFor="localPrinterName">Local Printer Name</Label>
+                  <p className="text-sm text-muted-foreground">Select the printer on this local workstation</p>
+                </div>
+                {printers.length > 0 ? (
+                  <Select value={localPrinterName} onValueChange={setLocalPrinterName}>
+                    <SelectTrigger className="w-64">
+                      <SelectValue placeholder="Select a printer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {printers.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      id="localPrinterName"
+                      value={localPrinterName}
+                      onChange={(e) => setLocalPrinterName(e.target.value)}
+                      className="w-56"
+                      placeholder="e.g. Receipt Printer"
+                    />
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-10 text-xs"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('http://localhost:9000/printers');
+                          if (res.ok) {
+                            const data = await res.json();
+                            setPrinters(data);
+                            toast.success('Printers loaded successfully!');
+                          } else {
+                            toast.error('Failed to load printers.');
+                          }
+                        } catch (e) {
+                          toast.error('Print service is still offline.');
+                        }
+                      }}
+                    >
+                      Reload
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="border-t pt-4 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">KOT Printer Mappings (By Category)</h4>
+                  <p className="text-xs text-muted-foreground">Map different product categories to specific kitchen/bar printers</p>
+                </div>
+                {categories.length > 0 ? (
+                  <div className="space-y-3 pl-2">
+                    {categories.map(cat => (
+                      <div key={cat.id} className="flex items-center justify-between gap-4">
+                        <Label className="text-xs font-medium">{cat.name}</Label>
+                        {printers.length > 0 ? (
+                          <Select 
+                            value={printerMappings[cat.name] || 'Receipt Printer'} 
+                            onValueChange={(val) => setPrinterMappings(prev => ({ ...prev, [cat.name]: val }))}
+                          >
+                            <SelectTrigger className="w-64">
+                              <SelectValue placeholder="Select KOT printer" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {printers.map((p) => (
+                                <SelectItem key={p} value={p}>
+                                  {p}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={printerMappings[cat.name] || ''}
+                            onChange={(e) => setPrinterMappings(prev => ({ ...prev, [cat.name]: e.target.value }))}
+                            className="w-64"
+                            placeholder="e.g. Kitchen Printer"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">No categories available to map.</p>
+                )}
               </div>
               <Button onClick={handleSave}>Save Changes</Button>
             </CardContent>

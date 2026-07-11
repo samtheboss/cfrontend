@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
+import { useCurrency } from '@/hooks/useCurrency';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -122,6 +123,7 @@ const INVOICE_BADGE_CLASS = 'border-orange-500 text-orange-600 bg-orange-50 dark
 
 export default function SupplierAccounts() {
   const { suppliers } = useInventory();
+  const { sym } = useCurrency();
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
   const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
 
@@ -522,19 +524,19 @@ export default function SupplierAccounts() {
                 <Card className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10 border-orange-200 dark:border-orange-800/30">
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wider">Total Invoiced</p>
-                    <p className="text-xl md:text-2xl font-bold mt-1">${Number(balance.totalInvoiced || 0).toFixed(2)}</p>
+                    <p className="text-xl md:text-2xl font-bold mt-1">{sym}{Number(balance.totalInvoiced || 0).toFixed(2)}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/20 dark:to-green-900/10 border-green-200 dark:border-green-800/30">
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">Total Paid</p>
-                    <p className="text-xl md:text-2xl font-bold mt-1">${Number(balance.totalPaid || 0).toFixed(2)}</p>
+                    <p className="text-xl md:text-2xl font-bold mt-1">{sym}{Number(balance.totalPaid || 0).toFixed(2)}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 border-purple-200 dark:border-purple-800/30">
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wider">Prepayments</p>
-                    <p className="text-xl md:text-2xl font-bold mt-1">${Number(balance.totalPrepayments || 0).toFixed(2)}</p>
+                    <p className="text-xl md:text-2xl font-bold mt-1">{sym}{Number(balance.totalPrepayments || 0).toFixed(2)}</p>
                   </CardContent>
                 </Card>
                 <Card className={cn("border-2",
@@ -546,7 +548,7 @@ export default function SupplierAccounts() {
                     <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Current Balance</p>
                     <p className={cn("text-xl md:text-2xl font-bold mt-1",
                       Number(balance.currentBalance || 0) > 0 ? "text-red-600" : Number(balance.currentBalance || 0) < 0 ? "text-blue-600" : ""
-                    )}>${Number(balance.currentBalance || 0).toFixed(2)}</p>
+                    )}>{sym}{Number(balance.currentBalance || 0).toFixed(2)}</p>
                     <p className="text-[10px] text-muted-foreground mt-0.5">
                       {Number(balance.currentBalance || 0) > 0 ? 'You owe this supplier' : Number(balance.currentBalance || 0) < 0 ? 'Supplier owes you (overpaid)' : 'Fully settled'}
                     </p>
@@ -639,7 +641,7 @@ export default function SupplierAccounts() {
                           </div>
                           <div className={cn("text-right font-bold",
                             entry.runningBalance > 0 ? "text-red-600" : entry.runningBalance < 0 ? "text-blue-600" : ""
-                          )}>${entry.runningBalance.toFixed(2)}</div>
+                          )}>{sym}{entry.runningBalance.toFixed(2)}</div>
                         </div>
                       );
                     })}
@@ -727,13 +729,13 @@ export default function SupplierAccounts() {
                               className="w-24 h-8 text-right font-medium text-xs bg-background"
                             />
                             <div className="text-right min-w-[50px]">
-                              <p className="font-bold text-[11px]">${Number(inv.remaining).toFixed(2)}</p>
+                              <p className="font-bold text-[11px]">{sym}{Number(inv.remaining).toFixed(2)}</p>
                               <p className="text-[9px] text-muted-foreground">max</p>
                             </div>
                           </div>
                         ) : (
                           <div className="text-right shrink-0 ml-2">
-                            <p className="font-bold">${Number(inv.remaining).toFixed(2)}</p>
+                            <p className="font-bold">{sym}{Number(inv.remaining).toFixed(2)}</p>
                             <p className="text-[10px] text-muted-foreground">of ${Number(inv.amount).toFixed(2)}</p>
                           </div>
                         )}
@@ -745,7 +747,7 @@ export default function SupplierAccounts() {
                 {selectedInvoiceIds.length > 0 && (
                   <div className="flex justify-between items-center px-1 text-xs font-bold border-t pt-3">
                     <span>Total Allocated for Approval:</span>
-                    <span className="text-sm text-green-600">${
+                    <span className="text-sm text-green-600">{sym}{
                       selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
                     }</span>
                   </div>
@@ -786,12 +788,12 @@ export default function SupplierAccounts() {
                         </span>
                         <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
                       </div>
-                      <span className="font-bold text-foreground">${Number(invoiceAllocations[inv.id] || 0).toFixed(2)}</span>
+                      <span className="font-bold text-foreground">{sym}{Number(invoiceAllocations[inv.id] || 0).toFixed(2)}</span>
                     </div>
                   ))}
                   <div className="flex justify-between items-center pt-2 font-bold text-sm text-foreground">
                     <span>Total Payment:</span>
-                    <span className="text-green-600">${
+                    <span className="text-green-600">{sym}{
                       selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
                     }</span>
                   </div>
@@ -865,13 +867,13 @@ export default function SupplierAccounts() {
                                 className="w-24 h-8 text-right font-medium text-xs"
                               />
                               <div className="text-right min-w-[50px]">
-                                <p className="font-bold text-[11px]">${Number(inv.remaining).toFixed(2)}</p>
+                                <p className="font-bold text-[11px]">{sym}{Number(inv.remaining).toFixed(2)}</p>
                                 <p className="text-[9px] text-muted-foreground">max</p>
                               </div>
                             </div>
                           ) : (
                             <div className="text-right shrink-0 ml-2">
-                              <p className="font-bold">${Number(inv.remaining).toFixed(2)}</p>
+                              <p className="font-bold">{sym}{Number(inv.remaining).toFixed(2)}</p>
                               <p className="text-[10px] text-muted-foreground">of ${Number(inv.amount).toFixed(2)}</p>
                             </div>
                           )}
@@ -888,7 +890,7 @@ export default function SupplierAccounts() {
               <>
                 <div className="flex justify-between items-center px-1 text-xs font-bold border-b pb-2">
                   <span>Total Allocated:</span>
-                  <span className="text-sm text-green-600">${
+                  <span className="text-sm text-green-600">{sym}{
                     selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
                   }</span>
                 </div>
@@ -950,13 +952,13 @@ export default function SupplierAccounts() {
                         <div className="flex items-center gap-4 text-xs font-medium border-b pb-2">
                           <div>
                             <span className="text-muted-foreground">Allocated:</span>{" "}
-                            <span className="font-bold text-sm">${
+                            <span className="font-bold text-sm">{sym}{
                               selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
                             }</span>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Paying Now:</span>{" "}
-                            <span className="font-bold text-sm text-green-600">${totalSplitAmount.toFixed(2)}</span>
+                            <span className="font-bold text-sm text-green-600">{sym}{totalSplitAmount.toFixed(2)}</span>
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1039,7 +1041,7 @@ export default function SupplierAccounts() {
                               <p className="text-[10px] text-muted-foreground">{formatDateShort(credit.timestamp)}</p>
                             </div>
                           </div>
-                          <p className="font-bold shrink-0 ml-2">${Number(credit.amount).toFixed(2)}</p>
+                          <p className="font-bold shrink-0 ml-2">{sym}{Number(credit.amount).toFixed(2)}</p>
                         </div>
                       ))}
                     </div>

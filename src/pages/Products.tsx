@@ -6,6 +6,7 @@ import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barco
 import { apiFetch, BASE_URL } from '@/lib/api';
 import { RecipeDialog } from '@/components/inventory/RecipeDialog';
 import { useToast } from '@/hooks/use-toast';
+import { useCurrency } from '@/hooks/useCurrency';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -67,6 +68,7 @@ export default function Products() {
     addRecipe,
     updateRecipe,
   } = useInventory();
+  const { sym } = useCurrency();
   const { toast } = useToast();
 
   const [products, setProducts] = useState<Product[]>(contextProducts);
@@ -1490,8 +1492,8 @@ export default function Products() {
                               ))}
                             </div>
                           </td>
-                          <td className="text-xs md:text-sm">${variant.price.toFixed(2)}</td>
-                          <td className="text-xs md:text-sm">${variant.cost.toFixed(2)}</td>
+                          <td className="text-xs md:text-sm">{sym}{variant.price.toFixed(2)}</td>
+                          <td className="text-xs md:text-sm">{sym}{variant.cost.toFixed(2)}</td>
                           <td className="text-xs md:text-sm">{variant.stock.toFixed(3)} <span className="text-muted-foreground text-[10px]">{product.unit || 'PCS'}</span></td>
                           <td>
                             <StockBadge status={getStockStatus(variant.stock, variant.lowStockThreshold)} />

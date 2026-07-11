@@ -347,6 +347,7 @@ export default function Accommodation() {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [bookingActiveTab, setBookingActiveTab] = useState('details');
   const [isRoomPopoverOpen, setIsRoomPopoverOpen] = useState(false);
+  const [isSavingBooking, setIsSavingBooking] = useState(false);
 
   const [bookingForm, setBookingForm] = useState({
     customerId: '',
@@ -366,6 +367,32 @@ export default function Accommodation() {
 
   const [guestListInput, setGuestListInput] = useState<string[]>([]);
   const [newGuestNameInput, setNewGuestNameInput] = useState('');
+
+  // Add Customer Popup States
+  const [isAddCustomerDialogOpen, setIsAddCustomerDialogOpen] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({ name: '', email: '', phone: '' });
+  const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
+
+  const handleAddCustomerSubmit = async () => {
+    if (!newCustomerForm.name || isSubmittingCustomer) return;
+    setIsSubmittingCustomer(true);
+    try {
+      const newCust = await addCustomer({
+        name: newCustomerForm.name,
+        email: newCustomerForm.email,
+        phone: newCustomerForm.phone,
+      });
+      // Set the newly created customer ID to avoid double creation on Save Booking
+      setBookingForm(prev => ({ ...prev, customerId: String(newCust?.id || ''), guestMobile: newCustomerForm.phone, newGuestName: '' }));
+      setNewCustomerForm({ name: '', email: '', phone: '' });
+      setIsAddCustomerDialogOpen(false);
+      toast.success('Customer added successfully! Selected for booking.');
+    } catch (err: any) {
+      toast.error('Failed to add customer: ' + err.message);
+    } finally {
+      setIsSubmittingCustomer(false);
+    }
+  };
 
   // MPESA STK Push States
   const [isPollingMpesa, setIsPollingMpesa] = useState(false);
@@ -567,6 +594,33 @@ export default function Accommodation() {
   };
 
   const handleSaveBooking = async () => {
+    if (isSavingBooking) return;
+
+    if (!bookingForm.roomId) {
+      toast.error('Please select a room for this booking');
+      return;
+    }
+
+    if (!bookingForm.checkInDate || !bookingForm.checkOutDate) {
+      toast.error('Please specify both check-in and check-out dates');
+      return;
+    }
+
+    if (bookingForm.checkInDate >= bookingForm.checkOutDate) {
+      toast.error('Check-out date must be after check-in date');
+      return;
+    }
+
+    if (!bookingForm.customerId && !bookingForm.newGuestName) {
+      toast.error('Please select a customer or type a new guest name');
+      return;
+    }
+
+    if (!bookingForm.packageId) {
+      toast.error('Please select a billing package');
+      return;
+    }
+
     let finalCustId = bookingForm.customerId;
     let finalCustName = '';
 
@@ -589,8 +643,14 @@ export default function Accommodation() {
       return;
     }
 
+    if (bookingForm.paidAmount > bookingSummary.totalDue) {
+      toast.error(`Paid amount (KES ${bookingForm.paidAmount.toLocaleString()}) cannot exceed the total due amount of KES ${bookingSummary.totalDue.toLocaleString()}`);
+      return;
+    }
+
     const bookingStatus = bookingForm.checkedIn ? 'CHECKED IN' as const : 'BOOKED' as const;
 
+    setIsSavingBooking(true);
     try {
       const payload = {
         customerId: finalCustId,
@@ -635,6 +695,8 @@ export default function Accommodation() {
       setIsBookingDialogOpen(false);
     } catch (err: any) {
       toast.error('Failed to save booking: ' + err.message);
+    } finally {
+      setIsSavingBooking(false);
     }
   };
 
@@ -658,6 +720,11 @@ export default function Accommodation() {
     } else {
       const match = customers.find(c => String(c.id) === String(finalCustId));
       finalCustName = match ? match.name : 'Guest';
+    }
+
+    if (bookingForm.paidAmount > bookingSummary.totalDue) {
+      toast.error(`Paid amount (KES ${bookingForm.paidAmount.toLocaleString()}) cannot exceed the total due amount of KES ${bookingSummary.totalDue.toLocaleString()}`);
+      return;
     }
 
     const bookingStatus = bookingForm.checkedIn ? 'CHECKED IN' as const : 'BOOKED' as const;
@@ -825,6 +892,7 @@ export default function Accommodation() {
         ...checkoutBooking,
         status: 'CHECKED OUT' as const,
         checkedIn: false,
+        paidAmount: checkoutBooking.paidAmount + totalPaidInDialog,
       };
 
       await apiFetch('/api/accommodation/bookings', {
@@ -848,6 +916,20 @@ export default function Accommodation() {
       toast.error('Please enter a valid M-Pesa amount');
       return;
     }
+
+    const room = rooms.find(r => String(r.id) === String(checkoutBooking.roomId));
+    const pkg = packages.find(p => String(p.id) === String(checkoutBooking.packageId));
+    const rate = room?.nightlyRate || 0;
+    const pkgAmt = pkg?.amount || 0;
+    const nights = Math.max(1, differenceInDays(new Date(checkoutBooking.checkOutDate), new Date(checkoutBooking.checkInDate)));
+    const totalDue = (rate + pkgAmt) * nights - (checkoutBooking.discount || 0);
+    const outstanding = Math.max(0, totalDue - checkoutBooking.paidAmount);
+
+    if (mpesaAmt > outstanding + 0.01) {
+      toast.error(`M-Pesa payment amount (KES ${mpesaAmt.toLocaleString()}) cannot exceed the outstanding amount (KES ${outstanding.toLocaleString()})`);
+      return;
+    }
+
     if (!mpesaPhone) {
       toast.error('Please enter M-Pesa Phone Number');
       return;
@@ -989,11 +1071,11 @@ export default function Accommodation() {
               </p>
             </div>
 
-            <TabsList className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-              <TabsTrigger value="rooms" className="rounded-lg px-4 py-2 text-xs font-semibold">Guest Rooms</TabsTrigger>
-              <TabsTrigger value="schedules" className="rounded-lg px-4 py-2 text-xs font-semibold">Room Schedules</TabsTrigger>
-              <TabsTrigger value="bookings" className="rounded-lg px-4 py-2 text-xs font-semibold">Bookings & Transactions</TabsTrigger>
-              <TabsTrigger value="packages" className="rounded-lg px-4 py-2 text-xs font-semibold">Billing Packages</TabsTrigger>
+            <TabsList className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl flex overflow-x-auto scrollbar-none w-full max-w-full justify-start md:justify-center gap-1">
+              <TabsTrigger value="rooms" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Guest Rooms</TabsTrigger>
+              <TabsTrigger value="schedules" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Room Schedules</TabsTrigger>
+              <TabsTrigger value="bookings" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Bookings & Transactions</TabsTrigger>
+              <TabsTrigger value="packages" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Billing Packages</TabsTrigger>
             </TabsList>
           </div>
 
@@ -1059,18 +1141,18 @@ export default function Accommodation() {
             </div>
 
             {/* Rooms Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5">
               {filteredRooms.map(room => (
-                <Card key={room.id} className="relative overflow-hidden border border-slate-100 dark:border-slate-850 hover:shadow-xl transition-all duration-300 rounded-2xl group bg-white dark:bg-slate-900 flex flex-col justify-between">
-                  <div className="absolute top-0 left-0 w-full h-[5px] bg-gradient-to-r from-emerald-500 to-teal-500" />
-                  <div className="p-5 space-y-4">
-                    <div className="flex items-start justify-between">
+                <Card key={room.id} className="relative overflow-hidden border border-slate-100 dark:border-slate-850 hover:shadow-lg transition-all duration-300 rounded-xl group bg-white dark:bg-slate-900 flex flex-col justify-between">
+                  <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-emerald-500 to-teal-500" />
+                  <div className="p-3.5 space-y-2.5">
+                    <div className="flex items-start justify-between gap-1.5">
                       <div>
-                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-150">Room {room.roomNumber}</h3>
-                        <p className="text-xs text-slate-400 font-medium">{room.type}</p>
+                        <h3 className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-150 leading-tight">Room {room.roomNumber}</h3>
+                        <p className="text-[10px] sm:text-xs text-slate-400 font-medium truncate max-w-[70px] sm:max-w-none">{room.type}</p>
                       </div>
                       <Badge className={cn(
-                        "px-2.5 py-1 text-[10px] font-bold rounded-lg uppercase tracking-wide",
+                        "px-1.5 py-0.5 text-[8px] sm:text-[9px] font-bold rounded uppercase tracking-wider shrink-0",
                         room.status === 'VACANT' && "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-450",
                         room.status === 'BOOKED' && "bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/20 dark:text-blue-450",
                         room.status === 'CHECKED IN' && "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:text-amber-450",
@@ -1082,39 +1164,39 @@ export default function Accommodation() {
                       </Badge>
                     </div>
 
-                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                    <div className="flex items-center gap-2 text-[10px] sm:text-xs text-slate-500">
                       <div className="flex items-center gap-1">
                         <span className="text-slate-400 font-medium flex items-center">
-                          <User className="h-3.5 w-3.5 mr-1 text-slate-400" />
+                          <User className="h-3 w-3 mr-0.5 text-slate-400" />
                           {room.maxOccupants} max
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="flex items-center">
-                          <Building className="h-3.5 w-3.5 mr-1 text-slate-400" />
+                          <Building className="h-3 w-3 mr-0.5 text-slate-400" />
                           {room.floor}
                         </span>
                       </div>
                     </div>
 
                     {room.amenities && (
-                      <p className="text-[11px] text-slate-400 bg-slate-50 dark:bg-slate-950/40 p-2 rounded-lg line-clamp-1 border border-slate-100/50 flex items-center">
-                        <Bed className="h-3.5 w-3.5 mr-1.5 text-slate-400 shrink-0" />
+                      <p className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-950/40 p-1.5 rounded-lg line-clamp-1 border border-slate-100/50 flex items-center">
+                        <Bed className="h-3 w-3 mr-1 text-slate-400 shrink-0" />
                         {room.amenities}
                       </p>
                     )}
                   </div>
 
-                  <div className="border-t border-slate-100 dark:border-slate-800 p-4 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20 rounded-b-2xl">
-                    <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                      KES {room.nightlyRate.toLocaleString()}<span className="text-xs text-slate-450 font-normal"> /night</span>
+                  <div className="border-t border-slate-100 dark:border-slate-800 p-2.5 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20 rounded-b-xl">
+                    <span className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200">
+                      KES {room.nightlyRate.toLocaleString()}<span className="text-[10px] text-slate-450 font-normal">/n</span>
                     </span>
-                    <div className="flex gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => handleOpenEditRoom(room)} className="text-slate-650 hover:bg-slate-100 hover:text-slate-900 rounded-lg">
-                        Edit →
+                    <div className="flex gap-1">
+                      <Button variant="ghost" className="h-7 px-1.5 text-[11px] text-slate-650 hover:bg-slate-100 hover:text-slate-900 rounded-md" onClick={() => handleOpenEditRoom(room)}>
+                        Edit
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDeleteRoom(room.id)} className="text-rose-600 hover:bg-rose-50 rounded-lg">
-                        <Trash2 className="h-4 w-4" />
+                      <Button variant="ghost" className="h-7 px-1.5 text-rose-600 hover:bg-rose-50 rounded-md" onClick={() => handleDeleteRoom(room.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -1256,44 +1338,44 @@ export default function Accommodation() {
           {/* ==================== TABS CONTENT: BOOKINGS & TRANSACTIONS ==================== */}
           <TabsContent value="bookings" className="space-y-6 mt-4">
             {/* Statistics Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-5 flex items-center justify-between">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-3 sm:p-5 flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Bookings</p>
-                  <p className="text-2xl font-black text-slate-850 dark:text-slate-100 mt-2">{stats.totalBookings} Transactions</p>
+                  <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Bookings</p>
+                  <p className="text-sm sm:text-2xl font-black text-slate-850 dark:text-slate-100 mt-1 sm:mt-2">{stats.totalBookings} Trans</p>
                 </div>
-                <div className="h-12 w-12 rounded-xl bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center text-blue-600">
-                  <Grid className="h-6 w-6" />
+                <div className="h-9 w-9 sm:h-12 sm:w-12 rounded-xl bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center text-blue-600 shrink-0">
+                  <Grid className="h-4.5 w-4.5 sm:h-6 sm:w-6" />
                 </div>
               </Card>
 
-              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-5 flex items-center justify-between">
+              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-3 sm:p-5 flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Due</p>
-                  <p className="text-2xl font-black text-slate-850 dark:text-slate-100 mt-2">KES {stats.totalDue.toLocaleString()}</p>
+                  <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Due</p>
+                  <p className="text-sm sm:text-2xl font-black text-slate-850 dark:text-slate-100 mt-1 sm:mt-2">KES {stats.totalDue.toLocaleString()}</p>
                 </div>
-                <div className="h-12 w-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600">
-                  <DollarSign className="h-6 w-6" />
+                <div className="h-9 w-9 sm:h-12 sm:w-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600 shrink-0">
+                  <DollarSign className="h-4.5 w-4.5 sm:h-6 sm:w-6" />
                 </div>
               </Card>
 
-              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-5 flex items-center justify-between">
+              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-3 sm:p-5 flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
-                  <p className="text-2xl font-black text-slate-850 dark:text-slate-100 mt-2">KES {stats.totalPaid.toLocaleString()}</p>
+                  <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
+                  <p className="text-sm sm:text-2xl font-black text-slate-850 dark:text-slate-100 mt-1 sm:mt-2">KES {stats.totalPaid.toLocaleString()}</p>
                 </div>
-                <div className="h-12 w-12 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center text-amber-600">
-                  <CheckCircle className="h-6 w-6" />
+                <div className="h-9 w-9 sm:h-12 sm:w-12 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center text-amber-600 shrink-0">
+                  <CheckCircle className="h-4.5 w-4.5 sm:h-6 sm:w-6" />
                 </div>
               </Card>
 
-              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-5 flex items-center justify-between">
+              <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 p-3 sm:p-5 flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Outstanding</p>
-                  <p className="text-2xl font-black text-rose-600 dark:text-rose-450 mt-2">KES {stats.outstanding.toLocaleString()}</p>
+                  <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Outstanding</p>
+                  <p className="text-sm sm:text-2xl font-black text-rose-600 dark:text-rose-450 mt-1 sm:mt-2">KES {stats.outstanding.toLocaleString()}</p>
                 </div>
-                <div className="h-12 w-12 rounded-xl bg-rose-50 dark:bg-rose-950/30 flex items-center justify-center text-rose-650">
-                  <AlertCircle className="h-6 w-6" />
+                <div className="h-9 w-9 sm:h-12 sm:w-12 rounded-xl bg-rose-50 dark:bg-rose-950/30 flex items-center justify-center text-rose-650 shrink-0">
+                  <AlertCircle className="h-4.5 w-4.5 sm:h-6 sm:w-6" />
                 </div>
               </Card>
             </div>
@@ -1367,7 +1449,7 @@ export default function Accommodation() {
 
             {/* Bookings Table */}
             <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 overflow-hidden">
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50 dark:bg-slate-950/40">
@@ -1471,7 +1553,7 @@ export default function Accommodation() {
             </div>
 
             <Card className="border border-slate-100 shadow-sm rounded-2xl bg-white dark:bg-slate-900 overflow-hidden">
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50 dark:bg-slate-950/40">
@@ -1707,10 +1789,10 @@ export default function Accommodation() {
 
       {/* ==================== MODAL: NEW ROOM BOOKING / EDIT TRANSACTION ==================== */}
       <Dialog open={isBookingDialogOpen} onOpenChange={setIsBookingDialogOpen}>
-        <DialogContent className="max-w-4xl rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl overflow-y-auto max-h-[90vh]">
+        <DialogContent className="max-w-4xl w-[95vw] sm:w-[90vw] md:w-full rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl overflow-y-auto max-h-[90vh] p-3 sm:p-6">
           <DialogHeader className="border-b pb-4 flex flex-row items-center justify-between">
             <div>
-              <DialogTitle className="text-lg font-bold text-slate-850 dark:text-slate-100 flex items-center gap-2">
+              <DialogTitle className="text-lg font-bold text-slate-855 dark:text-slate-100 flex items-center gap-2">
                 {editingBooking ? `Transaction ${editingBooking.transactionNumber} - ${editingBooking.customerName}` : 'New Room Booking'}
               </DialogTitle>
             </div>
@@ -1729,12 +1811,12 @@ export default function Accommodation() {
           {/* Modal Tab Headers */}
           <div className="border-b pb-1">
             <Tabs value={bookingActiveTab} onValueChange={setBookingActiveTab} className="w-full">
-              <TabsList className="bg-slate-50 dark:bg-slate-800 p-0.5 rounded-lg flex w-fit gap-1 border">
-                <TabsTrigger value="details" className="rounded-md px-4 py-1.5 text-xs font-semibold">Booking Details</TabsTrigger>
-                <TabsTrigger value="guests" className="rounded-md px-4 py-1.5 text-xs font-semibold">
+              <TabsList className="bg-slate-55 dark:bg-slate-800 p-0.5 rounded-lg flex overflow-x-auto scrollbar-none w-full max-w-full sm:w-fit gap-1 border">
+                <TabsTrigger value="details" className="rounded-md px-4 py-1.5 text-xs font-semibold shrink-0">Booking Details</TabsTrigger>
+                <TabsTrigger value="guests" className="rounded-md px-4 py-1.5 text-xs font-semibold shrink-0">
                   Guest List <span className="ml-1 bg-slate-200 dark:bg-slate-750 px-1.5 py-0.5 rounded-full text-[10px]">{guestListInput.length}</span>
                 </TabsTrigger>
-                <TabsTrigger value="schedules" className="rounded-md px-4 py-1.5 text-xs font-semibold">
+                <TabsTrigger value="schedules" className="rounded-md px-4 py-1.5 text-xs font-semibold shrink-0">
                   Nightly Schedules <span className="ml-1 bg-slate-200 dark:bg-slate-750 px-1.5 py-0.5 rounded-full text-[10px]">{editingBooking ? 1 : 0}</span>
                 </TabsTrigger>
               </TabsList>
@@ -1760,7 +1842,14 @@ export default function Accommodation() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-bold text-slate-550 uppercase">Customer <span className="text-red-500">*</span></Label>
-                        <span className="text-[11px] text-blue-600 font-bold cursor-pointer hover:underline">Add New</span>
+                        {!editingBooking && (
+                          <span 
+                            className="text-[11px] text-blue-600 font-bold cursor-pointer hover:underline"
+                            onClick={() => setIsAddCustomerDialogOpen(true)}
+                          >
+                            Add New
+                          </span>
+                        )}
                       </div>
                       <Select
                         value={bookingForm.customerId}
@@ -1799,6 +1888,7 @@ export default function Accommodation() {
                         value={bookingForm.guestMobile}
                         onChange={e => setBookingForm(prev => ({ ...prev, guestMobile: e.target.value }))}
                         className="rounded-xl"
+                        disabled={editingBooking?.status === 'CHECKED OUT'}
                       />
                     </div>
 
@@ -1826,7 +1916,7 @@ export default function Accommodation() {
                               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent className="w-[350px] p-0 rounded-xl shadow-xl bg-white dark:bg-slate-900 border" align="start">
+                          <PopoverContent className="w-[90vw] sm:w-[350px] p-0 rounded-xl shadow-xl bg-white dark:bg-slate-900 border" align="start">
                             <Command className="bg-white dark:bg-slate-900">
                               <CommandInput placeholder="Search room number or type..." className="h-9 border-none focus:ring-0" />
                               <CommandList className="max-h-[200px] overflow-y-auto">
@@ -1910,6 +2000,7 @@ export default function Accommodation() {
                       <Select
                         value={bookingForm.reservationType}
                         onValueChange={val => setBookingForm(prev => ({ ...prev, reservationType: val }))}
+                        disabled={editingBooking?.status === 'CHECKED OUT'}
                       >
                         <SelectTrigger className="rounded-xl">
                           <SelectValue placeholder="Room Booking" />
@@ -1930,6 +2021,7 @@ export default function Accommodation() {
                         value={bookingForm.noOfChildren}
                         onChange={e => setBookingForm(prev => ({ ...prev, noOfChildren: Number(e.target.value) }))}
                         className="rounded-xl"
+                        disabled={editingBooking?.status === 'CHECKED OUT'}
                       />
                     </div>
 
@@ -1941,6 +2033,7 @@ export default function Accommodation() {
                         checked={bookingForm.checkedIn}
                         onChange={e => setBookingForm(prev => ({ ...prev, checkedIn: e.target.checked }))}
                         className="h-5 w-5 rounded-md border-slate-300 text-primary focus:ring-primary accent-primary"
+                        disabled={editingBooking?.status === 'CHECKED OUT'}
                       />
                       <Label htmlFor="chk_checked_in" className="text-sm font-bold text-emerald-600 cursor-pointer">
                         Guest has Checked In
@@ -1955,6 +2048,7 @@ export default function Accommodation() {
                       <Select
                         value={bookingForm.paymentMethod}
                         onValueChange={val => setBookingForm(prev => ({ ...prev, paymentMethod: val }))}
+                        disabled={editingBooking?.status === 'CHECKED OUT'}
                       >
                         <SelectTrigger className="rounded-xl">
                           <SelectValue placeholder="CASH" />
@@ -1977,6 +2071,7 @@ export default function Accommodation() {
                           value={bookingForm.paidAmount}
                           onChange={e => setBookingForm(prev => ({ ...prev, paidAmount: Number(e.target.value) }))}
                           className="pl-11 rounded-xl"
+                          disabled={editingBooking?.status === 'CHECKED OUT'}
                         />
                       </div>
                     </div>
@@ -1990,6 +2085,7 @@ export default function Accommodation() {
                           value={bookingForm.discount}
                           onChange={e => setBookingForm(prev => ({ ...prev, discount: Number(e.target.value) }))}
                           className="pl-11 rounded-xl"
+                          disabled={editingBooking?.status === 'CHECKED OUT'}
                         />
                       </div>
                     </div>
@@ -2087,8 +2183,9 @@ export default function Accommodation() {
                       value={newGuestNameInput}
                       onChange={e => setNewGuestNameInput(e.target.value)}
                       className="rounded-xl flex-1"
+                      disabled={editingBooking?.status === 'CHECKED OUT'}
                     />
-                    <Button onClick={handleAddGuestToBooking} className="bg-primary hover:bg-primary/95 text-white rounded-xl">
+                    <Button onClick={handleAddGuestToBooking} className="bg-primary hover:bg-primary/95 text-white rounded-xl" disabled={editingBooking?.status === 'CHECKED OUT'}>
                       Add Guest
                     </Button>
                   </div>
@@ -2102,7 +2199,7 @@ export default function Accommodation() {
                         {guestListInput.map((guest, idx) => (
                           <div key={idx} className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-900 border rounded-lg shadow-xs">
                             <span className="text-xs font-semibold text-slate-750 dark:text-slate-255">{guest}</span>
-                            <Button variant="ghost" size="sm" onClick={() => handleRemoveGuestFromBooking(idx)} className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 rounded-lg">
+                            <Button variant="ghost" size="sm" onClick={() => handleRemoveGuestFromBooking(idx)} className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 rounded-lg" disabled={editingBooking?.status === 'CHECKED OUT'}>
                               <X className="h-4 w-4" />
                             </Button>
                           </div>
@@ -2156,7 +2253,7 @@ export default function Accommodation() {
             </div>
 
             {/* Billing Summary Side Panel */}
-            <div className="border border-slate-150 rounded-2xl p-5 bg-slate-50/50 dark:bg-slate-955/25 flex flex-col justify-between h-full space-y-6">
+            <div className="border border-slate-155 rounded-2xl p-4 sm:p-5 bg-slate-50/50 dark:bg-slate-955/25 flex flex-col justify-between h-auto lg:h-full space-y-6">
               <div className="space-y-4">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 border-b pb-2">Billing Summary</h3>
 
@@ -2214,17 +2311,30 @@ export default function Accommodation() {
                         </Button>
                       )}
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="destructive" onClick={() => handleDeleteBooking(editingBooking.id)} className="bg-red-650 hover:bg-red-750 text-white rounded-xl h-10 font-bold text-xs flex-1">
-                        Delete Booking
-                      </Button>
-                      <Button variant="outline" onClick={() => setIsBookingDialogOpen(false)} className="rounded-xl h-10 font-bold text-xs flex-1">
-                        Cancel
-                      </Button>
-                    </div>
-                    <Button onClick={handleSaveBooking} className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl h-11 font-bold text-xs">
-                      Save Changes
-                    </Button>
+                    {editingBooking.status !== 'CHECKED OUT' ? (
+                      <>
+                        <div className="flex gap-2">
+                          <Button variant="destructive" onClick={() => handleDeleteBooking(editingBooking.id)} className="bg-red-650 hover:bg-red-750 text-white rounded-xl h-10 font-bold text-xs flex-1">
+                            Delete Booking
+                          </Button>
+                          <Button variant="outline" onClick={() => setIsBookingDialogOpen(false)} className="rounded-xl h-10 font-bold text-xs flex-1">
+                            Cancel
+                          </Button>
+                        </div>
+                        <Button onClick={handleSaveBooking} disabled={isSavingBooking} className="w-full bg-primary hover:bg-primary/95 text-white rounded-xl h-11 font-bold text-xs">
+                          {isSavingBooking ? 'Saving...' : 'Save Changes'}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-center text-xs font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200">
+                          This booking is checked out and cannot be edited.
+                        </p>
+                        <Button variant="outline" onClick={() => setIsBookingDialogOpen(false)} className="w-full rounded-xl h-10 font-bold text-xs">
+                          Close
+                        </Button>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
@@ -2232,8 +2342,8 @@ export default function Accommodation() {
                       <Button variant="outline" onClick={() => setIsBookingDialogOpen(false)} className="rounded-xl h-10 font-bold text-xs flex-1">
                         Cancel
                       </Button>
-                      <Button onClick={handleSaveBooking} className="bg-primary hover:bg-primary/95 text-white rounded-xl h-10 font-bold text-xs flex-1">
-                        Save Booking
+                      <Button onClick={handleSaveBooking} disabled={isSavingBooking} className="bg-primary hover:bg-primary/95 text-white rounded-xl h-10 font-bold text-xs flex-1">
+                        {isSavingBooking ? 'Saving...' : 'Save Booking'}
                       </Button>
                     </div>
                   </>
@@ -2241,6 +2351,55 @@ export default function Accommodation() {
               </div>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== MODAL: ADD CUSTOMER ==================== */}
+      <Dialog open={isAddCustomerDialogOpen} onOpenChange={setIsAddCustomerDialogOpen}>
+        <DialogContent className="max-w-md rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl">
+          <DialogHeader className="border-b pb-4">
+            <DialogTitle className="text-lg font-bold text-slate-850 dark:text-slate-100">Add New Customer</DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 mt-1">Create a new customer profile for this booking.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="cust-name" className="text-xs font-bold text-slate-550 uppercase">Full Name *</Label>
+              <Input
+                id="cust-name"
+                value={newCustomerForm.name}
+                onChange={(e) => setNewCustomerForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="John Doe"
+                className="rounded-xl"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cust-email" className="text-xs font-bold text-slate-550 uppercase">Email Address</Label>
+              <Input
+                id="cust-email"
+                type="email"
+                value={newCustomerForm.email}
+                onChange={(e) => setNewCustomerForm(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="john@example.com"
+                className="rounded-xl"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cust-phone" className="text-xs font-bold text-slate-550 uppercase">Phone Number</Label>
+              <Input
+                id="cust-phone"
+                value={newCustomerForm.phone}
+                onChange={(e) => setNewCustomerForm(prev => ({ ...prev, phone: e.target.value }))}
+                placeholder="+1 (555) 000-0000"
+                className="rounded-xl"
+              />
+            </div>
+          </div>
+          <DialogFooter className="border-t pt-4">
+            <Button variant="outline" onClick={() => setIsAddCustomerDialogOpen(false)} className="rounded-xl px-5">Cancel</Button>
+            <Button onClick={handleAddCustomerSubmit} disabled={!newCustomerForm.name || isSubmittingCustomer} className="bg-primary hover:bg-primary/95 text-white rounded-xl px-5 font-semibold">
+              {isSubmittingCustomer ? 'Adding...' : 'Add Customer'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

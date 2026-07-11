@@ -45,6 +45,7 @@ export default function Customers() {
         email: '',
         phone: '',
     });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const filteredCustomers = customers.filter(c =>
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -53,16 +54,20 @@ export default function Customers() {
     );
 
     const handleAddCustomer = async () => {
-        if (!newCustomer.name) return;
+        if (!newCustomer.name || isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            await addCustomer({
+                name: newCustomer.name,
+                email: newCustomer.email,
+                phone: newCustomer.phone,
+            });
 
-        await addCustomer({
-            name: newCustomer.name,
-            email: newCustomer.email,
-            phone: newCustomer.phone,
-        });
-
-        setNewCustomer({ name: '', email: '', phone: '' });
-        setIsAddDialogOpen(false);
+            setNewCustomer({ name: '', email: '', phone: '' });
+            setIsAddDialogOpen(false);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleUpdateCustomer = async () => {
@@ -212,7 +217,9 @@ export default function Customers() {
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                            <Button onClick={handleAddCustomer} disabled={!newCustomer.name}>Add Customer</Button>
+                            <Button onClick={handleAddCustomer} disabled={!newCustomer.name || isSubmitting}>
+                                {isSubmitting ? 'Adding...' : 'Add Customer'}
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>

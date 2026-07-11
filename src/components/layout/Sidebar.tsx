@@ -19,7 +19,8 @@ import {
   X,
   ChefHat,
   ShoppingBag,
-  Wallet
+  Wallet,
+  Bed
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ const navigation: NavigationItem[] = [
   { name: 'Inventory', href: '/inventory', icon: Boxes, requiredRight: 'viewInventory' },
   { name: 'Stock Adjustment', href: '/adjustments', icon: SlidersHorizontal, requiredRight: 'stockAdjustment' },
   { name: 'Point of Sale', href: '/pos', icon: ShoppingCart, requiredRight: 'viewOrders' },
+  { name: 'Accommodation', href: '/accommodation', icon: Bed, requiredRight: 'viewAccommodation' },
   { name: 'Online Orders', href: '/orders', icon: Truck, requiredRight: 'viewOrders' },
   { name: 'Stock Take', href: '/stock-take', icon: ClipboardList, requiredRight: 'stockTake' },
   { name: 'Recipes/Production', href: '/recipes', icon: ChefHat, requiredRight: 'manageRecipes' },
@@ -46,12 +48,13 @@ const navigation: NavigationItem[] = [
   { name: 'Supplier Accounts', href: '/supplier-accounts', icon: Wallet, requiredRight: 'managePurchasing' },
   { name: 'Stock Transfer', href: '/transfers', icon: ArrowRightLeft, requiredRight: 'stockAdjustment' },
   { name: 'Reports', href: '/reports', icon: BarChart3, requiredRight: 'viewReports' },
+  { name: 'Custom Reports', href: '/custom-reports', icon: ClipboardList, requiredRight: 'viewReports' },
   { name: 'Stock Journal', href: '/journal', icon: History, requiredRight: 'viewInventory' },
   { name: 'Customers', href: '/customers', icon: Users, requiredRight: 'viewCustomers' },
   { name: 'Locations', href: '/locations', icon: MapPin, requiredRight: 'viewSettings' },
   { name: 'Users', href: '/users', icon: Users, requiredRight: 'viewUsers' },
   { name: 'Banners', href: '/slides', icon: ImageIcon, requiredRight: 'viewSettings' },
-  { name: 'Promotions', href: '/promotions', icon: Boxes, requiredRight: 'viewProducts' },
+  { name: 'Promotions', href: '/promotions', icon: Boxes, requiredRight: 'managePromotions' },
 ];
 
 interface SidebarProps {

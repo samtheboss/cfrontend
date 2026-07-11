@@ -2,6 +2,7 @@ import { useState, Fragment } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '@/hooks/useCurrency';
 import { apiFetch, BASE_URL } from '@/lib/api';
 import { getStockStatus } from '@/types/inventory';
 import { StockBadge } from '@/components/inventory/StockBadge';

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -6,13 +6,14 @@ import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { BASE_URL, apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +42,7 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { getProductPriceInfo } from '@/lib/pricing';
+import { useCurrency } from '@/hooks/useCurrency';
 
 
 
@@ -53,6 +55,7 @@ export default function POS() {
     customers: contextCustomers = [],
     transactions = [],
     promotions = [],
+    categories: dbCategories = [],
     createSale,
     createReturn,
     checkReturnableItems,
@@ -64,6 +67,68 @@ export default function POS() {
     refreshData
   } = useInventory() || {};
   const { user, logout } = useAuth();
+  const { sym } = useCurrency();
+
+  // Workstation-specific local printer configuration
+  const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
+  const [localPrinter, setLocalPrinter] = useState(() => localStorage.getItem('localPrinterName') || 'Receipt Printer');
+  const [posPrinterMappings, setPosPrinterMappings] = useState<Record<string, string>>({});
+  const [localPrinters, setLocalPrinters] = useState<string[]>([]);
+  const [isFetchingPrinters, setIsFetchingPrinters] = useState(false);
+
+  useEffect(() => {
+    if (dbCategories.length > 0) {
+      setPosPrinterMappings(prev => {
+        const mappings = { ...prev };
+        dbCategories.forEach(cat => {
+          if (!mappings[cat.name]) {
+            mappings[cat.name] = localStorage.getItem(`printer_mapping_${cat.name}`) || 'Receipt Printer';
+          }
+        });
+        return mappings;
+      });
+    }
+  }, [dbCategories]);
+
+  const fetchLocalPrinters = async () => {
+    setIsFetchingPrinters(true);
+    try {
+      const response = await fetch('http://localhost:9000/printers');
+      if (response.ok) {
+        const data = await response.json();
+        setLocalPrinters(data);
+      }
+    } catch (err) {
+      console.warn("Local print service offline, cannot fetch printer list.");
+    } finally {
+      setIsFetchingPrinters(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLocalPrinters();
+  }, []);
+
+  // Set default selected customer to CASH-SALES ACCOUNT when customers list is loaded
+  useEffect(() => {
+    if (contextCustomers && contextCustomers.length > 0 && !selectedCustomer) {
+      const defaultCust = contextCustomers.find(
+        c => c.name?.toUpperCase() === 'CASH-SALES ACCOUNT'
+      );
+      if (defaultCust) {
+        setSelectedCustomer(defaultCust);
+      }
+    }
+  }, [contextCustomers]);
+
+  const handleSavePrinterSettings = () => {
+    localStorage.setItem('localPrinterName', localPrinter);
+    Object.entries(posPrinterMappings).forEach(([catName, printerName]) => {
+      localStorage.setItem(`printer_mapping_${catName}`, printerName);
+    });
+    toast.success('Workstation printer settings saved successfully!');
+    setIsPrinterSettingsOpen(false);
+  };
 
   // Location selector - default to user's location or main location
   const defaultLocationId = (user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString();
@@ -123,6 +188,7 @@ export default function POS() {
   const [useStkPush, setUseStkPush] = useState(true);
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+  const [currentSaleId, setCurrentSaleId] = useState<number | null>(null);
 
   // Receipt Preview States
   const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
@@ -176,7 +242,7 @@ export default function POS() {
             return [...prev, { amount: data.amount, reference: receipt }];
           });
 
-          toast.success(`M-Pesa payment of $${data.amount} confirmed!`);
+          toast.success(`M-Pesa payment of ${sym}${data.amount} confirmed!`);
         }
 
         if (data.recordedSaleId) {
@@ -321,7 +387,7 @@ export default function POS() {
     }
 
     setCart(prev => {
-      const existing = prev.find(item => item.variantId === variant.id);
+      const existing = prev.find(item => item.variantId === variant.id && !item.printed);
 
       // Calculate promotional price - use passed product object if available for better reliability
       const product = productObj || products.find(p => p.id?.toString() === variant?.productId?.toString());
@@ -334,12 +400,13 @@ export default function POS() {
           return prev;
         }
         return prev.map(item =>
-          item.variantId === variant.id
+          item.cartItemId === existing.cartItemId
             ? { ...item, quantity: item.quantity + 1, price: currentPrice } // Update price in case it changed
             : item
         );
       }
       return [...prev, {
+        cartItemId: `${variant.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         variantId: variant.id,
         productName: productName,
         variantSku: variant.sku,
@@ -355,9 +422,13 @@ export default function POS() {
     toast.success(`Added ${productName}${attrStr ? ` (${attrStr})` : ''} to cart`);
   };
 
-  const updateQuantity = (variantId: string, delta: number) => {
+  const updateQuantity = (cartItemId: string, delta: number) => {
     setCart(prev => prev.map(item => {
-      if (item.variantId === variantId) {
+      if (item.cartItemId === cartItemId) {
+        if (item.printed && delta < 0) {
+          toast.error('Cannot decrease the quantity of printed KOT items');
+          return item;
+        }
         const newQuantity = item.quantity + delta;
         if (newQuantity <= 0) return item;
         if (newQuantity > item.maxStock && !settings?.allowNegativeStock && !item.hasRecipe) {
@@ -370,18 +441,139 @@ export default function POS() {
     }));
   };
 
-  const updatePrice = (variantId: string, newPrice: number) => {
+  const updatePrice = (cartItemId: string, newPrice: number) => {
     if (newPrice < 0) return;
+    const item = cart.find(i => i.cartItemId === cartItemId);
+    if (item?.printed) {
+      toast.error('Cannot change the price of printed KOT items');
+      return;
+    }
     setCart(prev => prev.map(item =>
-      item.variantId === variantId
+      item.cartItemId === cartItemId
         ? { ...item, price: newPrice }
         : item
     ));
     toast.success('Price updated');
   };
 
-  const removeFromCart = (variantId: string) => {
-    setCart(prev => prev.filter(item => item.variantId !== variantId));
+  const removeFromCart = (cartItemId: string) => {
+    const item = cart.find(i => i.cartItemId === cartItemId);
+    if (item?.printed) {
+      toast.error('Printed KOT items cannot be removed from the cart');
+      return;
+    }
+    setCart(prev => prev.filter(item => item.cartItemId !== cartItemId));
+  };
+
+  const clearCart = () => {
+    const hasPrinted = cart.some(item => item.printed);
+    if (hasPrinted) {
+      const nonPrinted = cart.filter(item => !item.printed);
+      if (nonPrinted.length === 0) {
+        toast.error('All items in the cart are printed KOT items and cannot be removed');
+      } else {
+        setCart(nonPrinted);
+        toast.info('Cleared non-printed items. Printed KOT items remain in the cart.');
+      }
+    } else {
+      setCart([]);
+    }
+  };
+
+  const handlePrintKOT = async () => {
+    if (cart.length === 0) {
+      toast.error("Cart is empty");
+      return;
+    }
+
+    const newItems = cart.filter(item => !item.printed);
+    if (newItems.length === 0) {
+      toast.info("All items are already sent to the kitchen.");
+      return;
+    }
+
+    try {
+      const saleData = {
+        type: 'SALE',
+        status: 'PENDING',
+        locationId: selectedLocationId,
+        customerId: selectedCustomer?.id ? parseInt(selectedCustomer.id) : null,
+        paymentMethod: 'PENDING',
+        payments: [],
+        subtotal,
+        taxAmount: tax,
+        totalAmount: total,
+        amountPaid: 0,
+        changeAmount: 0,
+        idempotencyKey: currentSaleId ? undefined : `kot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        items: cart.map(item => ({
+          variantId: parseInt(item.variantId),
+          sku: item.variantSku,
+          productName: item.productName,
+          adjustment: -item.quantity,
+          price: item.price,
+        })),
+      };
+
+      let savedSale;
+      if (currentSaleId) {
+        const res = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
+          method: 'PUT',
+          body: JSON.stringify(saleData)
+        });
+        savedSale = res.data || res;
+      } else {
+        const res = await apiFetch<any>('/api/transactions/sale', {
+          method: 'POST',
+          body: JSON.stringify(saleData)
+        });
+        savedSale = res.data || res;
+      }
+
+      const dbSaleId = savedSale.id;
+      setCurrentSaleId(dbSaleId);
+
+      const token = localStorage.getItem('token');
+      const kotUrl = `${BASE_URL}/api/transactions/sale/${dbSaleId}/receipt_kot`;
+      
+      const response = await fetch(kotUrl, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch KOT PDF');
+
+      const blob = await response.blob();
+      
+      toast.info('Sending KOT to printer...');
+      try {
+        const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
+        const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(localPrinterName)}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+          },
+          body: blob,
+        });
+        if (printResponse.ok) {
+          toast.success(`KOT printed successfully via local print service on ${localPrinterName}!`);
+        } else {
+          console.warn('Local print service failed, falling back to browser preview...');
+          const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+          window.open(blobUrl, '_blank');
+        }
+      } catch (e) {
+        console.warn('Local print service offline, falling back to browser preview...', e);
+        const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+        window.open(blobUrl, '_blank');
+      }
+
+      setCart(prev => prev.map(item => ({ ...item, printed: true })));
+      refreshData();
+    } catch (err: any) {
+      toast.error("Failed to save KOT order to database: " + err.message);
+    }
   };
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -423,12 +615,16 @@ export default function POS() {
       card: { active: false, amount: '', reference: '' },
       mobile: { active: false, amount: '', reference: '' }
     });
-    setSelectedCustomer(null);
+    const defaultCust = contextCustomers?.find(
+      c => c.name?.toUpperCase() === 'CASH-SALES ACCOUNT'
+    );
+    setSelectedCustomer(defaultCust || null);
     setMpesaPhone('');
     setMpesaStatus('IDLE');
     setCheckoutRequestId(null);
     setIsPollingMpesa(false);
     setCompletedMpesaPayments([]); // Clear the list of payments
+    setCurrentSaleId(null);
   };
 
   const handlePreviewReceipt = (url: string) => {
@@ -451,17 +647,39 @@ export default function POS() {
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
 
-      // Cleanup previous blob URL if any
-      if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(receiptPreviewUrl);
-      }
-
-      setReceiptPreviewUrl(blobUrl);
-
-      // If auto-print is enabled, we bypass the modal and use a hidden iframe
+      // If auto-print is enabled, we bypass the modal and send directly to the local print server
       if (settings?.autoPrintReceipts) {
         toast.info('Sending receipt to printer...');
+        try {
+          const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
+          const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(localPrinterName)}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/pdf',
+            },
+            body: blob,
+          });
+          if (printResponse.ok) {
+            toast.success(`Receipt printed successfully via local print service on ${localPrinterName}!`);
+            return;
+          } else {
+            console.warn('Local print service failed, falling back to browser print...');
+          }
+        } catch (e) {
+          console.warn('Local print service offline, falling back to browser print...', e);
+        }
+
+        // Cleanup previous blob URL if any
+        if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(receiptPreviewUrl);
+        }
+        setReceiptPreviewUrl(blobUrl);
       } else {
+        // Cleanup previous blob URL if any
+        if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(receiptPreviewUrl);
+        }
+        setReceiptPreviewUrl(blobUrl);
         setReceiptPreviewOpen(true);
       }
     } catch (error) {
@@ -472,7 +690,28 @@ export default function POS() {
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    if (receiptPreviewUrl) {
+      try {
+        const res = await fetch(receiptPreviewUrl);
+        const blob = await res.blob();
+        const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
+        const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(localPrinterName)}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+          },
+          body: blob,
+        });
+        if (printResponse.ok) {
+          toast.success(`Sent to printer via local print service on ${localPrinterName}!`);
+          return;
+        }
+      } catch (e) {
+        console.warn('Local print service not available for manual print, using browser print');
+      }
+    }
+
     if (receiptIframeRef.current) {
       try {
         receiptIframeRef.current.contentWindow?.print();
@@ -555,7 +794,21 @@ export default function POS() {
 
     setIsProcessing(true);
     try {
-      const saved = await createSale(saleData);
+      let saved;
+      if (currentSaleId) {
+        const updatePayload = {
+          ...saleData,
+          status: 'COMPLETED'
+        };
+        const response = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
+          method: 'PUT',
+          body: JSON.stringify(updatePayload)
+        });
+        saved = response.data || response;
+        toast.success('Sale completed!');
+      } else {
+        saved = await createSale(saleData);
+      }
 
       // Show receipt preview instead of opening new window
       const receiptUrl = `${BASE_URL}/api/transactions/sale/${saved.id}/receipt`;
@@ -718,7 +971,7 @@ export default function POS() {
     // If the current cart has items, hold it first before resuming
     if (cart.length > 0) {
       const currentOrder: ActiveOrder = {
-        id: `hold-${Date.now()}`,
+        id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
         customer: selectedCustomer,
         items: [...cart], // Create a copy to ensure reference doesn't change
         timestamp: new Date()
@@ -729,6 +982,14 @@ export default function POS() {
 
     setCart(order.items);
     setSelectedCustomer(order.customer);
+    
+    if (order.id.startsWith('db-')) {
+      const dbId = parseInt(order.id.replace('db-', ''));
+      setCurrentSaleId(dbId);
+    } else {
+      setCurrentSaleId((order as any).saleId || null);
+    }
+
     discardOrder(order.id);
     setOrdersDialogOpen(false);
     toast.success('Order resumed');
@@ -802,7 +1063,44 @@ export default function POS() {
     });
   };
 
-  const filteredActiveOrders = filterOrders(activeOrders);
+  const databasePendingOrders = useMemo(() => {
+    return (transactions || [])
+      .filter(t => t.type === 'SALE' && t.status === 'PENDING')
+      .map(t => {
+        const sale = t as Sale;
+        const customer = contextCustomers.find(c => c.id?.toString() === sale.customerId?.toString()) || null;
+        
+        const items: CartItem[] = sale.items.map(item => {
+          const variant = allVariants?.find(v => v.id?.toString() === item.variantId?.toString());
+          const availableStock = variant?.locationStock?.[selectedLocationId?.toString()] || 0;
+          return {
+            variantId: item.variantId ? String(item.variantId) : '',
+            productName: item.productName || '',
+            variantSku: item.sku || '',
+            attributes: {},
+            quantity: Math.abs(item.adjustment),
+            price: item.price ? Number(item.price) : 0,
+            maxStock: availableStock,
+            printed: true
+          } as CartItem;
+        });
+
+        return {
+          id: `db-${sale.id}`,
+          customer,
+          items,
+          timestamp: new Date(sale.timestamp)
+        } as ActiveOrder;
+      });
+  }, [transactions, contextCustomers, allVariants, selectedLocationId]);
+
+  const combinedActiveOrders = useMemo(() => {
+    const dbIds = new Set(databasePendingOrders.map(o => o.id));
+    const localFiltered = activeOrders.filter(o => !dbIds.has(o.id));
+    return [...databasePendingOrders, ...localFiltered];
+  }, [databasePendingOrders, activeOrders]);
+
+  const filteredActiveOrders = filterOrders(combinedActiveOrders);
   const filteredSalesHistory = filterOrders(salesHistory);
 
   const handleOpenReturn = async (sale: Sale) => {
@@ -919,7 +1217,7 @@ export default function POS() {
         </button>
       </div>
 
-      <div className="flex flex-1 h-full overflow-hidden">
+      <div className="flex flex-1 h-[calc(100vh-48px)] md:h-full min-h-0 overflow-hidden">
         {/* Left Panel - Products (scrollable) - has right margin on md+ to make room for fixed cart */}
         <div className={cn(
           "flex-1 flex flex-col border-r bg-background h-full overflow-hidden md:mr-80 lg:mr-96",
@@ -931,6 +1229,9 @@ export default function POS() {
               <div className="flex items-center gap-3">
                 <Button variant="outline" size="icon" onClick={handleHomeClick} title="Home" className="h-9 w-9">
                   <Home className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => setIsPrinterSettingsOpen(true)} title="Printer Settings" className="h-9 w-9 text-slate-700 dark:text-slate-300">
+                  <Printer className="h-4 w-4" />
                 </Button>
                 <Button variant="outline" size="icon" onClick={handleLogout} title="Log out" className="h-9 w-9 text-destructive hover:text-destructive">
                   <LogOut className="h-4 w-4" />
@@ -1125,8 +1426,8 @@ export default function POS() {
 
         {/* Right Panel - Cart (FIXED - no scroll) */}
         <div className={cn(
-          "w-full md:w-80 lg:w-96 flex-shrink-0 flex flex-col bg-card shadow-xl z-20 md:fixed md:right-0 md:top-0 md:h-screen",
-          activeTab !== 'cart' && "hidden md:flex"
+          "fixed inset-x-0 bottom-0 top-[48px] z-20 md:fixed md:inset-auto md:right-0 md:top-0 md:h-screen md:w-80 lg:w-96 flex flex-col bg-card shadow-xl overflow-hidden",
+          activeTab !== 'cart' ? "hidden md:flex" : "flex"
         )}>
           <div className="p-3 md:p-4 border-b">
             <div className="flex items-center justify-between mb-3">
@@ -1135,7 +1436,7 @@ export default function POS() {
                 Current Sale
               </h2>
               {cart.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setCart([])} className="text-destructive h-8 px-2">
+                <Button variant="ghost" size="sm" onClick={clearCart} className="text-destructive h-8 px-2">
                   Clear
                 </Button>
               )}
@@ -1214,65 +1515,68 @@ export default function POS() {
             ) : (
               <div className="space-y-3">
                 {cart.map((item) => (
-                  <div key={item.variantId} className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                  <div key={item.cartItemId || item.variantId} className="flex items-start gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/50 rounded-lg">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{item.productName}</p>
-                      <p className="text-xs text-muted-foreground font-medium">
+                      <p className="font-medium text-xs sm:text-sm truncate">{item.productName}</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground font-medium">
                         {item.attributes && Object.keys(item.attributes).length > 0
                           ? Object.values(item.attributes).join(' / ')
                           : item.variantSku}
                       </p>
                       {item.attributes && Object.keys(item.attributes).length > 0 && (
-                        <p className="text-[10px] text-muted-foreground uppercase">{item.variantSku}</p>
+                        <p className="text-[9px] sm:text-[10px] text-muted-foreground uppercase">{item.variantSku}</p>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-2">
+                    <div className="flex flex-col items-end gap-1.5 sm:gap-2">
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="ghost" className="h-auto p-0 hover:bg-transparent font-semibold text-primary">
+                          <Button variant="ghost" className="h-auto p-0 hover:bg-transparent font-semibold text-primary text-xs sm:text-sm">
                             {settings?.currency || '$'}{(item.price * item.quantity).toFixed(2)}
-                            <Edit className="ml-1 h-3 w-3 opacity-50" />
+                            <Edit className="ml-1 h-2.5 w-2.5 sm:h-3 sm:w-3 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-48">
                           <div className="grid gap-2">
-                            <Label htmlFor={`price-${item.variantId}`}>Unit Price override</Label>
+                            <Label htmlFor={`price-${item.cartItemId || item.variantId}`}>Unit Price override</Label>
                             <Input
-                              id={`price-${item.variantId}`}
+                              id={`price-${item.cartItemId || item.variantId}`}
                               type="number"
                               defaultValue={item.price}
-                              onChange={(e) => updatePrice(item.variantId, parseFloat(e.target.value))}
+                              onChange={(e) => updatePrice(item.cartItemId || item.variantId, parseFloat(e.target.value))}
                             />
                           </div>
                         </PopoverContent>
                       </Popover>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-0.5 sm:gap-1">
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-7 w-7"
-                          onClick={() => updateQuantity(item.variantId, -1)}
-                          disabled={item.quantity <= 1}
+                          className="h-6 w-6 sm:h-7 sm:w-7"
+                          onClick={() => updateQuantity(item.cartItemId || item.variantId, -1)}
+                          disabled={item.quantity <= 1 || !!item.printed}
                         >
-                          <Minus className="h-3 w-3" />
+                          <Minus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         </Button>
-                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        <span className="w-6 sm:w-8 text-center text-xs sm:text-sm font-medium">{item.quantity}</span>
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-7 w-7"
-                          onClick={() => updateQuantity(item.variantId, 1)}
+                          className="h-6 w-6 sm:h-7 sm:w-7"
+                          onClick={() => updateQuantity(item.cartItemId || item.variantId, 1)}
+                          disabled={!!item.printed}
                         >
-                          <Plus className="h-3 w-3" />
+                          <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => removeFromCart(item.variantId)}
+                          className={`h-6 w-6 sm:h-7 sm:w-7 ${item.printed ? 'text-slate-300 cursor-not-allowed' : 'text-destructive'}`}
+                          onClick={() => removeFromCart(item.cartItemId || item.variantId)}
+                          disabled={!!item.printed}
+                          title={item.printed ? "Printed KOT item - cannot delete" : "Remove item"}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         </Button>
                       </div>
                     </div>
@@ -1283,8 +1587,8 @@ export default function POS() {
           </div>
 
           {/* Cart Summary */}
-          <div className="p-3 md:p-4 border-t bg-muted/30">
-            <div className="space-y-1 md:space-y-2 mb-3 md:mb-4">
+          <div className="p-2 sm:p-3 md:p-4 border-t bg-muted/30">
+            <div className="space-y-1 mb-2 sm:mb-3 md:mb-4">
               <div className="flex justify-between text-xs md:text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span>{settings?.currency || '$'}{subtotal.toFixed(2)}</span>
@@ -1294,25 +1598,34 @@ export default function POS() {
                 <span>{settings?.currency || '$'}{tax.toFixed(2)}</span>
               </div>
               <Separator />
-              <div className="flex justify-between text-base md:text-lg font-semibold">
+              <div className="flex justify-between text-sm sm:text-base md:text-lg font-semibold">
                 <span>Total</span>
                 <span>{settings?.currency || '$'}{total.toFixed(2)}</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
               <Button
                 variant="outline"
-                className="col-span-1 h-11 md:h-12"
+                className="col-span-1 h-9 sm:h-11 md:h-12"
                 disabled={cart.length === 0}
                 onClick={handleHoldOrder}
                 title="Hold Order"
               >
-                <PauseCircle className="h-5 w-5 md:h-4 md:w-4" />
+                <PauseCircle className="h-4 w-4 md:h-4 md:w-4" />
               </Button>
               <Button
-                className="col-span-3 h-11 md:h-12 text-sm md:text-base"
-                size="lg"
+                variant="outline"
+                className="col-span-1 h-9 sm:h-11 md:h-12 text-orange-600 hover:text-orange-700 border-orange-200 bg-orange-50/20 hover:bg-orange-50"
+                disabled={cart.length === 0}
+                onClick={handlePrintKOT}
+                title="Print KOT"
+              >
+                <FileText className="h-4 w-4 md:h-4 md:w-4" />
+              </Button>
+              <Button
+                className="col-span-2 h-9 sm:h-11 md:h-12 text-xs sm:text-sm md:text-base"
+                size="sm"
                 disabled={cart.length === 0}
                 onClick={() => {
                   if (!selectedCustomer) {
@@ -1358,12 +1671,12 @@ export default function POS() {
           }
         }
       }}>
-        <DialogContent className="max-w-md h-[95vh] sm:h-auto flex flex-col p-0 overflow-hidden">
+        <DialogContent className="max-w-lg h-[95vh] sm:h-auto flex flex-col p-0 overflow-hidden">
           <div className="p-4 md:p-6 pb-2 shrink-0">
             <DialogHeader>
               <DialogTitle>Complete Payment</DialogTitle>
               <DialogDescription>
-                Total amount due: ${total.toFixed(2)}
+                Total amount due: {sym}{total.toFixed(2)}
                 {selectedCustomer && (
                   <span className="block mt-1">Customer: {selectedCustomer.name}</span>
                 )}
@@ -1376,105 +1689,102 @@ export default function POS() {
             <div className="grid grid-cols-3 gap-2 text-center p-3 bg-muted/50 rounded-lg">
               <div>
                 <div className="text-xs text-muted-foreground">Total Due</div>
-                <div className="font-semibold">${total.toFixed(2)}</div>
+                <div className="font-semibold">{sym}{total.toFixed(2)}</div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Paid</div>
-                <div className="font-semibold text-green-600">${totalPaid.toFixed(2)}</div>
+                <div className="font-semibold text-green-600">{sym}{totalPaid.toFixed(2)}</div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">
                   {totalPaid.toFixed(2) >= total.toFixed(2) ? 'Change' : 'Remaining'}
                 </div>
                 <div className={`font-semibold ${totalPaid >= total ? 'text-blue-600' : 'text-red-600'}`}>
-                  ${Math.abs(totalPaid - total).toFixed(2)}
+                  {sym}{Math.abs(totalPaid - total).toFixed(2)}
                 </div>
               </div>
             </div>
 
             {/* Payment Methods Checkboxes */}
-            <div className="space-y-4 border rounded-md p-4">
+            <div className="space-y-3 border rounded-md p-4">
               <Label className="text-sm font-medium">Select Payment Methods</Label>
 
               {(['cash', 'card', 'mobile'] as const).map((method) => (
-                <div key={method} className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`pay-${method}`}
-                      checked={paymentMethods[method].active}
-                      onCheckedChange={(checked) => handlePaymentMethodToggle(method, checked === true)}
+                <div key={method} className="space-y-1.5">
+                  {/* Single-line row: [checkbox + icon + label] [amount] [ref/phone] */}
+                  <div className="grid grid-cols-[160px_1fr_1fr] items-center gap-2">
+                    {/* Checkbox + label */}
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`pay-${method}`}
+                        checked={paymentMethods[method].active}
+                        onCheckedChange={(checked) => handlePaymentMethodToggle(method, checked === true)}
+                      />
+                      <Label htmlFor={`pay-${method}`} className="capitalize flex items-center gap-1.5 cursor-pointer text-sm">
+                        {method === 'cash' && <Banknote className="h-4 w-4 text-muted-foreground" />}
+                        {method === 'card' && <CreditCard className="h-4 w-4 text-muted-foreground" />}
+                        {method === 'mobile' && <Smartphone className="h-4 w-4 text-muted-foreground" />}
+                        {method === 'cash' ? 'Cash' : method === 'card' ? 'Card' : 'Mobile'}
+                      </Label>
+                    </div>
+                    {/* Amount */}
+                    <Input
+                      id={`amount-${method}`}
+                      type="number"
+                      value={paymentMethods[method].amount}
+                      onChange={(e) => updatePaymentDetail(method, 'amount', e.target.value)}
+                      placeholder="Amount"
+                      className="h-8 text-sm"
+                      disabled={!paymentMethods[method].active || (isPollingMpesa && method === 'mobile')}
                     />
-                    <Label htmlFor={`pay-${method}`} className="capitalize flex items-center gap-2 cursor-pointer">
-                      {method === 'cash' && <Banknote className="h-4 w-4 text-muted-foreground" />}
-                      {method === 'card' && <CreditCard className="h-4 w-4 text-muted-foreground" />}
-                      {method === 'mobile' && <Smartphone className="h-4 w-4 text-muted-foreground" />}
-                      {method}
-                    </Label>
+                    {/* Reference / Phone */}
+                    {method === 'mobile' && paymentMethods[method].active && useStkPush ? (
+                      <div className="flex gap-1.5">
+                        <Input
+                          id="mpesa-phone"
+                          type="text"
+                          value={mpesaPhone}
+                          onChange={(e) => setMpesaPhone(e.target.value)}
+                          placeholder="07..."
+                          className="h-8 flex-1 text-sm"
+                          disabled={isPollingMpesa}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          onClick={handleMpesaPush}
+                          disabled={isPollingMpesa}
+                        >
+                          {isPollingMpesa ? '...' : 'Push'}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Input
+                        id={`ref-${method}`}
+                        type="text"
+                        value={paymentMethods[method].reference}
+                        onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
+                        placeholder={method === 'mobile' ? 'Ref Code' : 'Ref (optional)'}
+                        className="h-8 text-sm"
+                        disabled={!paymentMethods[method].active}
+                      />
+                    )}
                   </div>
 
-                  {paymentMethods[method].active && (
-                    <div className="grid grid-cols-2 gap-3 pl-6 animate-in fade-in slide-in-from-top-1">
-                      <div className="space-y-1">
-                        <Label htmlFor={`amount-${method}`} className="text-xs">Amount</Label>
-                        <Input
-                          id={`amount-${method}`}
-                          type="number"
-                          value={paymentMethods[method].amount}
-                          onChange={(e) => updatePaymentDetail(method, 'amount', e.target.value)}
-                          placeholder="0.00"
-                          className="h-8"
-                          disabled={isPollingMpesa && method === 'mobile'}
-                        />
-                      </div>
-                      {method === 'mobile' && (
-                        <div className="col-span-2 flex items-center justify-between border-t border-b py-2 my-1">
-                          <div className="space-y-0.5">
-                            <Label htmlFor="toggle-stk-pos" className="text-xs font-medium">Use M-Pesa STK Push</Label>
-                            <p className="text-[10px] text-muted-foreground">Send payment prompt to customer's phone</p>
-                          </div>
-                          <Switch
-                            id="toggle-stk-pos"
-                            checked={useStkPush}
-                            onCheckedChange={setUseStkPush}
-                          />
-                        </div>
-                      )}
-                      <div className="space-y-1">
-                        <Label htmlFor={`ref-${method}`} className="text-xs">
-                          {method === 'mobile' ? (useStkPush ? 'M-Pesa Phone' : 'Reference Code') : 'Reference (Optional)'}
-                        </Label>
-                        {method === 'mobile' && useStkPush ? (
-                          <div className="flex gap-2">
-                            <Input
-                              id="mpesa-phone"
-                              type="text"
-                              value={mpesaPhone}
-                              onChange={(e) => setMpesaPhone(e.target.value)}
-                              placeholder="07..."
-                              className="h-8 flex-1"
-                              disabled={isPollingMpesa}
-                            />
-                            <Button
-                              size="sm"
-                              className="h-8"
-                              onClick={handleMpesaPush}
-                              disabled={isPollingMpesa}
-                            >
-                              {isPollingMpesa ? '...' : 'Push'}
-                            </Button>
-                          </div>
-                        ) : (
-                          <Input
-                            id={`ref-${method}`}
-                            type="text"
-                            value={paymentMethods[method].reference}
-                            onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
-                            placeholder="Ref #"
-                            className="h-8"
-                          />
-                        )}
-                      </div>
-                      {method === 'mobile' && (isPollingMpesa || mpesaStatus !== 'IDLE') && (
+                  {/* STK push toggle — compact full-width row, only shown when mobile is active */}
+                  {method === 'mobile' && paymentMethods[method].active && (
+                    <div className="flex items-center justify-between pl-7 pr-1 py-1 bg-muted/40 rounded text-xs">
+                      <span className="text-muted-foreground">Use M-Pesa STK Push</span>
+                      <Switch
+                        id="toggle-stk-pos"
+                        checked={useStkPush}
+                        onCheckedChange={setUseStkPush}
+                        className="scale-75"
+                      />
+                    </div>
+                  )}
+
+                  {method === 'mobile' && (isPollingMpesa || mpesaStatus !== 'IDLE') && (
                         <div className="col-span-2 space-y-2 py-2">
                           <div className={`flex items-center justify-center gap-2 text-xs font-medium ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
                             mpesaStatus === 'SUCCESS' ? 'text-green-600' :
@@ -1502,9 +1812,7 @@ export default function POS() {
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              ))}
+                ))}
             </div>
 
             {completedMpesaPayments.length > 0 && (
@@ -1513,7 +1821,7 @@ export default function POS() {
                 {completedMpesaPayments.map((p, i) => (
                   <div key={i} className="flex justify-between items-center bg-green-50 px-2 py-1 rounded text-xs border border-green-100">
                     <span className="font-mono text-[10px]">{p.reference}</span>
-                    <span className="font-semibold text-green-700">${p.amount.toFixed(2)}</span>
+                    <span className="font-semibold text-green-700">{sym}{p.amount.toFixed(2)}</span>
                   </div>
                 ))}
               </div>
@@ -1521,7 +1829,7 @@ export default function POS() {
 
             {(totalPaid < total) && (
               <div className="text-xs text-red-500 text-center font-medium">
-                Balance remaining: ${(total - totalPaid).toFixed(2)}
+                Balance remaining: {sym}{(total - totalPaid).toFixed(2)}
               </div>
             )}
           </div>
@@ -1620,7 +1928,7 @@ export default function POS() {
 
       {/* Orders Manager Dialog */}
       <Dialog open={ordersDialogOpen} onOpenChange={setOrdersDialogOpen}>
-        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
+        <DialogContent className="max-w-3xl w-[95vw] sm:w-[90vw] md:w-full h-[85vh] md:h-[80vh] flex flex-col p-3 sm:p-6">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <DialogTitle>Order Management</DialogTitle>
@@ -1645,19 +1953,19 @@ export default function POS() {
                 className="pl-8"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full md:w-auto">
               <Input
                 type="date"
                 value={orderStartDate}
                 onChange={(e) => setOrderStartDate(e.target.value)}
-                className="w-auto"
+                className="w-full flex-grow md:w-auto text-xs sm:text-sm"
               />
               <span className="flex items-center text-muted-foreground">-</span>
               <Input
                 type="date"
                 value={orderEndDate}
                 onChange={(e) => setOrderEndDate(e.target.value)}
-                className="w-auto"
+                className="w-full flex-grow md:w-auto text-xs sm:text-sm"
               />
             </div>
           </div>
@@ -1678,35 +1986,40 @@ export default function POS() {
                 <div className="space-y-2">
                   {filteredActiveOrders.map(order => (
                     <div key={order.id} className="border rounded-lg bg-card overflow-hidden">
-                      <div className="flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer"
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer gap-2"
                         onClick={() => toggleExpandOrder(order.id)}>
-                        <div className="flex gap-4 items-center">
-                          <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
-                            <PauseCircle className="h-5 w-5" />
+                        <div className="flex gap-3 items-center">
+                          <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 shrink-0">
+                            <PauseCircle className="h-4 w-4 sm:h-5 sm:w-5" />
                           </div>
-                          <div>
-                            <div className="font-medium">
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm sm:text-base truncate">
                               {order.customer ? order.customer.name : 'Walk-in Customer'}
                             </div>
-                            <div className="text-sm text-muted-foreground flex gap-2">
+                            <div className="text-xs sm:text-sm text-muted-foreground flex gap-2">
                               <span>{format(order.timestamp, 'HH:mm')}</span>
                               <span>•</span>
                               <span>{order.items.length} items</span>
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="font-semibold text-right">
-                            ${order.items.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2)}
+                        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0">
+                          <div className="text-left sm:text-right">
+                            <span className="text-[10px] text-muted-foreground block sm:hidden">Total</span>
+                            <span className="font-semibold text-sm sm:text-base">
+                              {sym}{order.items.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2)}
+                            </span>
                           </div>
-                          <Button size="sm" onClick={(e) => {
-                            e.stopPropagation();
-                            handleResumeOrder(order);
-                          }}>
-                            <PlayCircle className="h-4 w-4 mr-2" />
-                            Resume
-                          </Button>
-                          {expandedOrderId === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" className="h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3" onClick={(e) => {
+                              e.stopPropagation();
+                              handleResumeOrder(order);
+                            }}>
+                              <PlayCircle className="h-3.5 w-3.5 mr-1" />
+                              Resume
+                            </Button>
+                            {expandedOrderId === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </div>
                         </div>
                       </div>
 
@@ -1715,7 +2028,7 @@ export default function POS() {
                           {order.items.map((item, idx) => (
                             <div key={idx} className="flex justify-between text-sm">
                               <div>{item.productName} <span className="text-muted-foreground">x{item.quantity}</span></div>
-                              <div>${(item.price * item.quantity).toFixed(2)}</div>
+                              <div>{sym}{(item.price * item.quantity).toFixed(2)}</div>
                             </div>
                           ))}
                         </div>
@@ -1755,7 +2068,7 @@ export default function POS() {
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-2 md:gap-4 flex-wrap">
                           <div className="font-bold text-right text-xs md:text-base shrink-0">
-                            ${(sale.total || (sale as any).totalAmount || 0).toFixed(2)}
+                            {sym}{(sale.total || (sale as any).totalAmount || 0).toFixed(2)}
                           </div>
                           <div className="flex items-center gap-1 md:gap-1.5 flex-wrap justify-end">
                             <Button size="sm" variant="outline" className="h-7 w-7 md:h-8 md:w-8 p-0" onClick={(e) => {
@@ -1796,12 +2109,12 @@ export default function POS() {
                                   ({Object.values(item.attributes || {}).join('/')}) x{Math.abs(item.adjustment || item.quantity || 0)}
                                 </span>
                               </div>
-                              <div>${(item.price * Math.abs(item.adjustment || item.quantity || 0)).toFixed(2)}</div>
+                              <div>{sym}{(item.price * Math.abs(item.adjustment || item.quantity || 0)).toFixed(2)}</div>
                             </div>
                           ))}
                           <div className="border-t pt-2 mt-2 flex justify-between font-medium">
                             <span>Total</span>
-                            <span>${(sale.total || (sale as any).totalAmount || 0).toFixed(2)}</span>
+                            <span>{sym}{(sale.total || (sale as any).totalAmount || 0).toFixed(2)}</span>
                           </div>
                         </div>
                       )}
@@ -1875,7 +2188,7 @@ export default function POS() {
           <div className="border-t pt-4">
             <div className="flex justify-between items-center mb-4">
               <span className="font-medium">Total Refund</span>
-              <span className="text-xl font-bold">${calculateReturnTotal().toFixed(2)}</span>
+              <span className="text-xl font-bold">{sym}{calculateReturnTotal().toFixed(2)}</span>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setReturnDialogOpen(false)} disabled={isProcessing}>Cancel</Button>
@@ -1966,6 +2279,107 @@ export default function POS() {
                 Print Receipt
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Workstation Printer Settings Dialog */}
+      <Dialog open={isPrinterSettingsOpen} onOpenChange={setIsPrinterSettingsOpen}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Workstation Printer Settings</DialogTitle>
+            <DialogDescription>
+              Configure printer preferences for this specific workstation. These settings are saved in your local browser storage.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 my-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="localPrinterName" className="font-semibold">Receipt Printer</Label>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 text-xs text-primary" 
+                  onClick={fetchLocalPrinters} 
+                  disabled={isFetchingPrinters}
+                >
+                  {isFetchingPrinters ? "Loading..." : "Reload List"}
+                </Button>
+              </div>
+              {localPrinters.length > 0 ? (
+                <Select value={localPrinter} onValueChange={setLocalPrinter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a printer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {localPrinters.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="space-y-1">
+                  <Input
+                    id="localPrinterName"
+                    value={localPrinter}
+                    onChange={(e) => setLocalPrinter(e.target.value)}
+                    className="w-full"
+                    placeholder="e.g. Receipt Printer"
+                  />
+                  <p className="text-xs text-muted-foreground">Print service offline. Enter printer name manually.</p>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">KOT Printer Mappings (By Category)</h4>
+                <p className="text-xs text-muted-foreground">Route kitchen order tickets for different categories to specific kitchen/bar printers.</p>
+              </div>
+              {dbCategories.length > 0 ? (
+                <div className="space-y-3">
+                  {dbCategories.map(cat => (
+                    <div key={cat.id} className="flex items-center justify-between gap-4">
+                      <Label className="text-xs font-medium flex-1 truncate">{cat.name}</Label>
+                      {localPrinters.length > 0 ? (
+                        <Select 
+                          value={posPrinterMappings[cat.name] || 'Receipt Printer'} 
+                          onValueChange={(val) => setPosPrinterMappings(prev => ({ ...prev, [cat.name]: val }))}
+                        >
+                          <SelectTrigger className="w-56">
+                            <SelectValue placeholder="Select KOT printer" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {localPrinters.map((p) => (
+                              <SelectItem key={p} value={p}>
+                                {p}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={posPrinterMappings[cat.name] || ''}
+                          onChange={(e) => setPosPrinterMappings(prev => ({ ...prev, [cat.name]: e.target.value }))}
+                          className="w-56"
+                          placeholder="e.g. Kitchen Printer"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">No categories available to map.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="flex flex-row justify-end gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => setIsPrinterSettingsOpen(false)}>Cancel</Button>
+            <Button onClick={handleSavePrinterSettings}>Save Configuration</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -28,6 +28,7 @@ import Recipes from "./pages/Recipes";
 import Purchasing from "./pages/Purchasing";
 import SupplierAccounts from "./pages/SupplierAccounts";
 import Accommodation from "./pages/Accommodation";
+import CustomReports from "./pages/CustomReports";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -42,7 +43,7 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/signin" element={<SignIn />} />
-              <Route path="/" element={<ProtectedRoute requiredRight="viewDashboard"><DashboardMenu /></ProtectedRoute>} />
+              <Route path="/" element={<ProtectedRoute><DashboardMenu /></ProtectedRoute>} />
               <Route path="/stats" element={<ProtectedRoute requiredRight="viewDashboard"><Dashboard /></ProtectedRoute>} />
               <Route path="/products" element={<ProtectedRoute requiredRight="viewProducts"><Products /></ProtectedRoute>} />
               <Route path="/inventory" element={<ProtectedRoute requiredRight="viewInventory"><Inventory /></ProtectedRoute>} />
@@ -52,9 +53,10 @@ const App = () => (
               <Route path="/recipes" element={<ProtectedRoute requiredRight="manageRecipes"><Recipes /></ProtectedRoute>} />
               <Route path="/purchasing" element={<ProtectedRoute requiredRight="managePurchasing"><Purchasing /></ProtectedRoute>} />
               <Route path="/supplier-accounts" element={<ProtectedRoute requiredRight="managePurchasing"><SupplierAccounts /></ProtectedRoute>} />
-              <Route path="/accommodation" element={<ProtectedRoute requiredRight="viewDashboard"><Accommodation /></ProtectedRoute>} />
+              <Route path="/accommodation" element={<ProtectedRoute requiredRight="viewAccommodation"><Accommodation /></ProtectedRoute>} />
               <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
+              <Route path="/custom-reports" element={<ProtectedRoute requiredRight="viewReports"><CustomReports /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute requiredRight="viewSettings"><Settings /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute requiredRight="viewUsers"><Users /></ProtectedRoute>} />
               <Route path="/customers" element={<ProtectedRoute requiredRight="viewCustomers"><Customers /></ProtectedRoute>} />
@@ -62,7 +64,7 @@ const App = () => (
               <Route path="/journal" element={<ProtectedRoute requiredRight="viewInventory"><InventoryTransactions /></ProtectedRoute>} />
               <Route path="/orders" element={<ProtectedRoute requiredRight="viewOrders"><OnlineOrders /></ProtectedRoute>} />
               <Route path="/slides" element={<ProtectedRoute requiredRight="viewSettings"><Slides /></ProtectedRoute>} />
-              <Route path="/promotions" element={<ProtectedRoute requiredRight="viewProducts"><Promotions /></ProtectedRoute>} />
+              <Route path="/promotions" element={<ProtectedRoute requiredRight="managePromotions"><Promotions /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
