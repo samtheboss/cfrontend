@@ -67,7 +67,7 @@ export default function POS() {
     refreshData
   } = useInventory() || {};
   const { user, logout } = useAuth();
-  const { sym } = useCurrency();
+  const { sym, computeTax, vatInclusive } = useCurrency();
 
   // Workstation-specific local printer configuration
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
@@ -401,7 +401,7 @@ export default function POS() {
         }
         return prev.map(item =>
           item.cartItemId === existing.cartItemId
-            ? { ...item, quantity: item.quantity + 1, price: currentPrice } // Update price in case it changed
+            ? { ...item, quantity: item.quantity + 1, price: currentPrice }
             : item
         );
       }
@@ -414,7 +414,9 @@ export default function POS() {
         quantity: 1,
         price: currentPrice,
         maxStock: availableStock,
-        hasRecipe: variant.hasRecipe
+        hasRecipe: variant.hasRecipe,
+        taxRate: product?.taxRate ?? 16.0,
+        taxType: product?.taxType ?? 'A'
       }];
     });
     setVariantDialogOpen(false);
@@ -512,6 +514,8 @@ export default function POS() {
           productName: item.productName,
           adjustment: -item.quantity,
           price: item.price,
+          taxRate: item.taxRate ?? 16.0,
+          taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
         })),
       };
 
@@ -576,10 +580,20 @@ export default function POS() {
     }
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const taxRate = settings?.taxRate || 0;
-  const tax = subtotal * (taxRate / 100);
-  const total = subtotal + tax;
+  const totals = useMemo(() => {
+    return cart.reduce((acc, item) => {
+      const taxes = computeTax(item.quantity, item.price, item.taxRate ?? 16.0);
+      return {
+        subtotal: acc.subtotal + taxes.subtotal,
+        tax: acc.tax + taxes.tax,
+        total: acc.total + taxes.total
+      };
+    }, { subtotal: 0, tax: 0, total: 0 });
+  }, [cart, vatInclusive]);
+
+  const subtotal = totals.subtotal;
+  const tax = totals.tax;
+  const total = totals.total;
 
   const totalPaid = Object.values(paymentMethods)
     .reduce((sum, method) => method.active ? sum + (parseFloat(method.amount) || 0) : sum, 0)
@@ -789,6 +803,8 @@ export default function POS() {
         productName: item.productName,
         adjustment: -item.quantity,
         price: item.price,
+        taxRate: item.taxRate ?? 16.0,
+        taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
       })),
     };
 
@@ -910,6 +926,8 @@ export default function POS() {
         productName: item.productName,
         adjustment: -item.quantity,
         price: item.price,
+        taxRate: item.taxRate ?? 16.0,
+        taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
       })),
     };
 
@@ -1594,7 +1612,7 @@ export default function POS() {
                 <span>{settings?.currency || '$'}{subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-xs md:text-sm">
-                <span className="text-muted-foreground">Tax ({taxRate}%)</span>
+                <span className="text-muted-foreground">Tax (VAT)</span>
                 <span>{settings?.currency || '$'}{tax.toFixed(2)}</span>
               </div>
               <Separator />

@@ -110,6 +110,8 @@ export default function Products() {
     isActive: boolean;
     isFeatured: boolean;
     unit: string;
+    taxType: string;
+    taxRate: number;
   }>({
     name: '',
     description: '',
@@ -125,6 +127,8 @@ export default function Products() {
     isActive: true,
     isFeatured: false,
     unit: 'PCS',
+    taxType: 'A',
+    taxRate: 16.0,
   });
 
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false);
@@ -450,6 +454,8 @@ export default function Products() {
       isActive: product.isActive !== undefined ? product.isActive : true,
       isFeatured: !!product.isFeatured,
       unit: product.unit || 'PCS',
+      taxType: product.taxType || 'A',
+      taxRate: product.taxRate !== undefined ? product.taxRate : 16.0,
     });
 
     // Extract recipes for variants
@@ -512,6 +518,8 @@ export default function Products() {
         isActive: newProduct.isActive !== false,
         isFeatured: !!newProduct.isFeatured,
         unit: newProduct.unit,
+        taxType: newProduct.taxType,
+        taxRate: newProduct.taxRate,
       };
 
       let savedProduct: Product;
@@ -676,6 +684,30 @@ export default function Products() {
                           {category.name}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="taxType">Tax Class</Label>
+                  <Select
+                    value={newProduct.taxType}
+                    onValueChange={(value) => {
+                      let rate = 0;
+                      if (value === 'A') rate = 16.0;
+                      if (value === 'B') rate = 8.0;
+                      if (value === 'E') rate = 2.0;
+                      setNewProduct({ ...newProduct, taxType: value, taxRate: rate });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Tax Class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="A">16% (Standard)</SelectItem>
+                      <SelectItem value="B">8% (Reduced)</SelectItem>
+                      <SelectItem value="C">0% (Zero Rated)</SelectItem>
+                      <SelectItem value="D">0% (Exempt)</SelectItem>
+                      <SelectItem value="E">2% (Special)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

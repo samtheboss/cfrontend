@@ -194,6 +194,16 @@ export default function Settings() {
               <Separator />
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
+                  <Label>Amount is Inclusive of VAT</Label>
+                  <p className="text-sm text-muted-foreground">If enabled, entered amounts include VAT and tax is extracted. If disabled, VAT is added on top of entered amounts.</p>
+                </div>
+                <Switch
+                  checked={formData.vatInclusive}
+                  onCheckedChange={(checked) => updateField('vatInclusive', checked)}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
                   <Label>Auto-print Receipts</Label>
                   <p className="text-sm text-muted-foreground">Automatically print receipt after each sale</p>
                 </div>

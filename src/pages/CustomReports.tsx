@@ -5,7 +5,7 @@ import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Upload, Trash, Calendar, Users, MapPin, Tag, Edit, Eye, RefreshCw, Loader2, Package, LayoutDashboard, ShoppingCart, Home, Briefcase, Store } from 'lucide-react';
+import { Upload, Trash, Calendar, Users, MapPin, Tag, Edit, Eye, RefreshCw, Loader2, Package, LayoutDashboard, ShoppingCart, Home, Briefcase, Store, Download } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -46,18 +46,22 @@ export default function CustomReports() {
   const [reportName, setReportName] = useState('');
   const [reportDesc, setReportDesc] = useState('');
   const [reportModule, setReportModule] = useState('sales');
-  const [requiresDateRange, setRequiresDateRange] = useState(false);
-  const [requiresLocation, setRequiresLocation] = useState(false);
-  const [requiresUser, setRequiresUser] = useState(false);
-  const [requiresCustomer, setRequiresCustomer] = useState(false);
-  const [requiresProduct, setRequiresProduct] = useState(false);
-  const [requiresCategory, setRequiresCategory] = useState(false);
+  const [params, setParams] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
   // Execute (Run Report) dialog
   const [executingTemplate, setExecutingTemplate] = useState<any | null>(null);
   const [execParams, setExecParams] = useState<Record<string, any>>({});
   const [isExecuting, setIsExecuting] = useState(false);
+
+  const toggleParam = (param: string, isEdit = false) => {
+    if (isEdit) {
+      setEditParams(prev => prev.includes(param) ? prev.filter(p => p !== param) : [...prev, param]);
+    } else {
+      setParams(prev => prev.includes(param) ? prev.filter(p => p !== param) : [...prev, param]);
+    }
+  };
+
 
   // PDF Preview dialog
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -66,14 +70,10 @@ export default function CustomReports() {
   // Edit Template dialog
   const [editingReportTemplate, setEditingReportTemplate] = useState<any | null>(null);
   const [editName, setEditName] = useState('');
+  const [editFile, setEditFile] = useState<File | null>(null);
   const [editDesc, setEditDesc] = useState('');
   const [editModule, setEditModule] = useState('sales');
-  const [editRequiresDateRange, setEditRequiresDateRange] = useState(false);
-  const [editRequiresLocation, setEditRequiresLocation] = useState(false);
-  const [editRequiresUser, setEditRequiresUser] = useState(false);
-  const [editRequiresCustomer, setEditRequiresCustomer] = useState(false);
-  const [editRequiresProduct, setEditRequiresProduct] = useState(false);
-  const [editRequiresCategory, setEditRequiresCategory] = useState(false);
+  const [editParams, setEditParams] = useState<string[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const locationOptionsForReport = useMemo(() =>
@@ -114,12 +114,7 @@ export default function CustomReports() {
     formData.append('name', reportName);
     formData.append('description', reportDesc);
     formData.append('module', reportModule);
-    formData.append('requiresDateRange', String(requiresDateRange));
-    formData.append('requiresLocation', String(requiresLocation));
-    formData.append('requiresUser', String(requiresUser));
-    formData.append('requiresCustomer', String(requiresCustomer));
-    formData.append('requiresProduct', String(requiresProduct));
-    formData.append('requiresCategory', String(requiresCategory));
+    formData.append('params', params.join(','));
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${BASE_URL}/api/reports/templates`, {
@@ -130,8 +125,7 @@ export default function CustomReports() {
       if (!response.ok) throw new Error('Upload failed');
       toast.success('Report template uploaded successfully');
       setUploadFile(null); setReportName(''); setReportDesc(''); setReportModule('sales');
-      setRequiresDateRange(false); setRequiresLocation(false); setRequiresUser(false);
-      setRequiresCustomer(false); setRequiresProduct(false); setRequiresCategory(false);
+      setParams([]);
       setUploadOpen(false);
       fetchTemplates();
     } catch { toast.error('Failed to upload template'); }
@@ -171,28 +165,27 @@ export default function CustomReports() {
     setEditingReportTemplate(template);
     setEditName(template.name);
     setEditDesc(template.description || '');
+    setEditFile(null);
     setEditModule(template.module || 'other');
-    setEditRequiresDateRange(template.requiresDateRange || false);
-    setEditRequiresLocation(template.requiresLocation || false);
-    setEditRequiresUser(template.requiresUser || false);
-    setEditRequiresCustomer(template.requiresCustomer || false);
-    setEditRequiresProduct(template.requiresProduct || false);
-    setEditRequiresCategory(template.requiresCategory || false);
+    setEditParams(template.params ? template.params.split(',') : []);
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingReportTemplate || !editName.trim()) return;
     setIsSavingEdit(true);
-    const payload = {
-      name: editName, description: editDesc, module: editModule,
-      requiresDateRange: editRequiresDateRange, requiresLocation: editRequiresLocation,
-      requiresUser: editRequiresUser, requiresCustomer: editRequiresCustomer,
-      requiresProduct: editRequiresProduct, requiresCategory: editRequiresCategory,
-    };
+    const formData = new FormData();
+    formData.append('name', editName);
+    formData.append('description', editDesc);
+    formData.append('module', editModule);
+    formData.append('params', editParams.join(','));
+    if (editFile) {
+      formData.append('file', editFile);
+    }
+    
     try {
       await apiFetch(`/api/reports/templates/${editingReportTemplate.id}`, {
-        method: 'PUT', body: JSON.stringify(payload),
+        method: 'PUT', body: formData,
       });
       toast.success('Report template updated successfully');
       setEditingReportTemplate(null);
@@ -251,7 +244,7 @@ export default function CustomReports() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 {displayedReports.map(template => (
                   <Card key={template.id} className="flex flex-col group hover:border-primary/50 transition-colors">
                     <CardHeader className="pb-3">
@@ -272,23 +265,22 @@ export default function CustomReports() {
                     </CardHeader>
                     <CardContent className="mt-auto pt-0 pb-4">
                       <div className="flex flex-wrap gap-1.5 mb-4">
-                        {template.requiresDateRange && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Date Range</Badge>}
-                        {template.requiresLocation && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Location</Badge>}
-                        {template.requiresUser && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">User</Badge>}
-                        {template.requiresCustomer && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Customer</Badge>}
-                        {template.requiresProduct && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Product</Badge>}
-                        {template.requiresCategory && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Category</Badge>}
-                        {!template.requiresDateRange && !template.requiresLocation && !template.requiresUser &&
-                          !template.requiresCustomer && !template.requiresProduct && !template.requiresCategory && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-dashed text-muted-foreground">No Params</Badge>
-                          )}
+                        {(template.params?.includes('dateRange')) && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Date Range</Badge>}
+                        {(template.params?.includes('location')) && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Location</Badge>}
+                        {(template.params?.includes('user')) && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">User</Badge>}
+                        {(template.params?.includes('customer')) && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Customer</Badge>}
+                        {(template.params?.includes('product')) && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Product</Badge>}
+                        {(template.params?.includes('category')) && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Category</Badge>}
+                        {(!template.params || template.params.trim() === '') && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-dashed text-muted-foreground">No Params</Badge>
+                        )}
                       </div>
                       <Button
                         className="w-full h-8 text-xs font-medium bg-secondary/50 text-secondary-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
                         onClick={() => {
                           setExecutingTemplate(template);
                           setExecParams({
-                            ...(template.requiresDateRange && { startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] })
+                            ...((template.params?.includes('dateRange')) && { startDate: new Date().toISOString().slice(0,16), endDate: new Date().toISOString().slice(0,16) })
                           });
                         }}
                       >
@@ -338,27 +330,27 @@ export default function CustomReports() {
                 </Label>
                 <div className="grid grid-cols-2 gap-2 text-xs font-medium">
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="req-date" checked={requiresDateRange} onCheckedChange={c => setRequiresDateRange(c === true)} />
+                    <Checkbox id="req-date" checked={params.includes('dateRange')} onCheckedChange={() => toggleParam('dateRange')} />
                     <label htmlFor="req-date" className="cursor-pointer flex items-center gap-1"><Calendar className="h-3 w-3" /> Date Range</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="req-loc" checked={requiresLocation} onCheckedChange={c => setRequiresLocation(c === true)} />
+                    <Checkbox id="req-loc" checked={params.includes('location')} onCheckedChange={() => toggleParam('location')} />
                     <label htmlFor="req-loc" className="cursor-pointer flex items-center gap-1"><MapPin className="h-3 w-3" /> Location</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="req-user" checked={requiresUser} onCheckedChange={c => setRequiresUser(c === true)} />
+                    <Checkbox id="req-user" checked={params.includes('user')} onCheckedChange={() => toggleParam('user')} />
                     <label htmlFor="req-user" className="cursor-pointer flex items-center gap-1"><Users className="h-3 w-3" /> Cashier/User</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="req-cust" checked={requiresCustomer} onCheckedChange={c => setRequiresCustomer(c === true)} />
+                    <Checkbox id="req-cust" checked={params.includes('customer')} onCheckedChange={() => toggleParam('customer')} />
                     <label htmlFor="req-cust" className="cursor-pointer flex items-center gap-1"><Users className="h-3 w-3" /> Customer</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="req-prod" checked={requiresProduct} onCheckedChange={c => setRequiresProduct(c === true)} />
+                    <Checkbox id="req-prod" checked={params.includes('product')} onCheckedChange={() => toggleParam('product')} />
                     <label htmlFor="req-prod" className="cursor-pointer flex items-center gap-1"><Package className="h-3 w-3" /> Product/Item</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="req-cat" checked={requiresCategory} onCheckedChange={c => setRequiresCategory(c === true)} />
+                    <Checkbox id="req-cat" checked={params.includes('category')} onCheckedChange={() => toggleParam('category')} />
                     <label htmlFor="req-cat" className="cursor-pointer flex items-center gap-1"><Tag className="h-3 w-3" /> Category</label>
                   </div>
                 </div>
@@ -379,19 +371,19 @@ export default function CustomReports() {
               <DialogDescription>Provide values for the report parameters below.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
-              {executingTemplate?.requiresDateRange && (
+              {executingTemplate?.params?.includes('dateRange') && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Start Date</Label>
-                    <Input type="date" value={execParams.startDate || ''} onChange={e => setExecParams(prev => ({ ...prev, startDate: e.target.value }))} className="h-9" />
+                    <Input type="datetime-local" value={execParams.startDate || ''} onChange={e => setExecParams(prev => ({ ...prev, startDate: e.target.value }))} className="h-9" />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">End Date</Label>
-                    <Input type="date" value={execParams.endDate || ''} onChange={e => setExecParams(prev => ({ ...prev, endDate: e.target.value }))} className="h-9" />
+                    <Input type="datetime-local" value={execParams.endDate || ''} onChange={e => setExecParams(prev => ({ ...prev, endDate: e.target.value }))} className="h-9" />
                   </div>
                 </div>
               )}
-              {executingTemplate?.requiresLocation && (
+              {executingTemplate?.params?.includes('location') && (
                 <div className="space-y-1">
                   <Label className="text-xs">Locations</Label>
                   <MultiSelect
@@ -402,7 +394,7 @@ export default function CustomReports() {
                   />
                 </div>
               )}
-              {executingTemplate?.requiresUser && (
+              {executingTemplate?.params?.includes('user') && (
                 <div className="space-y-1">
                   <Label className="text-xs">User/Cashier</Label>
                   <Select onValueChange={val => setExecParams(prev => ({ ...prev, userId: val }))}>
@@ -415,7 +407,7 @@ export default function CustomReports() {
                   </Select>
                 </div>
               )}
-              {executingTemplate?.requiresCustomer && (
+              {executingTemplate?.params?.includes('customer') && (
                 <div className="space-y-1">
                   <Label className="text-xs">Customer</Label>
                   <Select onValueChange={val => setExecParams(prev => ({ ...prev, customerId: val }))}>
@@ -428,7 +420,7 @@ export default function CustomReports() {
                   </Select>
                 </div>
               )}
-              {executingTemplate?.requiresProduct && (
+              {executingTemplate?.params?.includes('product') && (
                 <div className="space-y-1">
                   <Label className="text-xs">Products/Items</Label>
                   <MultiSelect
@@ -439,7 +431,7 @@ export default function CustomReports() {
                   />
                 </div>
               )}
-              {executingTemplate?.requiresCategory && (
+              {executingTemplate?.params?.includes('category') && (
                 <div className="space-y-1">
                   <Label className="text-xs">Categories</Label>
                   <MultiSelect
@@ -500,8 +492,17 @@ export default function CustomReports() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Report Name *</Label>
+                <div className="flex justify-between items-end">
+                  <Label className="text-xs">Report Name *</Label>
+                  <Button variant="outline" size="sm" type="button" className="h-6 text-xs px-2" onClick={() => window.open(BASE_URL + `/api/reports/templates/${editingReportTemplate?.id}/download`, '_blank')}>
+                    <Download className="h-3 w-3 mr-1" /> Download .jrxml
+                  </Button>
+                </div>
                 <Input placeholder="e.g. Sales Summary" value={editName} onChange={e => setEditName(e.target.value)} required className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Update .jrxml File (Optional)</Label>
+                <Input type="file" accept=".jrxml" onChange={e => setEditFile(e.target.files?.[0] || null)} className="h-9 cursor-pointer" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Description</Label>
@@ -513,27 +514,27 @@ export default function CustomReports() {
                 </Label>
                 <div className="grid grid-cols-2 gap-2 text-xs font-medium">
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="edit-req-date" checked={editRequiresDateRange} onCheckedChange={c => setEditRequiresDateRange(c === true)} />
+                    <Checkbox id="edit-req-date" checked={editParams.includes('dateRange')} onCheckedChange={() => toggleParam('dateRange', true)} />
                     <label htmlFor="edit-req-date" className="cursor-pointer flex items-center gap-1"><Calendar className="h-3 w-3" /> Date Range</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="edit-req-loc" checked={editRequiresLocation} onCheckedChange={c => setEditRequiresLocation(c === true)} />
+                    <Checkbox id="edit-req-loc" checked={editParams.includes('location')} onCheckedChange={() => toggleParam('location', true)} />
                     <label htmlFor="edit-req-loc" className="cursor-pointer flex items-center gap-1"><MapPin className="h-3 w-3" /> Location</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="edit-req-user" checked={editRequiresUser} onCheckedChange={c => setEditRequiresUser(c === true)} />
+                    <Checkbox id="edit-req-user" checked={editParams.includes('user')} onCheckedChange={() => toggleParam('user', true)} />
                     <label htmlFor="edit-req-user" className="cursor-pointer flex items-center gap-1"><Users className="h-3 w-3" /> Cashier/User</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="edit-req-cust" checked={editRequiresCustomer} onCheckedChange={c => setEditRequiresCustomer(c === true)} />
+                    <Checkbox id="edit-req-cust" checked={editParams.includes('customer')} onCheckedChange={() => toggleParam('customer', true)} />
                     <label htmlFor="edit-req-cust" className="cursor-pointer flex items-center gap-1"><Users className="h-3 w-3" /> Customer</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="edit-req-prod" checked={editRequiresProduct} onCheckedChange={c => setEditRequiresProduct(c === true)} />
+                    <Checkbox id="edit-req-prod" checked={editParams.includes('product')} onCheckedChange={() => toggleParam('product', true)} />
                     <label htmlFor="edit-req-prod" className="cursor-pointer flex items-center gap-1"><Package className="h-3 w-3" /> Product/Item</label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="edit-req-cat" checked={editRequiresCategory} onCheckedChange={c => setEditRequiresCategory(c === true)} />
+                    <Checkbox id="edit-req-cat" checked={editParams.includes('category')} onCheckedChange={() => toggleParam('category', true)} />
                     <label htmlFor="edit-req-cat" className="cursor-pointer flex items-center gap-1"><Tag className="h-3 w-3" /> Category</label>
                   </div>
                 </div>

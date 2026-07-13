@@ -336,24 +336,35 @@ export default function SupplierAccounts() {
           setIsSubmittingPayment(false);
           return;
         }
-        if (totalAllocated > Number(selectedCredit?.amount || 0)) {
-          toast.error(`Total allocated ($${totalAllocated.toFixed(2)}) cannot exceed the credit/prepayment amount ($${Number(selectedCredit?.amount || 0).toFixed(2)})`);
+        let remainingCredit = Number(selectedCredit?.amount || 0);
+        if (remainingCredit <= 0.001) {
+          toast.error('The selected credit note has no remaining balance.');
           setIsSubmittingPayment(false);
           return;
         }
 
-        // Apply allocations sequentially
+        // Apply allocations sequentially, capped by the remaining credit note balance
         for (const id of selectedInvoiceIds) {
-          const alloc = parseFloat(invoiceAllocations[id]) || 0;
+          let alloc = parseFloat(invoiceAllocations[id]) || 0;
           if (alloc <= 0) continue;
-          await apiFetch('/api/supplier-ledger/match', {
-            method: 'POST',
-            body: JSON.stringify({
-              creditEntryId: selectedCreditId,
-              invoiceEntryId: id,
-              amountToApply: alloc,
-            }),
-          });
+
+          if (alloc > remainingCredit) {
+            alloc = remainingCredit;
+          }
+
+          if (alloc > 0.001) {
+            await apiFetch('/api/supplier-ledger/match', {
+              method: 'POST',
+              body: JSON.stringify({
+                creditEntryId: selectedCreditId,
+                invoiceEntryId: id,
+                amountToApply: Number(alloc.toFixed(2)),
+              }),
+            });
+            remainingCredit -= alloc;
+          }
+
+          if (remainingCredit <= 0.001) break;
         }
         toast.success('Credit applied to invoice(s) successfully');
       } else if (usePaymentSplit) {
@@ -374,7 +385,7 @@ export default function SupplierAccounts() {
 
         const totalSplit = activeSplits.reduce((sum, s) => sum + s.amount, 0);
         if (Math.abs(totalSplit - totalAllocated) > 0.01) {
-          toast.error(`Total split payment ($${totalSplit.toFixed(2)}) must match the total allocated amount ($${totalAllocated.toFixed(2)})`);
+          toast.error(`Total split payment (${sym}${totalSplit.toFixed(2)}) must match the total allocated amount (${sym}${totalAllocated.toFixed(2)})`);
           setIsSubmittingPayment(false);
           return;
         }
@@ -637,7 +648,7 @@ export default function SupplierAccounts() {
                           </div>
                           <div className="text-muted-foreground">{formatDate(entry.timestamp)}</div>
                           <div className={cn("text-right font-semibold", isDebit ? "text-red-600" : "text-green-600")}>
-                            {isDebit ? '+' : '-'}${Number(entry.amount).toFixed(2)}
+                            {isDebit ? '+' : '-'}{sym}{Number(entry.amount).toFixed(2)}
                           </div>
                           <div className={cn("text-right font-bold",
                             entry.runningBalance > 0 ? "text-red-600" : entry.runningBalance < 0 ? "text-blue-600" : ""
@@ -712,8 +723,8 @@ export default function SupplierAccounts() {
                               {inv.type === 'OPENING_BALANCE'
                                 ? 'Opening Balance'
                                 : inv.type === 'DEBIT_NOTE'
-                                ? `Debit Note: ${inv.reference || `#${inv.id}`}`
-                                : `Invoice: ${inv.reference || `#${inv.id}`}`}
+                                  ? `Debit Note: ${inv.reference || `#${inv.id}`}`
+                                  : `Invoice: ${inv.reference || `#${inv.id}`}`}
                             </p>
                             <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
                           </div>
@@ -783,8 +794,8 @@ export default function SupplierAccounts() {
                           {inv.type === 'OPENING_BALANCE'
                             ? 'Opening Balance'
                             : inv.type === 'DEBIT_NOTE'
-                            ? `Debit Note: ${inv.reference || `#${inv.id}`}`
-                            : `Invoice: ${inv.reference || `#${inv.id}`}`}
+                              ? `Debit Note: ${inv.reference || `#${inv.id}`}`
+                              : `Invoice: ${inv.reference || `#${inv.id}`}`}
                         </span>
                         <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
                       </div>
@@ -850,8 +861,8 @@ export default function SupplierAccounts() {
                                 {inv.type === 'OPENING_BALANCE'
                                   ? 'Opening Balance'
                                   : inv.type === 'DEBIT_NOTE'
-                                  ? `Debit Note: ${inv.reference || `#${inv.id}`}`
-                                  : `Invoice: ${inv.reference || `#${inv.id}`}`}
+                                    ? `Debit Note: ${inv.reference || `#${inv.id}`}`
+                                    : `Invoice: ${inv.reference || `#${inv.id}`}`}
                               </p>
                               <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
                             </div>

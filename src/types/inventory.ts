@@ -190,6 +190,7 @@ export interface SystemSettings {
   outOfStockAlerts: boolean;
   dailySalesSummary: boolean;
   allowNegativeStock: boolean;
+  vatInclusive: boolean;
 }
 
 export interface EcommerceSettings {

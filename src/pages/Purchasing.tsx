@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { Supplier, PurchaseOrder } from '@/types/inventory';
-import { Plus, Truck, Trash2, Package, FileText, CheckCircle2, Clock, Search, ArrowLeft, Banknote, CreditCard, Smartphone, ChevronsUpDown, Check } from 'lucide-react';
+import { Plus, Truck, Trash2, Package, FileText, CheckCircle2, Clock, Search, ArrowLeft, Banknote, CreditCard, Smartphone, ChevronsUpDown, Check, ClipboardList, RotateCcw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,11 +40,15 @@ interface POItem {
   productName: string;
   quantity: number;
   unitPrice: number;
+  taxRate?: number;
+  taxAmount?: number;
+  taxType?: string;
 }
 
 export default function Purchasing() {
+  const { user } = useAuth();
+  const { sym, computeTax, vatInclusive } = useCurrency();
   const { products, locations, suppliers, addSupplier, updateSupplier, refreshData } = useInventory();
-  const { sym } = useCurrency();
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -61,8 +66,9 @@ export default function Purchasing() {
     cash: { active: false, amount: '', reference: '' },
     card: { active: false, amount: '', reference: '' },
     mobile: { active: false, amount: '', reference: '' },
-    bank_transfer: { active: false, amount: '', reference: '' }
-  });
+    bank_transfer: { active: false, amount: '', reference: '' },
+      credit_note: { active: false, amount: '', reference: '' }
+    });
   const [poItems, setPOItems] = useState<POItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPaymentDetailOpen, setIsPaymentDetailOpen] = useState(false);
@@ -75,23 +81,111 @@ export default function Purchasing() {
   // View PO dialog state
   const [isViewingPO, setIsViewingPO] = useState(false);
   const [viewingPO, setViewingPO] = useState<any | null>(null);
+  const [poReturns, setPoReturns] = useState<any[]>([]);
 
   // Record Payment dialog state
+
+  // Cancel PO dialog state
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelReturnItems, setCancelReturnItems] = useState<any[]>([]);
+  const [refundMode, setRefundMode] = useState<'PREPAYMENT' | 'REFUND'>('PREPAYMENT');
+
+  const handleOpenCancelModal = () => {
+    if (!viewingPO) return;
+    setCancelReturnItems(
+      (viewingPO.items || []).map((item: any) => {
+        // Calculate how many of this item were already returned across all previous returns
+        const alreadyReturned = poReturns.reduce((sum: number, r: any) => {
+          const retItem = (r.items || []).find((i: any) => String(i.variantId) === String(item.variantId));
+          return sum + Math.abs(retItem?.adjustment || retItem?.quantity || 0);
+        }, 0);
+        
+        const originalQty = Math.abs(item.adjustment || item.quantity || 0);
+        const availableQty = Math.max(0, originalQty - alreadyReturned);
+
+        return {
+          cartItemId: item.cartItemId || item.id,
+          variantId: String(item.variantId),
+          productName: item.productName,
+          returnQty: 0,
+          maxQty: availableQty,
+          price: item.price || item.unitPrice || 0,
+          taxRate: item.taxRate ?? 16.0
+        };
+      })
+    );
+    setIsCancelModalOpen(true);
+  };
+
+  const calculatedCancelAmount = useMemo(() => {
+    return cancelReturnItems.reduce((sum, item) => {
+      const taxes = computeTax(item.returnQty, item.price, item.taxRate ?? 16.0);
+      return sum + taxes.total;
+    }, 0);
+  }, [cancelReturnItems, computeTax, vatInclusive]);
+
+  const viewingPOTotalPaid = useMemo(() => {
+    if (!viewingPO) return 0;
+    let paid = 0;
+    try {
+      const parsed = JSON.parse(viewingPO.paymentMethod || '[]');
+      if (Array.isArray(parsed)) {
+        paid = parsed.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+      }
+    } catch {}
+    return paid;
+  }, [viewingPO]);
+
+  const submitCancelPO = async () => {
+    if (!viewingPO || calculatedCancelAmount <= 0) {
+      toast.error("Please select items to return");
+      return;
+    }
+    setIsCancelling(true);
+    try {
+      const payload = {
+        cancelAmount: calculatedCancelAmount,
+        refundMode: refundMode,
+        returnedItems: cancelReturnItems.filter(i => i.returnQty > 0).map(i => ({
+          variantId: Number(i.variantId),
+          quantity: i.returnQty
+        }))
+      };
+      
+      const res = await apiFetch(`/api/purchase-orders/${viewingPO.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      
+      toast.success('Purchase Order returned/cancelled successfully');
+      setIsCancelModalOpen(false);
+      setIsViewingPO(false);
+      fetchPurchasingData();
+      await refreshData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to cancel PO');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [recordPaymentMethods, setRecordPaymentMethods] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
     cash: { active: false, amount: '', reference: '' },
     card: { active: false, amount: '', reference: '' },
     mobile: { active: false, amount: '', reference: '' },
-    bank_transfer: { active: false, amount: '', reference: '' }
-  });
+    bank_transfer: { active: false, amount: '', reference: '' },
+      credit_note: { active: false, amount: '', reference: '' }
+    });
 
   const totalPaid = useMemo(() => {
     return Object.values(poPaymentMethods)
       .reduce((sum, method) => method.active ? sum + (parseFloat(method.amount) || 0) : sum, 0);
   }, [poPaymentMethods]);
 
-  const handlePOPaymentMethodToggle = (method: 'cash' | 'card' | 'mobile' | 'bank_transfer', active: boolean) => {
+  const handlePOPaymentMethodToggle = (method: 'cash' | 'card' | 'mobile' | 'bank_transfer' | 'credit_note', active: boolean) => {
     setPoPaymentMethods(prev => {
       const newState = { ...prev };
       if (active) {
@@ -107,7 +201,7 @@ export default function Purchasing() {
     });
   };
 
-  const updatePOPaymentDetail = (method: 'cash' | 'card' | 'mobile' | 'bank_transfer', field: 'amount' | 'reference', value: string) => {
+  const updatePOPaymentDetail = (method: 'cash' | 'card' | 'mobile' | 'bank_transfer' | 'credit_note', field: 'amount' | 'reference', value: string) => {
     setPoPaymentMethods(prev => ({
       ...prev,
       [method]: { ...prev[method], [field]: value }
@@ -126,6 +220,8 @@ export default function Purchasing() {
     products.flatMap(p =>
       p.variants.map(v => ({
         ...v,
+        taxType: p.taxType,
+        taxRate: p.taxRate,
         fullName: `${p.name}${Object.values(v.attributes).length ? ' - ' + Object.values(v.attributes).join(' / ') : ''}`,
         categoryName: p.category || '',
       }))
@@ -204,7 +300,8 @@ export default function Purchasing() {
       cash: { active: false, amount: '', reference: '' },
       card: { active: false, amount: '', reference: '' },
       mobile: { active: false, amount: '', reference: '' },
-      bank_transfer: { active: false, amount: '', reference: '' }
+      bank_transfer: { active: false, amount: '', reference: '' },
+      credit_note: { active: false, amount: '', reference: '' }
     });
     setPOItems([]);
     setIsCreatingPO(true);
@@ -224,7 +321,8 @@ export default function Purchasing() {
       cash: { active: false, amount: '', reference: '' },
       card: { active: false, amount: '', reference: '' },
       mobile: { active: false, amount: '', reference: '' },
-      bank_transfer: { active: false, amount: '', reference: '' }
+      bank_transfer: { active: false, amount: '', reference: '' },
+      credit_note: { active: false, amount: '', reference: '' }
     };
     
     if (po.paymentMethod) {
@@ -271,6 +369,9 @@ export default function Purchasing() {
       productName: item.productName || '',
       quantity: Math.abs(item.adjustment || item.quantity || 0),
       unitPrice: item.price || item.unitPrice || 0,
+      taxRate: item.taxRate ?? 16.0,
+      taxAmount: item.taxAmount ?? 0,
+      taxType: item.taxType ?? 'A'
     })));
     setIsCreatingPO(true);
   };
@@ -289,12 +390,18 @@ export default function Purchasing() {
       setIsProductSearchOpen(false);
       return;
     }
+    const product = products.find(p => p.variants.some(v => v.id === variant.id));
+    const taxRate = product?.taxRate ?? 16.0;
+    const unitPrice = variant.cost || 0;
     setPOItems(prev => [...prev, {
       variantId: String(variant.id),
       sku: variant.sku || '',
       productName: variant.fullName,
       quantity: 1,
-      unitPrice: variant.cost || 0,
+      unitPrice: unitPrice,
+      taxRate: taxRate,
+      taxType: product?.taxType ?? 'A',
+      taxAmount: computeTax(1, unitPrice, taxRate).tax
     }]);
     setIsProductSearchOpen(false);
     setProductSearchQuery('');
@@ -305,15 +412,27 @@ export default function Purchasing() {
   };
 
   const updateItemQty = (idx: number, qty: number) => {
-    setPOItems(prev => prev.map((item, i) => i === idx ? { ...item, quantity: qty } : item));
+    setPOItems(prev => prev.map((item, i) => i === idx ? { ...item, quantity: qty, taxAmount: computeTax(qty, item.unitPrice, item.taxRate ?? 16.0).tax } : item));
   };
 
   const updateItemPrice = (idx: number, price: number) => {
-    setPOItems(prev => prev.map((item, i) => i === idx ? { ...item, unitPrice: price } : item));
+    setPOItems(prev => prev.map((item, i) => i === idx ? { ...item, unitPrice: price, taxAmount: computeTax(item.quantity, price, item.taxRate ?? 16.0).tax } : item));
   };
 
-  const poTotal = useMemo(() =>
-    poItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0), [poItems]);
+  const poTotals = useMemo(() => {
+    return poItems.reduce((acc, item) => {
+      const taxes = computeTax(item.quantity, item.unitPrice, item.taxRate ?? 16.0);
+      return {
+        subtotal: acc.subtotal + taxes.subtotal,
+        tax: acc.tax + taxes.tax,
+        total: acc.total + taxes.total
+      };
+    }, { subtotal: 0, tax: 0, total: 0 });
+  }, [poItems, vatInclusive]);
+
+  const poSubtotal = poTotals.subtotal;
+  const poTax = poTotals.tax;
+  const poTotal = poTotals.total;
 
   const handleOpenPaymentDetail = () => {
     if (!poSupplierId) { toast.error('Please select a supplier'); return; }
@@ -338,12 +457,17 @@ export default function Purchasing() {
 
     setIsSubmitting(true);
     try {
+      const currentUser = user?.name || user?.username || 'System';
       const payload: any = {
         type: 'RECEIVED',
         status: postStatus,
+        totalAmount: poTotal,
         locationId: poLocationId,
         supplier: { id: Number(poSupplierId) },
         notes: poNotes,
+        createdBy: currentUser,
+        approvedBy: postStatus === 'COMPLETED' ? currentUser : null,
+        userId: user?.id || null,
         invoiceNumber: poInvoiceNumber || null,
         dateReceived: poDateReceived || null,
         paymentStatus: poPaymentStatus,
@@ -354,6 +478,8 @@ export default function Purchasing() {
           productName: item.productName,
           adjustment: item.quantity,
           price: item.unitPrice,
+          taxRate: item.taxRate ?? 16.0,
+          taxAmount: item.taxAmount ?? 0,
         })),
       };
 
@@ -384,7 +510,9 @@ export default function Purchasing() {
 
   const handleProcessPO = async (id: string | number) => {
     try {
-      await apiFetch(`/api/purchase-orders/${id}/process`, { method: 'POST' });
+      const currentUser = user?.name || user?.username || 'System';
+      const currentUserId = user?.id || '';
+      await apiFetch(`/api/purchase-orders/${id}/process?approvedBy=${encodeURIComponent(currentUser)}&userId=${currentUserId}`, { method: 'POST' });
       toast.success('Purchase order processed and stock updated');
       fetchPurchasingData();
       await refreshData();
@@ -657,11 +785,19 @@ export default function Purchasing() {
                     );
                   })}
                   {/* Totals */}
-                  <div className="grid grid-cols-[1fr_80px_80px_80px_70px_32px] gap-1.5 px-1 pt-2 border-t mt-1">
-                    <p className="text-xs font-semibold">Total ({poItems.length} items)</p>
-                    <span></span><span></span><span></span>
-                    <p className="text-sm font-bold text-right">{poTotal.toFixed(2)}</p>
-                    <span></span>
+                  <div className="flex flex-col gap-1 px-1 pt-2 border-t mt-1">
+                    <div className="flex justify-between items-center px-8">
+                      <p className="text-xs font-semibold text-muted-foreground">Subtotal</p>
+                      <p className="text-xs font-semibold">{poSubtotal.toFixed(2)}</p>
+                    </div>
+                    <div className="flex justify-between items-center px-8">
+                      <p className="text-xs font-semibold text-muted-foreground">Tax (VAT)</p>
+                      <p className="text-xs font-semibold">{poTax.toFixed(2)}</p>
+                    </div>
+                    <div className="flex justify-between items-center px-8">
+                      <p className="text-sm font-bold">Total ({poItems.length} items)</p>
+                      <p className="text-sm font-bold">{poTotal.toFixed(2)}</p>
+                    </div>
                   </div>
                 </>
               )}
@@ -755,7 +891,7 @@ export default function Purchasing() {
                   <div>
                     <span className="text-muted-foreground">Remaining:</span>{" "}
                     <span className={`font-bold text-sm ${totalPaid >= poTotal ? 'text-blue-600' : 'text-red-600'}`}>
-                      ${Math.abs(poTotal - totalPaid).toFixed(2)}
+                      {sym}{Math.abs(poTotal - totalPaid).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -777,7 +913,7 @@ export default function Purchasing() {
                 <div className="space-y-3">
                   <Label className="text-xs font-semibold">Select Payment Modes</Label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {(['cash', 'card', 'mobile', 'bank_transfer'] as const).map((method) => (
+                    {(['cash', 'card', 'mobile', 'bank_transfer', 'credit_note'] as const).map((method) => (
                       <div key={method} className="space-y-2 border rounded p-2.5 bg-muted/20">
                         <div className="flex items-center space-x-2">
                           <Checkbox
@@ -790,6 +926,7 @@ export default function Purchasing() {
                             {method === 'card' && <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />}
                             {method === 'mobile' && <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />}
                             {method === 'bank_transfer' && <FileText className="h-3.5 w-3.5 text-muted-foreground" />}
+                              {method === 'credit_note' && <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />}
                             {method.replace('_', ' ')}
                           </Label>
                         </div>
@@ -905,8 +1042,13 @@ export default function Purchasing() {
                     if (po.status === 'PENDING') {
                       editPO(po);
                     } else {
-                      setViewingPO(po);
-                      setIsViewingPO(true);
+                      
+        setViewingPO(po);
+        apiFetch(`/api/purchase-orders/${po.id}/returns`)
+            .then(res => setPoReturns(res.data || []))
+            .catch(() => setPoReturns([]))
+            .finally(() => setIsViewingPO(true));
+    
                     }
                   }}
                 >
@@ -1073,7 +1215,9 @@ export default function Purchasing() {
 
               {/* Balance Summary */}
               {(() => {
-                const totalAmount = Number(viewingPO.totalAmount || 0);
+                const originalTotal = Number(viewingPO?.totalAmount || 0);
+                const returnsTotal = poReturns.reduce((sum, r) => sum + Number(r.refundAmount || 0), 0);
+                const totalAmount = Math.max(0, originalTotal - returnsTotal);
                 let totalPaid = 0;
                 try {
                   const parsed = JSON.parse(viewingPO.paymentMethod || '[]');
@@ -1104,6 +1248,29 @@ export default function Purchasing() {
                 <div className="bg-muted/40 p-3 rounded-lg text-sm">
                   <p className="text-muted-foreground text-xs">Notes</p>
                   <p className="mt-0.5">{viewingPO.notes}</p>
+                </div>
+              )}
+
+              
+              {poReturns.length > 0 && (
+                <div className="space-y-1.5 mt-4">
+                  <p className="text-sm font-semibold text-red-600">Processed Returns</p>
+                  <div className="border border-red-200 rounded-md overflow-hidden bg-red-50/20">
+                    <div className="grid grid-cols-[100px_1fr_100px] gap-1 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-red-100">
+                      <span>Date</span>
+                      <span>Items Returned</span>
+                      <span className="text-right">Value</span>
+                    </div>
+                    <div className="divide-y divide-red-100 max-h-[20vh] overflow-y-auto">
+                      {poReturns.map((ret: any, idx: number) => (
+                        <div key={idx} className="grid grid-cols-[100px_1fr_100px] gap-1 px-3 py-2 text-xs items-center hover:bg-red-50/50">
+                          <span className="text-muted-foreground">{new Date(ret.timestamp).toLocaleDateString()}</span>
+                          <span className="truncate">{ret.items?.length || 0} item(s)</span>
+                          <span className="text-right font-medium text-red-600">-{sym}{Number(ret.refundAmount || 0).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1138,9 +1305,10 @@ export default function Purchasing() {
                   <div className="grid grid-cols-[1fr_80px_90px_90px] gap-1 px-3 py-2 text-xs font-bold bg-muted/30 border-t">
                     <span>Total Cost</span>
                     <span></span><span></span>
-                    <p className="text-right text-sm text-primary">
-                      {Number(viewingPO.totalAmount || 0).toFixed(2)}
-                    </p>
+                    <div className="text-right flex flex-col items-end">
+                      {poReturns.length > 0 && <span className="text-xs text-muted-foreground line-through decoration-red-500">{sym}{Number(viewingPO.totalAmount || 0).toFixed(2)}</span>}
+                      <span className="text-sm text-primary">{sym}{Math.max(0, Number(viewingPO.totalAmount || 0) - poReturns.reduce((sum: number, r: any) => sum + Number(r.refundAmount || 0), 0)).toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1149,8 +1317,15 @@ export default function Purchasing() {
 
           <DialogFooter className="mt-4 border-t pt-3 flex justify-between">
             <Button variant="outline" onClick={() => setIsViewingPO(false)}>Close</Button>
+            {viewingPO?.status === 'COMPLETED' && (
+              <Button variant="destructive" onClick={handleOpenCancelModal}>
+                <RotateCcw className="h-4 w-4 mr-2" /> Cancel / Return
+              </Button>
+            )}
             {(() => {
-              const totalAmount = Number(viewingPO?.totalAmount || 0);
+              const originalTotal = Number(viewingPO?.totalAmount || 0);
+              const returnsTotal = poReturns.reduce((sum, r) => sum + Number(r.refundAmount || 0), 0);
+              const totalAmount = Math.max(0, originalTotal - returnsTotal);
               let totalPaid = 0;
               try {
                 const parsed = JSON.parse(viewingPO?.paymentMethod || '[]');
@@ -1166,8 +1341,9 @@ export default function Purchasing() {
                       cash: { active: false, amount: '', reference: '' },
                       card: { active: false, amount: '', reference: '' },
                       mobile: { active: false, amount: '', reference: '' },
-                      bank_transfer: { active: false, amount: '', reference: '' }
-                    });
+                      bank_transfer: { active: false, amount: '', reference: '' },
+      credit_note: { active: false, amount: '', reference: '' }
+    });
                     setIsRecordPaymentOpen(true);
                   }}>
                     <Banknote className="h-4 w-4 mr-2" /> Record Payment
@@ -1194,7 +1370,9 @@ export default function Purchasing() {
             <div className="space-y-4 py-2">
               {/* Balance display */}
               {(() => {
-                const totalAmount = Number(viewingPO.totalAmount || 0);
+                const originalTotal = Number(viewingPO?.totalAmount || 0);
+                const returnsTotal = poReturns.reduce((sum, r) => sum + Number(r.refundAmount || 0), 0);
+                const totalAmount = Math.max(0, originalTotal - returnsTotal);
                 let existingPaid = 0;
                 try {
                   const parsed = JSON.parse(viewingPO.paymentMethod || '[]');
@@ -1230,13 +1408,15 @@ export default function Purchasing() {
               <div className="space-y-3">
                 <Label className="text-xs font-semibold">Select Payment Modes</Label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {(['cash', 'card', 'mobile', 'bank_transfer'] as const).map((method) => {
+                  {(['cash', 'card', 'mobile', 'bank_transfer', 'credit_note'] as const).map((method) => {
                     const handleToggle = (active: boolean) => {
                       setRecordPaymentMethods(prev => {
                         const newState = { ...prev };
                         if (active) {
                           // Auto-fill remaining
-                          const totalAmount = Number(viewingPO.totalAmount || 0);
+                          const originalTotal = Number(viewingPO?.totalAmount || 0);
+                const returnsTotal = poReturns.reduce((sum, r) => sum + Number(r.refundAmount || 0), 0);
+                const totalAmount = Math.max(0, originalTotal - returnsTotal);
                           let existingPaid = 0;
                           try {
                             const parsed = JSON.parse(viewingPO.paymentMethod || '[]');
@@ -1273,6 +1453,7 @@ export default function Purchasing() {
                             {method === 'card' && <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />}
                             {method === 'mobile' && <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />}
                             {method === 'bank_transfer' && <FileText className="h-3.5 w-3.5 text-muted-foreground" />}
+                              {method === 'credit_note' && <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />}
                             {method.replace('_', ' ')}
                           </Label>
                         </div>
@@ -1389,6 +1570,108 @@ export default function Purchasing() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Cancel PO Dialog */}
+      <Dialog open={isCancelModalOpen} onOpenChange={setIsCancelModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Cancel / Return Items</DialogTitle>
+            <DialogDescription>
+              Select the quantities to return for PO: <span className="font-semibold text-foreground">{viewingPO?.journalNumber}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="border rounded-md overflow-hidden">
+              <div className="grid grid-cols-[1fr_80px_100px_100px] gap-2 px-3 py-2 text-xs font-semibold bg-muted uppercase tracking-wider text-muted-foreground border-b">
+                <span>Product</span>
+                <span className="text-right">Max Qty</span>
+                <span className="text-right">Return Qty</span>
+                <span className="text-right">Refund Val</span>
+              </div>
+              <div className="divide-y max-h-[40vh] overflow-y-auto">
+                {cancelReturnItems.map((item, idx) => (
+                  <div key={idx} className="grid grid-cols-[1fr_80px_100px_100px] gap-2 px-3 py-3 text-sm items-center hover:bg-muted/30">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{item.productName}</p>
+                      <p className="text-xs text-muted-foreground">{sym}{item.price.toFixed(2)} each</p>
+                    </div>
+                    <p className="text-right text-muted-foreground">{item.maxQty}</p>
+                    <div>
+                      <Input 
+                        type="number" 
+                        min="0" 
+                        max={item.maxQty}
+                        value={item.returnQty || ''}
+                        onChange={(e) => {
+                          const val = Math.min(item.maxQty, Math.max(0, Number(e.target.value) || 0));
+                          setCancelReturnItems(prev => prev.map((it, i) => i === idx ? { ...it, returnQty: val } : it));
+                        }}
+                        className="h-8 text-right"
+                      />
+                    </div>
+                    <p className="text-right font-semibold text-red-500">
+                      {sym}{(item.returnQty * item.price).toFixed(2)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center px-4 py-3 bg-muted/20 border-t">
+                <span className="font-semibold text-sm">Total Cancel Amount</span>
+                <span className="font-bold text-lg text-red-500">{sym}{calculatedCancelAmount.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {(() => {
+              const poTotal = Number(viewingPO?.totalAmount || 0);
+              const returnsTotal = poReturns.reduce((sum: number, r: any) => sum + Number(r.refundAmount || 0), 0);
+              const effectiveTotal = Math.max(0, poTotal - returnsTotal);
+              
+              const previousExcess = Math.max(0, viewingPOTotalPaid - effectiveTotal);
+              const newEffectiveTotal = Math.max(0, effectiveTotal - calculatedCancelAmount);
+              const currentExcess = Math.max(0, viewingPOTotalPaid - newEffectiveTotal);
+              const newlyGeneratedExcess = currentExcess - previousExcess;
+              
+              if (calculatedCancelAmount > 0 && newlyGeneratedExcess > 0) {
+                return (
+                  <div className="p-4 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900 space-y-3">
+                    <h4 className="font-medium text-sm text-blue-900 dark:text-blue-300">Excess Payment Detected</h4>
+                    <p className="text-xs text-blue-800 dark:text-blue-400">
+                      This purchase was already paid. Returning these items results in a NEW overpayment of <strong>{sym}{(newlyGeneratedExcess).toFixed(2)}</strong>. How would you like to handle it?
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div 
+                        className={`border rounded p-3 cursor-pointer transition-colors ${refundMode === 'PREPAYMENT' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:border-primary/50'}`}
+                        onClick={() => setRefundMode('PREPAYMENT')}
+                      >
+                        <p className="font-semibold text-sm">Save as Prepayment</p>
+                        <p className="text-xs text-muted-foreground mt-1">Creates a supplier credit for future use.</p>
+                      </div>
+                      <div 
+                        className={`border rounded p-3 cursor-pointer transition-colors ${refundMode === 'REFUND' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:border-primary/50'}`}
+                        onClick={() => setRefundMode('REFUND')}
+                      >
+                        <p className="font-semibold text-sm">Process Refund</p>
+                        <p className="text-xs text-muted-foreground mt-1">Records cash returned from supplier.</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+          </div>
+
+          <DialogFooter className="mt-4 border-t pt-3 flex justify-between">
+            <Button variant="outline" onClick={() => setIsCancelModalOpen(false)}>Close</Button>
+            <Button variant="destructive" onClick={submitCancelPO} disabled={isCancelling || calculatedCancelAmount <= 0}>
+              {isCancelling ? 'Processing...' : 'Confirm Return'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </AppLayout>
   );
 }

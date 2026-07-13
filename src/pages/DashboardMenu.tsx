@@ -37,7 +37,10 @@ import {
   Search,
   ChevronRight,
   TrendingUp,
-  Sparkles
+  Sparkles,
+  ClipboardList,
+  ArrowRightLeft,
+  FileEdit
 } from 'lucide-react';
 
 interface MenuCard {
@@ -116,6 +119,33 @@ export default function DashboardMenu() {
       icon: Boxes,
       iconGradientClass: 'from-sky-500 to-blue-600 shadow-sky-500/20',
       requiredRight: 'viewInventory',
+      category: 'catalog'
+    },
+    {
+      name: 'Stock Take',
+      description: 'Perform physical stock counts and reconcile variances',
+      href: '/stock-take',
+      icon: ClipboardList,
+      iconGradientClass: 'from-blue-500 to-indigo-600 shadow-blue-500/20',
+      requiredRight: 'stockTake',
+      category: 'catalog'
+    },
+    {
+      name: 'Stock Transfers',
+      description: 'Move stock between locations and track transit',
+      href: '/transfers',
+      icon: ArrowRightLeft,
+      iconGradientClass: 'from-violet-500 to-purple-600 shadow-violet-500/20',
+      requiredRight: 'stockAdjustment',
+      category: 'catalog'
+    },
+    {
+      name: 'Stock Adjustments',
+      description: 'Manually adjust stock levels for damages or losses',
+      href: '/adjustments',
+      icon: FileEdit,
+      iconGradientClass: 'from-red-500 to-rose-600 shadow-red-500/20',
+      requiredRight: 'stockAdjustment',
       category: 'catalog'
     },
     {

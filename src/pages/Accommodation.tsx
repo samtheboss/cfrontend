@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -82,6 +83,13 @@ interface BillingPackage {
   status: 'Active' | 'Inactive';
 }
 
+export interface GuestDetail {
+  fullName: string;
+  idPassport: string;
+  mobile: string;
+  nationality: string;
+}
+
 interface Booking {
   id: any;
   transactionNumber: string;
@@ -99,7 +107,7 @@ interface Booking {
   paidAmount: number;
   discount: number;
   status: 'VACANT' | 'BOOKED' | 'CHECKED IN' | 'RESERVED' | 'OUT OF ORDER' | 'CHECKED OUT';
-  guestList: string[];
+  guestList: GuestDetail[];
 }
 
 interface ApiResponse<T> {
@@ -109,6 +117,7 @@ interface ApiResponse<T> {
 }
 
 export default function Accommodation() {
+  const { user } = useAuth();
   const { customers, addCustomer } = useInventory();
   const [activeTab, setActiveTab] = useState('rooms');
 
@@ -181,27 +190,7 @@ export default function Accommodation() {
     });
   }, [rooms, roomSearch, roomFilterStatus]);
 
-  // --- Statistics ---
-  const stats = useMemo(() => {
-    let totalDue = 0;
-    let totalPaid = 0;
-    bookings.forEach(b => {
-      const roomObj = rooms.find(r => String(r.id) === String(b.roomId));
-      const pkgObj = packages.find(p => String(p.id) === String(b.packageId));
-      const rate = roomObj?.nightlyRate || 0;
-      const pkgAmt = pkgObj?.amount || 0;
-      const nights = Math.max(1, differenceInDays(new Date(b.checkOutDate), new Date(b.checkInDate)));
-      const due = (rate + pkgAmt) * nights - (b.discount || 0);
-      totalDue += due;
-      totalPaid += b.paidAmount;
-    });
-    return {
-      totalBookings: bookings.length,
-      totalDue,
-      totalPaid,
-      outstanding: totalDue - totalPaid,
-    };
-  }, [bookings, rooms, packages]);
+  
 
   // --- Add/Edit Room Modal ---
   const [isRoomDialogOpen, setIsRoomDialogOpen] = useState(false);
@@ -342,6 +331,28 @@ export default function Accommodation() {
     }).sort((a, b) => b.transactionNumber.localeCompare(a.transactionNumber));
   }, [bookings, rooms, bookingSearch, filterStartDate, filterEndDate, bookingFilterStatus]);
 
+  // --- Statistics (Filtered) ---
+  const stats = useMemo(() => {
+    let totalDue = 0;
+    let totalPaid = 0;
+    filteredBookings.forEach(b => {
+      const roomObj = rooms.find(r => String(r.id) === String(b.roomId));
+      const pkgObj = packages.find(p => String(p.id) === String(b.packageId));
+      const rate = roomObj?.nightlyRate || 0;
+      const pkgAmt = pkgObj?.amount || 0;
+      const nights = Math.max(1, differenceInDays(new Date(b.checkOutDate), new Date(b.checkInDate)));
+      const due = (rate + pkgAmt) * nights - (b.discount || 0);
+      totalDue += due;
+      totalPaid += b.paidAmount;
+    });
+    return {
+      totalBookings: filteredBookings.length,
+      totalDue,
+      totalPaid,
+      outstanding: totalDue - totalPaid,
+    };
+  }, [filteredBookings, rooms, packages]);
+
   // --- New Booking & Edit Booking dialog ---
   const [isBookingDialogOpen, setIsBookingDialogOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -365,8 +376,7 @@ export default function Accommodation() {
     newGuestName: '',
   });
 
-  const [guestListInput, setGuestListInput] = useState<string[]>([]);
-  const [newGuestNameInput, setNewGuestNameInput] = useState('');
+  const [guestListInput, setGuestListInput] = useState<GuestDetail[]>([]);
 
   // Add Customer Popup States
   const [isAddCustomerDialogOpen, setIsAddCustomerDialogOpen] = useState(false);
@@ -668,6 +678,8 @@ export default function Accommodation() {
         discount: Number(bookingForm.discount),
         status: bookingStatus,
         guestList: guestListInput,
+        createdBy: user?.name || user?.username || 'System',
+        approvedBy: user?.name || user?.username || 'System',
         ...(editingBooking ? { id: editingBooking.id, transactionNumber: editingBooking.transactionNumber } : { transactionNumber: '#' + (bookings.length + 3) }),
       };
 
@@ -685,7 +697,9 @@ export default function Accommodation() {
             bookingId: finalBooking.id,
             method: 'MPESA',
             amount: bookingForm.paidAmount,
-            reference: manualMpesaRef || 'Manual M-Pesa Payment'
+            reference: manualMpesaRef || 'Manual M-Pesa Payment',
+            createdBy: user?.name || user?.username || 'System',
+            approvedBy: user?.name || user?.username || 'System'
           })
         });
       }
@@ -747,6 +761,8 @@ export default function Accommodation() {
         discount: Number(bookingForm.discount),
         status: bookingStatus,
         guestList: guestListInput,
+        createdBy: user?.name || user?.username || 'System',
+        approvedBy: user?.name || user?.username || 'System',
         ...(editingBooking ? { id: editingBooking.id, transactionNumber: editingBooking.transactionNumber } : { transactionNumber: '#' + (bookings.length + 3) }),
       };
 
@@ -882,7 +898,9 @@ export default function Accommodation() {
             bookingId: checkoutBooking.id,
             method: pay.method,
             amount: pay.amount,
-            reference: pay.reference
+            reference: pay.reference,
+            createdBy: user?.name || user?.username || 'System',
+            approvedBy: user?.name || user?.username || 'System'
           })
         });
       }
@@ -1020,16 +1038,7 @@ export default function Accommodation() {
     toast.info('Printing receipt details...');
   };
 
-  // --- Guest List Management inside Booking ---
-  const handleAddGuestToBooking = () => {
-    if (!newGuestNameInput) return;
-    setGuestListInput([...guestListInput, newGuestNameInput]);
-    setNewGuestNameInput('');
-  };
-
-  const handleRemoveGuestFromBooking = (index: number) => {
-    setGuestListInput(guestListInput.filter((_, i) => i !== index));
-  };
+  
 
   // --- Room Schedules Calendar Grid Logic ---
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -2177,35 +2186,114 @@ export default function Accommodation() {
               {/* Guest List Tab Contents */}
               {bookingActiveTab === 'guests' && (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Input
-                      placeholder="Enter other guest name..."
-                      value={newGuestNameInput}
-                      onChange={e => setNewGuestNameInput(e.target.value)}
-                      className="rounded-xl flex-1"
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">Additional Guests</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">Register secondary occupants for this transaction.</p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setGuestListInput([...guestListInput, {fullName: '', idPassport: '', mobile: '', nationality: ''}])} 
+                      className="h-8 gap-1.5 border-slate-200"
                       disabled={editingBooking?.status === 'CHECKED OUT'}
-                    />
-                    <Button onClick={handleAddGuestToBooking} className="bg-primary hover:bg-primary/95 text-white rounded-xl" disabled={editingBooking?.status === 'CHECKED OUT'}>
+                    >
+                      <Plus className="w-3.5 h-3.5" />
                       Add Guest
                     </Button>
                   </div>
 
-                  <div className="border border-slate-100 rounded-xl bg-slate-50 dark:bg-slate-950/45 p-4 min-h-[200px]">
-                    <h4 className="text-xs font-bold text-slate-455 uppercase mb-3 tracking-wider">Occupant Guest List</h4>
-                    {guestListInput.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-10">No additional guests registered under this transaction.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {guestListInput.map((guest, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-900 border rounded-lg shadow-xs">
-                            <span className="text-xs font-semibold text-slate-750 dark:text-slate-255">{guest}</span>
-                            <Button variant="ghost" size="sm" onClick={() => handleRemoveGuestFromBooking(idx)} className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50 rounded-lg" disabled={editingBooking?.status === 'CHECKED OUT'}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-950">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm whitespace-nowrap">
+                        <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
+                          <tr>
+                            <th className="px-4 py-3">Full Name</th>
+                            <th className="px-4 py-3">ID / Passport No.</th>
+                            <th className="px-4 py-3">Mobile</th>
+                            <th className="px-4 py-3">Nationality</th>
+                            <th className="px-4 py-3 text-right"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {guestListInput.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-8 text-center text-xs text-slate-400">
+                                No additional guests added.
+                              </td>
+                            </tr>
+                          ) : (
+                            guestListInput.map((guest, idx) => (
+                              <tr key={idx}>
+                                <td className="px-4 py-2">
+                                  <Input 
+                                    value={guest.fullName || ''} 
+                                    onChange={(e) => {
+                                      const newGuests = [...guestListInput];
+                                      newGuests[idx] = {...newGuests[idx], fullName: e.target.value};
+                                      setGuestListInput(newGuests);
+                                    }} 
+                                    placeholder="Full name" 
+                                    className="h-8 text-xs min-w-[120px]" 
+                                    disabled={editingBooking?.status === 'CHECKED OUT'}
+                                  />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Input 
+                                    value={guest.idPassport || ''} 
+                                    onChange={(e) => {
+                                      const newGuests = [...guestListInput];
+                                      newGuests[idx] = {...newGuests[idx], idPassport: e.target.value};
+                                      setGuestListInput(newGuests);
+                                    }} 
+                                    placeholder="ID / Passport" 
+                                    className="h-8 text-xs min-w-[120px]" 
+                                    disabled={editingBooking?.status === 'CHECKED OUT'}
+                                  />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Input 
+                                    value={guest.mobile || ''} 
+                                    onChange={(e) => {
+                                      const newGuests = [...guestListInput];
+                                      newGuests[idx] = {...newGuests[idx], mobile: e.target.value};
+                                      setGuestListInput(newGuests);
+                                    }} 
+                                    placeholder="07..." 
+                                    className="h-8 text-xs min-w-[100px]" 
+                                    disabled={editingBooking?.status === 'CHECKED OUT'}
+                                  />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Input 
+                                    value={guest.nationality || ''} 
+                                    onChange={(e) => {
+                                      const newGuests = [...guestListInput];
+                                      newGuests[idx] = {...newGuests[idx], nationality: e.target.value};
+                                      setGuestListInput(newGuests);
+                                    }} 
+                                    placeholder="Nationality" 
+                                    className="h-8 text-xs min-w-[100px]" 
+                                    disabled={editingBooking?.status === 'CHECKED OUT'}
+                                  />
+                                </td>
+                                <td className="px-4 py-2 text-right">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => setGuestListInput(guestListInput.filter((_, i) => i !== idx))} 
+                                    className="h-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-3 text-xs"
+                                    disabled={editingBooking?.status === 'CHECKED OUT'}
+                                  >
+                                    Remove
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}

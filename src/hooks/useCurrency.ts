@@ -13,6 +13,8 @@ export function useCurrency() {
   const ctx = useInventory();
   const sym: string = ctx?.settings?.currency || '$';
 
+  const vatInclusive: boolean = ctx?.settings?.vatInclusive || false;
+
   /**
    * Format a number with the currency symbol prepended.
    * @param amount  - numeric value
@@ -26,5 +28,24 @@ export function useCurrency() {
     return `${sym}${formatted}`;
   };
 
-  return { sym, fmt };
+  /**
+   * Helper to compute tax based on VAT mode setting
+   */
+  const computeTax = (qty: number, unitPrice: number, taxRate: number) => {
+    const amount = qty * unitPrice;
+    const rate = taxRate / 100;
+    
+    if (vatInclusive) {
+      // Amount includes VAT: extract VAT from the total amount
+      const tax = amount * (rate / (1 + rate));
+      const subtotal = amount - tax;
+      return { subtotal, tax, total: amount };
+    } else {
+      // Amount excludes VAT: add VAT on top
+      const tax = amount * rate;
+      return { subtotal: amount, tax, total: amount + tax };
+    }
+  };
+
+  return { sym, fmt, vatInclusive, computeTax };
 }
