@@ -62,7 +62,7 @@ export function ImportProductsDialog() {
     };
 
     const downloadTemplate = () => {
-        // Basic CSV template as a fallback or instructions
+        // Basic CSV template as a fallback or instructions test
         const headers = "Product Name,Category,Description,SKU,Barcode,Price,Cost,Stock,Attributes,Low Stock Threshold";
         const blob = new Blob([headers], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
@@ -146,7 +146,7 @@ export function ImportProductsDialog() {
                             {isUploading ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Importing...
+                                    Importing Data...
                                 </>
                             ) : (
                                 'Start Import'
