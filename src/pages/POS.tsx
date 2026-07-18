@@ -66,7 +66,8 @@ export default function POS() {
     salesHistory = [],
     refreshData
   } = useInventory() || {};
-  const { user, logout } = useAuth();
+  const { user, logout, getUserRights } = useAuth();
+  const rights = user ? getUserRights(user) : null;
   const { sym, computeTax, vatInclusive } = useCurrency();
 
   // Workstation-specific local printer configuration
@@ -490,6 +491,105 @@ export default function POS() {
     }
   };
 
+  const dispatchKOTs = async (dbSaleId: string | number, newItems: typeof cart) => {
+      const token = localStorage.getItem('token');
+      toast.info('Routing KOTs to printers...');
+
+      // 1. Group new items by printer name
+      const printerGroups: Record<string, typeof newItems> = {};
+      const fallbackPrinter = localStorage.getItem('localPrinterName') || 'Receipt Printer';
+
+      for (const item of newItems) {
+        // Resolve category
+        const variant = allVariants?.find(v => v.id?.toString() === item.variantId?.toString());
+        const prod = products.find(p => p.id?.toString() === variant?.productId?.toString() || p.id?.toString() === item.variantId?.toString());
+        const categoryName = prod?.category;
+
+        const printer = (categoryName && posPrinterMappings[categoryName]) ? posPrinterMappings[categoryName] : fallbackPrinter;
+
+        if (!printerGroups[printer]) {
+          printerGroups[printer] = [];
+        }
+        printerGroups[printer].push(item);
+      }
+
+      console.log('--- KOT Printer Routing ---');
+      Object.entries(printerGroups).forEach(([printerName, items]) => {
+          const itemSummaries = items.map(i => {
+              const variant = allVariants?.find(v => v.id?.toString() === i.variantId?.toString());
+              const prod = products.find(p => p.id?.toString() === variant?.productId?.toString() || p.id?.toString() === i.variantId?.toString());
+              return { name: i.productName, category: prod?.category, mappedPrinter: printerName };
+          });
+          console.log(`=> Dispatched to Printer: [${printerName}]`, itemSummaries);
+      });
+      console.log('---------------------------');
+
+      // 2. For each printer group, request custom KOT and print
+      for (const [printerName, itemsForPrinter] of Object.entries(printerGroups)) {
+        try {
+          const payloadItems = itemsForPrinter.map(item => ({
+            variantId: parseInt(item.variantId),
+            sku: item.variantSku,
+            productName: item.productName,
+            adjustment: -item.quantity,
+            price: item.price,
+            taxRate: item.taxRate ?? 16.0,
+            taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
+          }));
+
+          const kotUrl = `${getBaseUrl()}/api/transactions/sale/${dbSaleId}/receipt_kot_custom`;
+          const response = await fetch(kotUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(payloadItems)
+          });
+
+          if (!response.ok) throw new Error(`Failed to fetch KOT PDF for printer ${printerName}`);
+
+          const blob = await response.blob();
+
+          const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(printerName)}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/pdf',
+            },
+            body: blob,
+          });
+
+          if (printResponse.ok) {
+            toast.success(`KOT printed on ${printerName}!`);
+          } else {
+            console.warn(`Local print service failed for ${printerName}, falling back to browser preview...`);
+            const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+            window.open(blobUrl, '_blank');
+          }
+        } catch (e) {
+          console.warn(`Print error for ${printerName}, falling back to preview...`, e);
+          toast.error(`Print failed for ${printerName}, opening preview...`);
+          // Fallback if the print service is entirely offline or fetch fails later
+          try {
+              // Re-fetch since blob might be undefined if response.ok failed
+              const retryResponse = await fetch(`${getBaseUrl()}/api/transactions/sale/${dbSaleId}/receipt_kot_custom`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  },
+                  body: JSON.stringify(payloadItems)
+              });
+              const retryBlob = await retryResponse.blob();
+              const blobUrl = URL.createObjectURL(new Blob([retryBlob], { type: 'application/pdf' }));
+              window.open(blobUrl, '_blank');
+          } catch(innerErr) {
+             console.error("Preview fallback failed", innerErr);
+          }
+        }
+      }
+  };
+
   const handlePrintKOT = async () => {
     if (cart.length === 0) {
       toast.error("Cart is empty");
@@ -545,41 +645,7 @@ export default function POS() {
       const dbSaleId = savedSale.id;
       setCurrentSaleId(dbSaleId);
 
-      const token = localStorage.getItem('token');
-      const kotUrl = `${getBaseUrl()}/api/transactions/sale/${dbSaleId}/receipt_kot`;
-
-      const response = await fetch(kotUrl, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        }
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch KOT PDF');
-
-      const blob = await response.blob();
-
-      toast.info('Sending KOT to printer...');
-      try {
-        const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
-        const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(localPrinterName)}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/pdf',
-          },
-          body: blob,
-        });
-        if (printResponse.ok) {
-          toast.success(`KOT printed successfully via local print service on ${localPrinterName}!`);
-        } else {
-          console.warn('Local print service failed, falling back to browser preview...');
-          const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-          window.open(blobUrl, '_blank');
-        }
-      } catch (e) {
-        console.warn('Local print service offline, falling back to browser preview...', e);
-        const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-        window.open(blobUrl, '_blank');
-      }
+      await dispatchKOTs(dbSaleId, newItems);
 
       setCart(prev => prev.map(item => ({ ...item, printed: true })));
       refreshData();
@@ -882,6 +948,7 @@ export default function POS() {
 
     setIsProcessing(true);
     try {
+      let savedId: string | number;
       if (currentSaleId) {
         const updatePayload = {
           ...saleData,
@@ -891,11 +958,24 @@ export default function POS() {
           method: 'PUT',
           body: JSON.stringify(updatePayload)
         });
+        savedId = currentSaleId;
         toast.success('Pending receipt updated! Payment can be collected later.');
       } else {
-        await createSale(saleData);
+        const res = await createSale(saleData);
+        savedId = res.id;
         toast.success('Sale saved! Payment can be collected later.');
       }
+
+      // 1. Print Customer Bill
+      const receiptUrl = `${getBaseUrl()}/api/transactions/sale/${savedId}/receipt`;
+      handleReceiptAction(receiptUrl);
+
+      // 2. Dispatch Unprinted KOTs
+      const newItems = cart.filter(item => !item.printed);
+      if (newItems.length > 0) {
+        await dispatchKOTs(savedId, newItems);
+      }
+
       resetPOSState();
       setCheckoutOpen(false);
       refreshData();
@@ -1185,7 +1265,23 @@ export default function POS() {
     const start = startOfDay(parseISO(orderStartDate));
     const end = endOfDay(parseISO(orderEndDate));
 
+    const canViewAll = rights?.viewAllOrders !== 'no';
+    const canViewPast = rights?.viewPastOrders !== 'no';
+    const todayStart = startOfDay(new Date());
+    const todayEnd = endOfDay(new Date());
+
     return orders.filter(order => {
+      // 1. User Scope
+      if (!canViewAll && order.userId?.toString() !== user?.id?.toString()) {
+        return false;
+      }
+
+      // 2. Date Scope (Past Orders)
+      const orderDate = new Date(order.timestamp);
+      if (!canViewPast && !isWithinInterval(orderDate, { start: todayStart, end: todayEnd })) {
+        return false;
+      }
+
       const orderId = order.id ? order.id.toString().toLowerCase() : '';
       const customerName = order.customer?.name?.toLowerCase() || '';
       const userId = order.userId?.toString().toLowerCase() || '';
@@ -1196,7 +1292,6 @@ export default function POS() {
         customerName.includes(query) ||
         userId.includes(query);
 
-      const orderDate = new Date(order.timestamp);
       const matchDate = isWithinInterval(orderDate, { start, end });
 
       return matchSearch && matchDate;
@@ -1229,6 +1324,7 @@ export default function POS() {
           id: `db-${sale.id}`,
           customer,
           items,
+          userId: sale.userId,
           timestamp: new Date(sale.timestamp)
         } as ActiveOrder;
       });
@@ -1245,10 +1341,23 @@ export default function POS() {
 
   // Sales with PAYMENT_PENDING status — stock already deducted, awaiting payment
   const pendingPaymentSales = useMemo(() => {
+    const canViewAll = rights?.viewAllOrders !== 'no';
+    const canViewPast = rights?.viewPastOrders !== 'no';
+    const todayStart = startOfDay(new Date());
+    const todayEnd = endOfDay(new Date());
+
     return (transactions || [])
       .filter(t => t.type === 'SALE' && t.status === 'PAYMENT_PENDING')
+      .filter(t => {
+        if (!canViewAll && t.userId?.toString() !== user?.id?.toString()) return false;
+        
+        const orderDate = new Date(t.timestamp);
+        if (!canViewPast && !isWithinInterval(orderDate, { start: todayStart, end: todayEnd })) return false;
+
+        return true;
+      })
       .map(t => t as Sale);
-  }, [transactions]);
+  }, [transactions, rights, user]);
 
   const handleOpenReturn = async (sale: Sale) => {
     setSaleToReturn(sale);
@@ -2396,25 +2505,29 @@ export default function POS() {
                             {sym}{(sale.total || (sale as any).totalAmount || 0).toFixed(2)}
                           </div>
                           <div className="flex items-center gap-1 md:gap-1.5 flex-wrap justify-end">
-                            <Button size="sm" variant="outline" className="h-7 w-7 md:h-8 md:w-8 p-0" onClick={(e) => {
-                              e.stopPropagation();
-                              handleReceiptAction(`${getBaseUrl()}/api/transactions/sale/${sale.id}/receipt`);
-                            }} title="View/Print Receipt">
-                              <Receipt className="h-3.5 w-3.5" />
-                            </Button>
+                            {rights?.reprintReceipt !== 'no' && (
+                              <Button size="sm" variant="outline" className="h-7 w-7 md:h-8 md:w-8 p-0" onClick={(e) => {
+                                e.stopPropagation();
+                                handleReceiptAction(`${getBaseUrl()}/api/transactions/sale/${sale.id}/receipt`);
+                              }} title="View/Print Receipt">
+                                <Receipt className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                             <Button size="sm" variant="outline" className="h-7 px-1.5 md:h-8 md:px-2 text-[10px] md:text-xs" onClick={(e) => {
                               e.stopPropagation();
                               handleReorder(sale);
                             }}>
                               Re-order
                             </Button>
-                            <Button size="sm" variant="destructive" className="h-7 px-1.5 md:h-8 md:px-2 text-[10px] md:text-xs" onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenReturn(sale);
-                            }}>
-                              <RotateCcw className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
-                              Return
-                            </Button>
+                            {rights?.returnOrder !== 'no' && (
+                              <Button size="sm" variant="destructive" className="h-7 px-1.5 md:h-8 md:px-2 text-[10px] md:text-xs" onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenReturn(sale);
+                              }}>
+                                <RotateCcw className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
+                                Return
+                              </Button>
+                            )}
                             {expandedOrderId === sale.id ? <ChevronUp className="h-4 w-4 ml-0.5" /> : <ChevronDown className="h-4 w-4 ml-0.5" />}
                           </div>
                         </div>

@@ -30,9 +30,12 @@ export interface UserRights {
 
   // Orders / Sales (Window: ORDER_PROCESSING)
   viewOrders: RightValue; // POS Access
+  viewAllOrders: RightValue;
+  viewPastOrders: RightValue;
   createOrder: RightValue;
   editOrder: RightValue;
   deleteOrder: RightValue;
+  returnOrder: RightValue;
   reprintReceipt: RightValue;
   paymentAccess: RightValue; // Receive Order Payment
 
@@ -100,9 +103,12 @@ export const defaultRights: UserRights = {
   viewPayments: 'no',
   processPayments: 'no',
   viewOrders: 'no',
+  viewAllOrders: 'no',
+  viewPastOrders: 'no',
   createOrder: 'no',
   editOrder: 'no',
   deleteOrder: 'no',
+  returnOrder: 'no',
   reprintReceipt: 'no',
   paymentAccess: 'no',
   viewInventory: 'no',
@@ -143,9 +149,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'yes',
       processPayments: 'yes',
       viewOrders: 'yes',
+      viewAllOrders: 'yes',
+      viewPastOrders: 'yes',
       createOrder: 'yes',
       editOrder: 'yes',
       deleteOrder: 'yes',
+      returnOrder: 'yes',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
       viewInventory: 'yes',
@@ -185,9 +194,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'yes',
       processPayments: 'yes',
       viewOrders: 'yes',
+      viewAllOrders: 'yes',
+      viewPastOrders: 'yes',
       createOrder: 'yes',
       editOrder: 'yes',
       deleteOrder: 'supervised',
+      returnOrder: 'supervised',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
       viewInventory: 'yes',
@@ -227,9 +239,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'no',
       processPayments: 'yes',
       viewOrders: 'yes',
+      viewAllOrders: 'no',
+      viewPastOrders: 'no',
       createOrder: 'yes',
       editOrder: 'supervised',
       deleteOrder: 'no',
+      returnOrder: 'no',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
       viewInventory: 'yes',
@@ -269,9 +284,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'no',
       processPayments: 'no',
       viewOrders: 'no',
+      viewAllOrders: 'no',
+      viewPastOrders: 'no',
       createOrder: 'no',
       editOrder: 'no',
       deleteOrder: 'no',
+      returnOrder: 'no',
       reprintReceipt: 'no',
       paymentAccess: 'no',
       viewInventory: 'yes',
@@ -349,9 +367,12 @@ export const rightLabels: Record<keyof UserRights, string> = {
   viewPayments: 'View Payments Log',
   processPayments: 'Process Payment',
   viewOrders: 'View Orders / POS',
+  viewAllOrders: 'View All Users Orders',
+  viewPastOrders: 'View Past Orders',
   createOrder: 'Create Order',
   editOrder: 'Edit Order',
   deleteOrder: 'Delete Order',
+  returnOrder: 'Return Order',
   reprintReceipt: 'Reprint Receipt',
   paymentAccess: 'Receive Order Payment',
   viewInventory: 'View Inventory',
@@ -369,7 +390,7 @@ export const rightLabels: Record<keyof UserRights, string> = {
 
 export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Dashboard': ['viewDashboard', 'exportDashboard'],
-  'Orders & POS': ['viewOrders', 'createOrder', 'editOrder', 'deleteOrder', 'reprintReceipt', 'paymentAccess'],
+  'Orders & POS': ['viewOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'reprintReceipt', 'paymentAccess'],
   'Customers': ['viewCustomers', 'createCustomer', 'editCustomer', 'deleteCustomer'],
   'Products & Services': ['viewProducts', 'createProduct', 'editProduct', 'deleteProduct'],
   'Users & Employees': ['viewUsers', 'createUser', 'editUser', 'deleteUser', 'manageUserRoles'],

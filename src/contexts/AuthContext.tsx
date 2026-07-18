@@ -204,9 +204,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // API Call
     try {
+      const backendUpdates: any = { ...updates };
+      if (updates.name !== undefined) backendUpdates.fullName = updates.name;
+      if (updates.groupId !== undefined) backendUpdates.userGroupId = updates.groupId;
+
       await apiFetch(`/api/users/${userId}`, {
         method: 'PUT',
-        body: JSON.stringify(updates)
+        body: JSON.stringify(backendUpdates)
       });
     } catch (error) {
       console.error('Failed to update user on backend', error);
@@ -330,7 +334,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const getLandingPage = (targetUser: User): string => {
-    // Always land on the module selection hub so users with multiple rights can choose where to go.
+    const rights = getUserRights(targetUser);
+
+    // List of rights that grant access to distinct UI modules in the Dashboard Hub
+    const uiModuleRights = [
+      rights.viewDashboard,
+      rights.viewAccommodation,
+      rights.viewCustomers,
+      rights.viewInventory,
+      rights.stockTake,
+      rights.stockAdjustment,
+      rights.managePurchasing,
+      rights.manageRecipes,
+      rights.viewSettings,
+      rights.viewUsers,
+      rights.viewReports,
+      rights.managePromotions,
+      rights.viewProducts,
+    ];
+
+    const hasOtherModules = uiModuleRights.some(r => r !== 'no');
+
+    // If the user ONLY has access to orders (POS) and no other modules,
+    // take them straight to the POS screen so they bypass the hub.
+    if (rights.viewOrders !== 'no' && !hasOtherModules) {
+      return '/pos';
+    }
+
     return '/';
   };
 

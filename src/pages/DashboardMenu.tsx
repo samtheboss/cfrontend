@@ -334,7 +334,7 @@ export default function DashboardMenu() {
           <div className="space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Core Services</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {menuItems
+              {filteredItems
                 .filter(item => item.name === 'Point of Sale (POS)' || item.name === 'Hotel & Accommodation')
                 .map(item => (
                   <Card 
