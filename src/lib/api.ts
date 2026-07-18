@@ -1,4 +1,23 @@
-export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9090';
+const STORAGE_KEY = 'api_base_url';
+
+/** Returns the active backend URL. Priority: localStorage → VITE_API_BASE_URL → default */
+export function getBaseUrl(): string {
+  return (
+    localStorage.getItem(STORAGE_KEY) ||
+    import.meta.env.VITE_API_BASE_URL ||
+    'http://localhost:9090'
+  );
+}
+
+/** Saves a custom backend URL to localStorage (strips trailing slash). */
+export function setBaseUrl(url: string): void {
+  localStorage.setItem(STORAGE_KEY, url.trim().replace(/\/$/, ''));
+}
+
+/** Removes any custom backend URL, reverting to the env/default fallback. */
+export function clearBaseUrl(): void {
+  localStorage.removeItem(STORAGE_KEY);
+}
 
 export async function apiFetch<T>(
   endpoint: string,
@@ -14,7 +33,7 @@ export async function apiFetch<T>(
     ...options.headers,
   } as Record<string, string>;
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
+  const response = await fetch(`${getBaseUrl()}${endpoint}`, {
     ...options,
     headers,
   });

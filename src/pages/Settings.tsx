@@ -8,12 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Building2, Receipt, Bell, Database, Loader2, Globe } from 'lucide-react';
+import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import ShippingSettings from '@/components/settings/ShippingSettings';
 import EcommerceSettingsUI from '@/components/settings/EcommerceSettingsUI';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getBaseUrl, setBaseUrl, clearBaseUrl } from '@/lib/api';
 
 export default function Settings() {
   const { settings, updateSettings, isLoading, categories = [] } = useInventory();
@@ -22,6 +23,24 @@ export default function Settings() {
   const [printers, setPrinters] = useState<string[]>([]);
   const [isFetchingPrinters, setIsFetchingPrinters] = useState(false);
   const [printerMappings, setPrinterMappings] = useState<Record<string, string>>({});
+
+  // Connection state
+  const [serverUrl, setServerUrlInput] = useState(getBaseUrl);
+  const [serverSavedFlash, setServerSavedFlash] = useState(false);
+
+  const handleSaveServerUrl = () => {
+    if (!serverUrl.trim()) return;
+    setBaseUrl(serverUrl.trim());
+    setServerSavedFlash(true);
+    toast.success('Backend URL updated. Changes take effect on next API call.');
+    setTimeout(() => setServerSavedFlash(false), 2000);
+  };
+
+  const handleResetServerUrl = () => {
+    clearBaseUrl();
+    setServerUrlInput(getBaseUrl());
+    toast.info('Backend URL reset to default.');
+  };
 
   useEffect(() => {
     const fetchPrinters = async () => {
@@ -394,6 +413,51 @@ export default function Settings() {
                 <Button variant="outline">Export Products (CSV)</Button>
                 <Button variant="outline">Export Sales (CSV)</Button>
                 <Button variant="outline">Export Inventory (CSV)</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Connection */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <Server className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>Connection</CardTitle>
+                  <CardDescription>Override the backend API server URL for this browser</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                The URL is saved in this browser's local storage and persists across page refreshes.
+                Changes apply to all subsequent API requests immediately.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="settingsServerUrl">Backend URL</Label>
+                <Input
+                  id="settingsServerUrl"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrlInput(e.target.value)}
+                  placeholder="http://localhost:9090"
+                  className="font-mono"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleSaveServerUrl} disabled={serverSavedFlash} className="gap-2">
+                  {serverSavedFlash ? (
+                    <><CheckCircle2 className="h-4 w-4" /> Saved!</>
+                  ) : (
+                    'Save & Apply'
+                  )}
+                </Button>
+                <Button variant="outline" onClick={handleResetServerUrl} className="gap-2">
+                  <RotateCcw className="h-4 w-4" />
+                  Reset to Default
+                </Button>
               </div>
             </CardContent>
           </Card>

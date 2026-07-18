@@ -4,9 +4,9 @@ import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
-import { BASE_URL, apiFetch } from '@/lib/api';
+import { apiFetch, getBaseUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer, Wallet } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -157,6 +157,15 @@ export default function POS() {
   // Removed local state: activeOrders and salesHistory now come from context
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
+  // Receive Payment dialog state
+  const [receivePaymentSale, setReceivePaymentSale] = useState<Sale | null>(null);
+  const [receivePaymentMethods, setReceivePaymentMethods] = useState({
+    cash: { active: false, amount: '', reference: '' },
+    card: { active: false, amount: '', reference: '' },
+    mobile: { active: false, amount: '', reference: '' }
+  });
+  const [isReceivingPayment, setIsReceivingPayment] = useState(false);
+
   // Order Filters
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStartDate, setOrderStartDate] = useState<string>(
@@ -201,8 +210,7 @@ export default function POS() {
   const pollSessionRef = useRef(0);
 
   // Navigation confirmation
-  const [navConfirmOpen, setNavConfirmOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'HOME' | 'LOGOUT' | null>(null);
+  const [printKotOpen, setPrintKotOpen] = useState(false);
 
   // Get all variants with product info (Active only)
   const allVariants = products
@@ -248,7 +256,7 @@ export default function POS() {
         if (data.recordedSaleId) {
           toast.success('Sale completed and recorded!');
           discardOrder(`stk-${requestId}`);
-          const receiptUrl = `${BASE_URL}/api/transactions/sale/${data.recordedSaleId}/receipt`;
+          const receiptUrl = `${getBaseUrl()}/api/transactions/sale/${data.recordedSaleId}/receipt`;
           handleReceiptAction(receiptUrl);
 
           setTimeout(() => {
@@ -359,8 +367,8 @@ export default function POS() {
         product.variants
           .filter(v => v.isActive !== false)
           .some(v =>
-            v.sku.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-            v.barcode.includes(debouncedSearch)
+            (v.sku && v.sku.toLowerCase().includes(debouncedSearch.toLowerCase())) ||
+            (v.barcode && v.barcode.includes(debouncedSearch))
           );
 
       const matchesCategory = !selectedCategory || product.category === selectedCategory;
@@ -538,8 +546,8 @@ export default function POS() {
       setCurrentSaleId(dbSaleId);
 
       const token = localStorage.getItem('token');
-      const kotUrl = `${BASE_URL}/api/transactions/sale/${dbSaleId}/receipt_kot`;
-      
+      const kotUrl = `${getBaseUrl()}/api/transactions/sale/${dbSaleId}/receipt_kot`;
+
       const response = await fetch(kotUrl, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -549,7 +557,7 @@ export default function POS() {
       if (!response.ok) throw new Error('Failed to fetch KOT PDF');
 
       const blob = await response.blob();
-      
+
       toast.info('Sending KOT to printer...');
       try {
         const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
@@ -827,7 +835,7 @@ export default function POS() {
       }
 
       // Show receipt preview instead of opening new window
-      const receiptUrl = `${BASE_URL}/api/transactions/sale/${saved.id}/receipt`;
+      const receiptUrl = `${getBaseUrl()}/api/transactions/sale/${saved.id}/receipt`;
       handleReceiptAction(receiptUrl);
 
       resetPOSState();
@@ -840,51 +848,126 @@ export default function POS() {
     }
   };
 
+  const handlePayLater = async () => {
+    if (cart.length === 0) return;
+    if (!selectedCustomer) {
+      toast.error('Please select a customer to proceed');
+      setCustomerPopoverOpen(true);
+      return;
+    }
+
+    const saleData = {
+      type: 'SALE',
+      status: 'PAYMENT_PENDING',
+      locationId: selectedLocationId,
+      customerId: selectedCustomer?.id ? selectedCustomer.id : null,
+      paymentMethod: 'PAY_LATER',
+      payments: [],
+      subtotal,
+      taxAmount: tax,
+      totalAmount: total,
+      amountPaid: 0,
+      changeAmount: 0,
+      idempotencyKey: idempotencyKey,
+      items: cart.map(item => ({
+        variantId: item.variantId,
+        sku: item.variantSku,
+        productName: item.productName,
+        adjustment: -item.quantity,
+        price: item.price,
+        taxRate: item.taxRate ?? 16.0,
+        taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
+      })),
+    };
+
+    setIsProcessing(true);
+    try {
+      if (currentSaleId) {
+        const updatePayload = {
+          ...saleData,
+          status: 'PAYMENT_PENDING'
+        };
+        await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
+          method: 'PUT',
+          body: JSON.stringify(updatePayload)
+        });
+        toast.success('Pending receipt updated! Payment can be collected later.');
+      } else {
+        await createSale(saleData);
+        toast.success('Sale saved! Payment can be collected later.');
+      }
+      resetPOSState();
+      setCheckoutOpen(false);
+      refreshData();
+    } catch (error) {
+      // Error already shown by createSale or apiFetch
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReceivePayment = async () => {
+    if (!receivePaymentSale) return;
+
+    const payments: { method: string; amount: number; reference?: string }[] = [];
+    let remaining = Number(receivePaymentSale.totalAmount) || 0;
+
+    if (receivePaymentMethods.mobile.active && parseFloat(receivePaymentMethods.mobile.amount) > 0) {
+      const amt = Math.min(parseFloat(receivePaymentMethods.mobile.amount), remaining);
+      if (amt > 0) { payments.push({ method: 'MOBILE', amount: amt, reference: receivePaymentMethods.mobile.reference }); remaining -= amt; }
+    }
+    if (receivePaymentMethods.card.active && parseFloat(receivePaymentMethods.card.amount) > 0) {
+      const amt = Math.min(parseFloat(receivePaymentMethods.card.amount), remaining);
+      if (amt > 0) { payments.push({ method: 'CARD', amount: amt, reference: receivePaymentMethods.card.reference }); remaining -= amt; }
+    }
+    if (receivePaymentMethods.cash.active && parseFloat(receivePaymentMethods.cash.amount) > 0) {
+      const amt = Math.min(parseFloat(receivePaymentMethods.cash.amount), remaining);
+      if (amt > 0) { payments.push({ method: 'CASH', amount: amt, reference: receivePaymentMethods.cash.reference }); remaining -= amt; }
+    }
+
+    const totalReceived = payments.reduce((s, p) => s + p.amount, 0);
+    const due = Number(receivePaymentSale.totalAmount) || 0;
+    if (totalReceived < due - 0.01) {
+      toast.error('Payment amount is less than total due');
+      return;
+    }
+
+    setIsReceivingPayment(true);
+    try {
+      await apiFetch<any>(`/api/transactions/sale/${receivePaymentSale.journalNumber}/receive-payment`, {
+        method: 'POST',
+        body: JSON.stringify(payments),
+      });
+      toast.success('Payment received! Sale completed.');
+      const receiptUrl = `${getBaseUrl()}/api/transactions/sale/${receivePaymentSale.id}/receipt`;
+      handleReceiptAction(receiptUrl);
+      setReceivePaymentSale(null);
+      setReceivePaymentMethods({
+        cash: { active: false, amount: '', reference: '' },
+        card: { active: false, amount: '', reference: '' },
+        mobile: { active: false, amount: '', reference: '' }
+      });
+      refreshData();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to receive payment');
+    } finally {
+      setIsReceivingPayment(false);
+    }
+  };
+
   const handleHomeClick = () => {
     if (cart.length > 0) {
-      setPendingAction('HOME');
-      setNavConfirmOpen(true);
-    } else {
-      navigate('/');
+      handleHoldOrder();
     }
+    navigate('/');
   };
 
   const handleLogout = () => {
     if (cart.length > 0) {
-      setPendingAction('LOGOUT');
-      setNavConfirmOpen(true);
-    } else {
-      logout();
-      navigate('/signin');
+      handleHoldOrder();
     }
-  };
-
-  const confirmNavigation = (action: 'HOLD' | 'CLEAR') => {
-    if (action === 'HOLD') {
-      // Create order object similar to handleHoldOrder
-      const order: ActiveOrder = {
-        id: `hold-${Date.now()}`,
-        customer: selectedCustomer,
-        items: [...cart],
-        timestamp: new Date()
-      };
-      holdOrder(order);
-      setCart([]);
-      toast.success('Order held successfully');
-    } else if (action === 'CLEAR') {
-      setCart([]);
-    }
-
-    // Execute the pending navigation
-    if (pendingAction === 'HOME') {
-      navigate('/');
-    } else if (pendingAction === 'LOGOUT') {
-      logout();
-      navigate('/signin');
-    }
-
-    setNavConfirmOpen(false);
-    setPendingAction(null);
+    logout();
+    navigate('/signin');
   };
   const handleMpesaPush = async () => {
     if (!mpesaPhone) {
@@ -974,14 +1057,14 @@ export default function POS() {
     if (cart.length === 0) return;
 
     const order: ActiveOrder = {
-      id: `hold-${Date.now()}`,
+      id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
       customer: selectedCustomer,
-      items: cart,
+      items: [...cart],
       timestamp: new Date()
     };
 
     holdOrder(order);
-    setCart([]);
+    clearCart();
     toast.success('Order held successfully');
   };
 
@@ -1000,7 +1083,7 @@ export default function POS() {
 
     setCart(order.items);
     setSelectedCustomer(order.customer);
-    
+
     if (order.id.startsWith('db-')) {
       const dbId = parseInt(order.id.replace('db-', ''));
       setCurrentSaleId(dbId);
@@ -1024,13 +1107,52 @@ export default function POS() {
         quantity: Math.abs(item.adjustment),
         attributes: item.attributes || {},
         price: item.price || 0,
-        maxStock: variant ? variant.stock : 0 // Or 0 if discontinued
+        maxStock: variant ? variant.stock : 0, // Or 0 if discontinued
+        printed: true // Mark as printed so KOT only prints new items
       };
     });
 
     setCart(newCart);
     setOrdersDialogOpen(false);
     toast.success('Items loaded to cart');
+  };
+
+  const handleLoadPendingReceipt = (sale: Sale) => {
+    // Hold current order if there's an active cart
+    if (cart.length > 0) {
+      const currentOrder: ActiveOrder = {
+        id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
+        customer: selectedCustomer,
+        items: [...cart],
+        timestamp: new Date()
+      };
+      holdOrder(currentOrder);
+      toast.info('Current order held');
+    }
+
+    const newCart: CartItem[] = sale.items.map(item => {
+      const variant = allVariants?.find(v => v.id?.toString() === item.variantId?.toString());
+      return {
+        ...item,
+        variantSku: item.sku,
+        quantity: Math.abs(item.adjustment),
+        attributes: item.attributes || {},
+        price: item.price || 0,
+        maxStock: variant ? variant.stock : 0,
+        printed: true
+      };
+    });
+
+    setCart(newCart);
+    const customerObj = contextCustomers?.find(c => 
+      c.id?.toString() === sale.customerId?.toString() || 
+      c.id?.toString() === (sale as any).customer?.id?.toString()
+    );
+    setSelectedCustomer(customerObj || (sale as any).customer || null);
+    setCurrentSaleId(typeof sale.id === 'number' ? sale.id : parseInt(sale.id.toString()));
+    
+    setOrdersDialogOpen(false);
+    toast.success('Pending receipt loaded to cart');
   };
 
   const toggleExpandOrder = (id: string) => {
@@ -1087,7 +1209,7 @@ export default function POS() {
       .map(t => {
         const sale = t as Sale;
         const customer = contextCustomers.find(c => c.id?.toString() === sale.customerId?.toString()) || null;
-        
+
         const items: CartItem[] = sale.items.map(item => {
           const variant = allVariants?.find(v => v.id?.toString() === item.variantId?.toString());
           const availableStock = variant?.locationStock?.[selectedLocationId?.toString()] || 0;
@@ -1120,6 +1242,13 @@ export default function POS() {
 
   const filteredActiveOrders = filterOrders(combinedActiveOrders);
   const filteredSalesHistory = filterOrders(salesHistory);
+
+  // Sales with PAYMENT_PENDING status — stock already deducted, awaiting payment
+  const pendingPaymentSales = useMemo(() => {
+    return (transactions || [])
+      .filter(t => t.type === 'SALE' && t.status === 'PAYMENT_PENDING')
+      .map(t => t as Sale);
+  }, [transactions]);
 
   const handleOpenReturn = async (sale: Sale) => {
     setSaleToReturn(sale);
@@ -1238,7 +1367,7 @@ export default function POS() {
       <div className="flex flex-1 h-[calc(100vh-48px)] md:h-full min-h-0 overflow-hidden">
         {/* Left Panel - Products (scrollable) - has right margin on md+ to make room for fixed cart */}
         <div className={cn(
-          "flex-1 flex flex-col border-r bg-background h-full overflow-hidden md:mr-80 lg:mr-96",
+          "flex-1 flex flex-col border-r bg-background h-full overflow-hidden md:mr-80 lg:mr-96 pb-16",
           activeTab !== 'products' && "hidden md:flex"
         )}>
           {/* Header */}
@@ -1380,7 +1509,7 @@ export default function POS() {
                     <div className="aspect-square relative bg-muted overflow-hidden flex items-center justify-center">
                       {product.images[0] ? (
                         <img
-                          src={product.images[0].startsWith('http') ? product.images[0] : `${BASE_URL}${product.images[0]}`}
+                          src={product.images[0].startsWith('http') ? product.images[0] : `${getBaseUrl()}${product.images[0]}`}
                           alt={product.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         />
@@ -1444,7 +1573,7 @@ export default function POS() {
 
         {/* Right Panel - Cart (FIXED - no scroll) */}
         <div className={cn(
-          "fixed inset-x-0 bottom-0 top-[48px] z-20 md:fixed md:inset-auto md:right-0 md:top-0 md:h-screen md:w-80 lg:w-96 flex flex-col bg-card shadow-xl overflow-hidden",
+          "fixed inset-x-0 bottom-16 top-[48px] z-20 md:fixed md:inset-auto md:right-0 md:top-0 md:bottom-16 md:h-[calc(100vh-4rem)] md:w-80 lg:w-96 flex flex-col bg-card shadow-xl overflow-hidden",
           activeTab !== 'cart' ? "hidden md:flex" : "flex"
         )}>
           <div className="p-3 md:p-4 border-b">
@@ -1604,9 +1733,9 @@ export default function POS() {
             )}
           </div>
 
-          {/* Cart Summary */}
-          <div className="p-2 sm:p-3 md:p-4 border-t bg-muted/30">
-            <div className="space-y-1 mb-2 sm:mb-3 md:mb-4">
+          {/* Cart Summary — totals */}
+          <div className="px-3 pt-2 pb-2 border-t bg-muted/30">
+            <div className="space-y-1">
               <div className="flex justify-between text-xs md:text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span>{settings?.currency || '$'}{subtotal.toFixed(2)}</span>
@@ -1621,44 +1750,107 @@ export default function POS() {
                 <span>{settings?.currency || '$'}{total.toFixed(2)}</span>
               </div>
             </div>
-
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-              <Button
-                variant="outline"
-                className="col-span-1 h-9 sm:h-11 md:h-12"
-                disabled={cart.length === 0}
-                onClick={handleHoldOrder}
-                title="Hold Order"
-              >
-                <PauseCircle className="h-4 w-4 md:h-4 md:w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                className="col-span-1 h-9 sm:h-11 md:h-12 text-orange-600 hover:text-orange-700 border-orange-200 bg-orange-50/20 hover:bg-orange-50"
-                disabled={cart.length === 0}
-                onClick={handlePrintKOT}
-                title="Print KOT"
-              >
-                <FileText className="h-4 w-4 md:h-4 md:w-4" />
-              </Button>
-              <Button
-                className="col-span-2 h-9 sm:h-11 md:h-12 text-xs sm:text-sm md:text-base"
-                size="sm"
-                disabled={cart.length === 0}
-                onClick={() => {
-                  if (!selectedCustomer) {
-                    toast.error("Please select a customer to proceed");
-                    setCustomerPopoverOpen(true);
-                    return;
-                  }
-                  setCheckoutOpen(true);
-                }}
-              >
-                Checkout
-              </Button>
-            </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Fixed full-page POS footer ── */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 h-14 mb-5 flex border-t shadow-2xl overflow-hidden">
+        {/* Hold */}
+        <button
+          id="pos-hold-btn"
+          disabled={cart.length === 0}
+          onClick={handleHoldOrder}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-amber-400 hover:bg-amber-500 text-white active:brightness-90"
+        >
+          <PauseCircle className="h-5 w-5" />
+          Hold
+        </button>
+
+        {/* New */}
+        <button
+          id="pos-new-btn"
+          onClick={() => {
+            if (cart.length > 0) {
+              handleHoldOrder();
+            } else {
+              clearCart();
+            }
+            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+            toast.info('New order started');
+          }}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all bg-cyan-500 hover:bg-cyan-600 text-white active:brightness-90"
+        >
+          <Plus className="h-5 w-5" />
+          New
+        </button>
+
+        {/* Cancel */}
+        <button
+          id="pos-cancel-btn"
+          disabled={cart.length === 0}
+          onClick={clearCart}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-red-500 hover:bg-red-600 text-white active:brightness-90"
+        >
+          <Trash2 className="h-5 w-5" />
+          Cancel
+        </button>
+
+
+
+        {/* Pay Later */}
+        <button
+          id="pos-pay-later-btn"
+          disabled={cart.length === 0 || isProcessing}
+          onClick={handlePayLater}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-500 hover:bg-blue-600 text-white active:brightness-90"
+        >
+          <Wallet className="h-5 w-5" />
+          Place And Bill
+        </button>
+
+        {/* KOT */}
+        <button
+          id="pos-kot-btn"
+          disabled={cart.length === 0}
+          onClick={handlePrintKOT}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-700 hover:bg-blue-800 text-white active:brightness-90"
+        >
+          <FileText className="h-5 w-5" />
+          KOT
+        </button>
+
+        {/* Mob Money */}
+        <button
+          id="pos-mob-money-btn"
+          disabled={cart.length === 0}
+          onClick={() => {
+            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: true, amount: total.toFixed(2), reference: '' } });
+            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+            setCheckoutOpen(true);
+          }}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-emerald-700 hover:bg-emerald-800 text-white active:brightness-90"
+        >
+          <Smartphone className="h-5 w-5" />
+          Mob Money
+        </button>
+
+        {/* Pay Cash */}
+        <button
+          id="pos-pay-cash-btn"
+          disabled={cart.length === 0}
+          onClick={() => {
+            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+            setPaymentMethods({ cash: { active: true, amount: total.toFixed(2), reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' } });
+            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+            setCheckoutOpen(true);
+          }}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-teal-500 hover:bg-teal-600 text-white active:brightness-90"
+        >
+          <Banknote className="h-5 w-5" />
+          Pay Cash
+        </button>
       </div>
 
       {/* Checkout Dialog */}
@@ -1803,34 +1995,34 @@ export default function POS() {
                   )}
 
                   {method === 'mobile' && (isPollingMpesa || mpesaStatus !== 'IDLE') && (
-                        <div className="col-span-2 space-y-2 py-2">
-                          <div className={`flex items-center justify-center gap-2 text-xs font-medium ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
-                            mpesaStatus === 'SUCCESS' ? 'text-green-600' :
-                              mpesaStatus === 'CANCELLED' ? 'text-amber-600' :
-                                'text-red-600'
-                            }`}>
-                            <span>
-                              {mpesaStatus === 'PENDING' && 'Waiting for M-Pesa confirmation...'}
-                              {mpesaStatus === 'SUCCESS' && 'Payment Successful!'}
-                              {mpesaStatus === 'CANCELLED' && 'Payment Cancelled.'}
-                              {mpesaStatus === 'FAILED' && 'Payment Failed.'}
-                            </span>
-                            {mpesaStatus !== 'SUCCESS' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-[10px]"
-                                onClick={() => checkoutRequestId && manualQueryMpesa(checkoutRequestId)}
-                                disabled={isPollingMpesa}
-                              >
-                                {isPollingMpesa ? 'Checking...' : 'Check Again'}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                    <div className="col-span-2 space-y-2 py-2">
+                      <div className={`flex items-center justify-center gap-2 text-xs font-medium ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
+                        mpesaStatus === 'SUCCESS' ? 'text-green-600' :
+                          mpesaStatus === 'CANCELLED' ? 'text-amber-600' :
+                            'text-red-600'
+                        }`}>
+                        <span>
+                          {mpesaStatus === 'PENDING' && 'Waiting for M-Pesa confirmation...'}
+                          {mpesaStatus === 'SUCCESS' && 'Payment Successful!'}
+                          {mpesaStatus === 'CANCELLED' && 'Payment Cancelled.'}
+                          {mpesaStatus === 'FAILED' && 'Payment Failed.'}
+                        </span>
+                        {mpesaStatus !== 'SUCCESS' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px]"
+                            onClick={() => checkoutRequestId && manualQueryMpesa(checkoutRequestId)}
+                            disabled={isPollingMpesa}
+                          >
+                            {isPollingMpesa ? 'Checking...' : 'Check Again'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                ))}
+                  )}
+                </div>
+              ))}
             </div>
 
             {completedMpesaPayments.length > 0 && (
@@ -1857,6 +2049,16 @@ export default function POS() {
               <Button variant="outline" size="sm" onClick={() => setCheckoutOpen(false)} disabled={isProcessing}>Cancel</Button>
               <Button
                 size="sm"
+                variant="outline"
+                onClick={handlePayLater}
+                disabled={isProcessing}
+                id="pay-later-btn"
+                className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-600 dark:hover:bg-amber-950"
+              >
+                {isProcessing ? 'Saving...' : '⏳ Place And Bill'}
+              </Button>
+              <Button
+                size="sm"
                 onClick={handleCheckout}
                 disabled={totalPaid < total - 0.01 || isProcessing}
                 className={totalPaid >= total - 0.01 ? 'bg-green-600 hover:bg-green-700' : ''}
@@ -1881,7 +2083,7 @@ export default function POS() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
             <div className="aspect-video md:aspect-square bg-muted rounded-lg overflow-hidden">
               {selectedProduct?.images[0] ? (
-                <img src={selectedProduct.images[0].startsWith('http') ? selectedProduct.images[0] : `${BASE_URL}${selectedProduct.images[0]}`} alt={selectedProduct.name} className="w-full h-full object-cover" />
+                <img src={selectedProduct.images[0].startsWith('http') ? selectedProduct.images[0] : `${getBaseUrl()}${selectedProduct.images[0]}`} alt={selectedProduct.name} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">No image available</div>
               )}
@@ -1989,8 +2191,16 @@ export default function POS() {
           </div>
 
           <Tabs defaultValue="active" className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="active">Active (Held) Orders</TabsTrigger>
+              <TabsTrigger value="pending-payment" id="pending-payments-tab" className="relative">
+                Pending Payments
+                {pendingPaymentSales.length > 0 && (
+                  <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[9px] font-bold w-4 h-4">
+                    {pendingPaymentSales.length}
+                  </span>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="posted">Posted (History)</TabsTrigger>
             </TabsList>
 
@@ -2057,6 +2267,103 @@ export default function POS() {
               )}
             </TabsContent>
 
+            {/* Pending Payments Tab */}
+            <TabsContent value="pending-payment" className="flex-1 overflow-y-auto mt-4">
+              {pendingPaymentSales.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                  <Wallet className="h-10 w-10 mb-2 opacity-20" />
+                  <p>No pending payments</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {pendingPaymentSales.map(sale => (
+                    <div key={sale.id} className="border border-amber-200 rounded-lg bg-card overflow-hidden">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 bg-amber-50/60 dark:bg-amber-950/20 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer gap-3"
+                        onClick={() => toggleExpandOrder(sale.id)}>
+                        <div className="flex gap-3 md:gap-4 items-center">
+                          <div className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                            <Wallet className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm md:text-base truncate">
+                              {sale.journalNumber || `Sale #${sale.id?.toString().slice(-6)}`}
+                            </div>
+                            <div className="text-[11px] md:text-sm text-muted-foreground flex items-center gap-1 md:gap-2">
+                              <span>{format(new Date(sale.timestamp), 'MMM d, HH:mm')}</span>
+                              <span>•</span>
+                              <span className="text-amber-600 font-medium">Payment Pending</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between sm:justify-end gap-2 md:gap-4 flex-wrap">
+                          <div className="font-bold text-right text-xs md:text-base shrink-0 text-amber-700">
+                            {sym}{(sale.totalAmount || sale.total || 0).toFixed(2)}
+                          </div>
+                          <div className="flex items-center gap-1 md:gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 md:h-8 md:px-3 text-[10px] md:text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleLoadPendingReceipt(sale);
+                              }}
+                            >
+                              <ShoppingCart className="h-3 w-3 mr-1" />
+                              Load to POS
+                            </Button>
+                            <Button
+                              size="sm"
+                              id={`receive-payment-btn-${sale.id}`}
+                              className="h-7 px-2 md:h-8 md:px-3 text-[10px] md:text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReceivePaymentSale(sale);
+                                const due = Number(sale.totalAmount) || 0;
+                                setReceivePaymentMethods({
+                                  cash: { active: false, amount: due.toFixed(2), reference: '' },
+                                  card: { active: false, amount: '', reference: '' },
+                                  mobile: { active: false, amount: '', reference: '' }
+                                });
+                              }}
+                            >
+                              <Wallet className="h-3 w-3 mr-1" />
+                              Receive Payment
+                            </Button>
+                            {expandedOrderId === sale.id ? <ChevronUp className="h-4 w-4 ml-0.5" /> : <ChevronDown className="h-4 w-4 ml-0.5" />}
+                          </div>
+                        </div>
+                      </div>
+
+                      {expandedOrderId === sale.id && (
+                        <div className="p-4 bg-muted/10 border-t space-y-2">
+                          <div className="text-xs font-semibold text-muted-foreground mb-2 flex justify-between">
+                            <span>ITEM</span>
+                            <span>SUBTOTAL</span>
+                          </div>
+                          {sale.items.map((item, idx) => (
+                            <div key={idx} className="flex justify-between text-sm">
+                              <div>
+                                {item.productName}
+                                <span className="text-muted-foreground ml-2">
+                                  ({Object.values(item.attributes || {}).join('/')}) x{Math.abs(item.adjustment || (item as any).quantity || 0)}
+                                </span>
+                              </div>
+                              <div>{sym}{(item.price * Math.abs(item.adjustment || (item as any).quantity || 0)).toFixed(2)}</div>
+                            </div>
+                          ))}
+                          <div className="border-t pt-2 mt-2 flex justify-between font-medium">
+                            <span>Total Due</span>
+                            <span className="text-amber-600">{sym}{(sale.totalAmount || sale.total || 0).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
             <TabsContent value="posted" className="flex-1 overflow-y-auto mt-4">
               {filteredSalesHistory.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
@@ -2091,7 +2398,7 @@ export default function POS() {
                           <div className="flex items-center gap-1 md:gap-1.5 flex-wrap justify-end">
                             <Button size="sm" variant="outline" className="h-7 w-7 md:h-8 md:w-8 p-0" onClick={(e) => {
                               e.stopPropagation();
-                              handleReceiptAction(`${BASE_URL}/api/transactions/sale/${sale.id}/receipt`);
+                              handleReceiptAction(`${getBaseUrl()}/api/transactions/sale/${sale.id}/receipt`);
                             }} title="View/Print Receipt">
                               <Receipt className="h-3.5 w-3.5" />
                             </Button>
@@ -2265,6 +2572,108 @@ export default function POS() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Receive Payment Dialog */}
+      <Dialog open={!!receivePaymentSale} onOpenChange={(open) => { if (!open && !isReceivingPayment) { setReceivePaymentSale(null); setReceivePaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' } }); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-amber-500" />
+              Receive Payment
+            </DialogTitle>
+            <DialogDescription>
+              {receivePaymentSale && (
+                <>
+                  <span className="block font-medium text-foreground">{receivePaymentSale.journalNumber}</span>
+                  Total due: <span className="font-semibold text-amber-600">{sym}{(Number(receivePaymentSale.totalAmount) || 0).toFixed(2)}</span>
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            {/* Payment summary */}
+            <div className="grid grid-cols-2 gap-2 text-center p-3 bg-muted/50 rounded-lg">
+              <div>
+                <div className="text-xs text-muted-foreground">Total Due</div>
+                <div className="font-semibold text-amber-600">{sym}{(Number(receivePaymentSale?.totalAmount) || 0).toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Entered</div>
+                <div className="font-semibold text-green-600">
+                  {sym}{(
+                    (receivePaymentMethods.cash.active ? parseFloat(receivePaymentMethods.cash.amount) || 0 : 0) +
+                    (receivePaymentMethods.card.active ? parseFloat(receivePaymentMethods.card.amount) || 0 : 0) +
+                    (receivePaymentMethods.mobile.active ? parseFloat(receivePaymentMethods.mobile.amount) || 0 : 0)
+                  ).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Methods */}
+            <div className="space-y-3 border rounded-md p-4">
+              <Label className="text-sm font-medium">Payment Method</Label>
+              {(['cash', 'card', 'mobile'] as const).map((method) => (
+                <div key={method} className="grid grid-cols-[140px_1fr] items-center gap-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`rcv-pay-${method}`}
+                      checked={receivePaymentMethods[method].active}
+                      onCheckedChange={(checked) => {
+                        const due = Number(receivePaymentSale?.totalAmount) || 0;
+                        const alreadyEntered = Object.entries(receivePaymentMethods)
+                          .filter(([k]) => k !== method)
+                          .reduce((s, [, v]) => s + (v.active ? parseFloat(v.amount) || 0 : 0), 0);
+                        const remaining = Math.max(0, due - alreadyEntered);
+                        setReceivePaymentMethods(prev => ({
+                          ...prev,
+                          [method]: checked
+                            ? { ...prev[method], active: true, amount: remaining.toFixed(2) }
+                            : { ...prev[method], active: false, amount: '', reference: '' }
+                        }));
+                      }}
+                    />
+                    <Label htmlFor={`rcv-pay-${method}`} className="capitalize flex items-center gap-1.5 cursor-pointer text-sm">
+                      {method === 'cash' && <Banknote className="h-4 w-4 text-muted-foreground" />}
+                      {method === 'card' && <CreditCard className="h-4 w-4 text-muted-foreground" />}
+                      {method === 'mobile' && <Smartphone className="h-4 w-4 text-muted-foreground" />}
+                      {method === 'cash' ? 'Cash' : method === 'card' ? 'Card' : 'Mobile'}
+                    </Label>
+                  </div>
+                  <Input
+                    id={`rcv-amount-${method}`}
+                    type="number"
+                    value={receivePaymentMethods[method].amount}
+                    onChange={(e) => setReceivePaymentMethods(prev => ({ ...prev, [method]: { ...prev[method], amount: e.target.value } }))}
+                    placeholder="Amount"
+                    className="h-8 text-sm"
+                    disabled={!receivePaymentMethods[method].active}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReceivePaymentSale(null); }} disabled={isReceivingPayment}>Cancel</Button>
+            <Button
+              id="confirm-receive-payment-btn"
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+              onClick={handleReceivePayment}
+              disabled={isReceivingPayment || (
+                !receivePaymentMethods.cash.active &&
+                !receivePaymentMethods.card.active &&
+                !receivePaymentMethods.mobile.active
+              )}
+            >
+              {isReceivingPayment ? 'Processing...' : (
+                <><Wallet className="h-4 w-4 mr-2" />Confirm Payment</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Receipt Preview Dialog */}
       <Dialog open={receiptPreviewOpen} onOpenChange={setReceiptPreviewOpen}>
         <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
@@ -2314,11 +2723,11 @@ export default function POS() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="localPrinterName" className="font-semibold">Receipt Printer</Label>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-7 text-xs text-primary" 
-                  onClick={fetchLocalPrinters} 
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-primary"
+                  onClick={fetchLocalPrinters}
                   disabled={isFetchingPrinters}
                 >
                   {isFetchingPrinters ? "Loading..." : "Reload List"}
@@ -2364,8 +2773,8 @@ export default function POS() {
                     <div key={cat.id} className="flex items-center justify-between gap-4">
                       <Label className="text-xs font-medium flex-1 truncate">{cat.name}</Label>
                       {localPrinters.length > 0 ? (
-                        <Select 
-                          value={posPrinterMappings[cat.name] || 'Receipt Printer'} 
+                        <Select
+                          value={posPrinterMappings[cat.name] || 'Receipt Printer'}
                           onValueChange={(val) => setPosPrinterMappings(prev => ({ ...prev, [cat.name]: val }))}
                         >
                           <SelectTrigger className="w-56">
@@ -2402,30 +2811,7 @@ export default function POS() {
         </DialogContent>
       </Dialog>
 
-      {/* Navigation Confirmation Dialog */}
-      <Dialog open={navConfirmOpen} onOpenChange={setNavConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Unsaved Changes</DialogTitle>
-            <DialogDescription>
-              You have items in your cart. Would you like to hold this order or clear the cart before leaving?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={() => setNavConfirmOpen(false)} className="sm:mr-auto">
-              Cancel
-            </Button>
-            <Button variant="secondary" onClick={() => confirmNavigation('HOLD')}>
-              <PauseCircle className="h-4 w-4 mr-2" />
-              Hold Order
-            </Button>
-            <Button variant="destructive" onClick={() => confirmNavigation('CLEAR')}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear Cart
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Hidden iframe for background auto-printing */}
       <div style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none', visibility: 'hidden' }}>

@@ -3,19 +3,13 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/hooks/useCurrency';
-import { apiFetch, BASE_URL } from '@/lib/api';
+import { apiFetch, getBaseUrl } from '@/lib/api';
 import { getStockStatus } from '@/types/inventory';
 import { StockBadge } from '@/components/inventory/StockBadge';
 import { Search, Filter, ArrowUpDown, Package, ChevronDown, ChevronRight, Barcode } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -243,7 +237,7 @@ export default function Inventory() {
                           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted overflow-hidden">
                             {product.images[0] ? (
                               <img
-                                src={product.images[0].startsWith('http') ? product.images[0] : `${BASE_URL}${product.images[0]}`}
+                                src={product.images[0].startsWith('http') ? product.images[0] : `${getBaseUrl()}${product.images[0]}`}
                                 alt={product.name}
                                 className="w-full h-full object-cover"
                               />

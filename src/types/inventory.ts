@@ -109,7 +109,7 @@ export interface StockTakeItem {
 }
 
 export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE' | 'RETURN' | 'RECEIVED' | 'PRODUCTION';
-export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED' | 'DRAFT';
+export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED' | 'DRAFT' | 'PAYMENT_PENDING';
 
 export interface Supplier {
   id: string;

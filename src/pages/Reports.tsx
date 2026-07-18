@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { BASE_URL, apiFetch } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { useCurrency } from '@/hooks/useCurrency';
 

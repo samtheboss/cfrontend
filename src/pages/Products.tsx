@@ -3,7 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
 import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Star, RefreshCw, ChefHat, Settings, Tag, AlertTriangle, Layers } from 'lucide-react';
-import { apiFetch, BASE_URL } from '@/lib/api';
+import { apiFetch, getBaseUrl } from '@/lib/api';
 import { RecipeDialog } from '@/components/inventory/RecipeDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useCurrency } from '@/hooks/useCurrency';
@@ -446,7 +446,7 @@ export default function Products() {
         values: attr.values.join(', ')
       })),
       variants: product.variants,
-      images: (product.images || []).map(img => img.replace(BASE_URL, '')),
+      images: (product.images || []).map(img => img.replace(getBaseUrl(), '')),
       basePrice: product.variants[0]?.price.toString() || '',
       baseCost: product.variants[0]?.cost.toString() || '',
       type: product.type || 'FINISHED_GOOD',
@@ -513,7 +513,7 @@ export default function Products() {
         type: newProduct.type,
         attributes: parsedAttributes,
         variants,
-        images: newProduct.images.map(img => img.replace(BASE_URL, '')).filter(img => img.trim() !== ''),
+        images: newProduct.images.map(img => img.replace(getBaseUrl(), '')).filter(img => img.trim() !== ''),
         availableOnline: !!newProduct.availableOnline,
         isActive: newProduct.isActive !== false,
         isFeatured: !!newProduct.isFeatured,
@@ -844,7 +844,7 @@ export default function Products() {
                               {variant.image ? (
                                 <div className="relative h-8 w-8 rounded border overflow-hidden group">
                                   <img
-                                    src={variant.image.startsWith('http') ? variant.image : `${BASE_URL}${variant.image}`}
+                                    src={variant.image.startsWith('http') ? variant.image : `${getBaseUrl()}${variant.image}`}
                                     className="h-full w-full object-cover"
                                     alt=""
                                   />
@@ -1037,7 +1037,7 @@ export default function Products() {
                                   {variant.image ? (
                                     <div className="relative h-8 w-8 rounded border overflow-hidden group">
                                       <img
-                                        src={variant.image.startsWith('http') ? variant.image : `${BASE_URL}${variant.image}`}
+                                        src={variant.image.startsWith('http') ? variant.image : `${getBaseUrl()}${variant.image}`}
                                         className="h-full w-full object-cover"
                                         alt=""
                                       />
@@ -1150,7 +1150,7 @@ export default function Products() {
                             className="relative group border rounded-lg overflow-hidden aspect-square bg-muted cursor-move"
                           >
                             <img
-                              src={img.startsWith('http') ? img : `${BASE_URL}${img}`}
+                              src={img.startsWith('http') ? img : `${getBaseUrl()}${img}`}
                               alt={`Product ${index + 1}`}
                               className="w-full h-full object-cover pointer-events-none"
                             />
@@ -1258,7 +1258,7 @@ export default function Products() {
                 <div className="relative h-10 w-10 flex-shrink-0 rounded overflow-hidden border bg-background">
                   {newCategoryImage ? (
                     <img
-                      src={newCategoryImage.startsWith('http') ? newCategoryImage : `${BASE_URL}${newCategoryImage}`}
+                      src={newCategoryImage.startsWith('http') ? newCategoryImage : `${getBaseUrl()}${newCategoryImage}`}
                       alt="Category"
                       className="h-full w-full object-cover"
                     />
@@ -1312,7 +1312,7 @@ export default function Products() {
                     <div className="h-8 w-8 rounded overflow-hidden bg-muted flex-shrink-0">
                       {cat.image ? (
                         <img
-                          src={cat.image.startsWith('http') ? cat.image : `${BASE_URL}${cat.image}`}
+                          src={cat.image.startsWith('http') ? cat.image : `${getBaseUrl()}${cat.image}`}
                           alt={cat.name}
                           className="h-full w-full object-cover"
                         />
@@ -1408,7 +1408,7 @@ export default function Products() {
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 overflow-hidden">
                   {product.images && product.images.length > 0 ? (
                     <img
-                      src={product.images[0].startsWith('http') ? product.images[0] : `${BASE_URL}${product.images[0]}`}
+                      src={product.images[0].startsWith('http') ? product.images[0] : `${getBaseUrl()}${product.images[0]}`}
                       alt={product.name}
                       className="h-full w-full object-cover"
                     />

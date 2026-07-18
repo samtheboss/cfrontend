@@ -21,7 +21,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { BASE_URL, apiFetch } from '@/lib/api';
+import { getBaseUrl, apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 
 const MODULES = [
@@ -117,7 +117,7 @@ export default function CustomReports() {
     formData.append('params', params.join(','));
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${BASE_URL}/api/reports/templates`, {
+      const response = await fetch(`${getBaseUrl()}/api/reports/templates`, {
         method: 'POST',
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: formData,
@@ -146,7 +146,7 @@ export default function CustomReports() {
     setIsExecuting(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${BASE_URL}/api/reports/templates/${executingTemplate.id}/execute`, {
+      const response = await fetch(`${getBaseUrl()}/api/reports/templates/${executingTemplate.id}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ ...execParams }),
@@ -494,7 +494,7 @@ export default function CustomReports() {
               <div className="space-y-1">
                 <div className="flex justify-between items-end">
                   <Label className="text-xs">Report Name *</Label>
-                  <Button variant="outline" size="sm" type="button" className="h-6 text-xs px-2" onClick={() => window.open(BASE_URL + `/api/reports/templates/${editingReportTemplate?.id}/download`, '_blank')}>
+                  <Button variant="outline" size="sm" type="button" className="h-6 text-xs px-2" onClick={() => window.open(getBaseUrl() + `/api/reports/templates/${editingReportTemplate?.id}/download`, '_blank')}>
                     <Download className="h-3 w-3 mr-1" /> Download .jrxml
                   </Button>
                 </div>

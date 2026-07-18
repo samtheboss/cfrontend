@@ -29,7 +29,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { BASE_URL } from '@/lib/api';
+import { getBaseUrl } from '@/lib/api';
 
 interface PendingAdjustment {
   variantId: string;
@@ -462,7 +462,7 @@ export default function StockAdjustment() {
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-muted overflow-hidden">
                           {product.images[0] ? (
-                            <img src={`${BASE_URL}${product.images[0]}`} alt={product.name} className="w-full h-full object-cover" />
+                            <img src={`${getBaseUrl()}${product.images[0]}`} alt={product.name} className="w-full h-full object-cover" />
                           ) : (
                             <Package className="h-5 w-5 text-muted-foreground" />
                           )}

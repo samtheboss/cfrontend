@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Slide } from '@/types/inventory';
 import { Plus, Search, Edit, Trash2, Image as ImageIcon, Upload, X, ArrowRight, MoveUp, MoveDown } from 'lucide-react';
-import { apiFetch, BASE_URL } from '@/lib/api';
+import { apiFetch, getBaseUrl } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -194,7 +194,7 @@ export default function Slides() {
                                     )}>
                                         {newSlide.image ? (
                                             <img
-                                                src={newSlide.image.startsWith('http') ? newSlide.image : `${BASE_URL}${newSlide.image}`}
+                                                src={newSlide.image.startsWith('http') ? newSlide.image : `${getBaseUrl()}${newSlide.image}`}
                                                 className="h-full w-full object-cover"
                                                 alt="Slide preview"
                                             />
@@ -289,7 +289,7 @@ export default function Slides() {
                             )}>
                                 <div className="aspect-video relative overflow-hidden bg-muted">
                                     <img
-                                        src={slide.image.startsWith('http') ? slide.image : `${BASE_URL}${slide.image}`}
+                                        src={slide.image.startsWith('http') ? slide.image : `${getBaseUrl()}${slide.image}`}
                                         alt={slide.title}
                                         className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500"
                                     />
