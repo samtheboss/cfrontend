@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -58,9 +59,33 @@ import {
   CreditCard,
   Smartphone,
   Check,
+  Receipt,
 } from 'lucide-react';
 import { format, addDays, startOfWeek, subWeeks, addWeeks, differenceInDays } from 'date-fns';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getBaseUrl } from '@/lib/api';
+
+const generateRoomRange = (start: string, end: string) => {
+  if (!start || !end) return [start || ''];
+  const startMatch = start.match(/^(.*?)(\d+)$/);
+  const endMatch = end.match(/^(.*?)(\d+)$/);
+  
+  if (startMatch && endMatch && startMatch[1] === endMatch[1]) {
+    const prefix = startMatch[1];
+    const startNum = parseInt(startMatch[2], 10);
+    const endNum = parseInt(endMatch[2], 10);
+    const padLength = startMatch[2].length;
+    
+    if (endNum >= startNum && endNum - startNum <= 100) {
+       const results = [];
+       for (let i = startNum; i <= endNum; i++) {
+         const numStr = String(i).padStart(padLength, '0');
+         results.push(prefix + numStr);
+       }
+       return results;
+    }
+  }
+  return [start];
+};
 
 interface Room {
   id: any;
@@ -125,7 +150,7 @@ interface ApiResponse<T> {
 
 export default function Accommodation() {
   const { user } = useAuth();
-  const { customers, addCustomer } = useInventory();
+  const { customers, addCustomer, settings } = useInventory();
   const [activeTab, setActiveTab] = useState('rooms');
 
   // --- Core States ---
@@ -202,6 +227,8 @@ export default function Accommodation() {
   // --- Add/Edit Room Modal ---
   const [isRoomDialogOpen, setIsRoomDialogOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [isBulkAdd, setIsBulkAdd] = useState(false);
+  const [bulkRangeEnd, setBulkRangeEnd] = useState('');
   const [roomForm, setRoomForm] = useState<Omit<Room, 'id'>>({
     roomNumber: '',
     type: 'Standard',
@@ -216,6 +243,8 @@ export default function Accommodation() {
 
   const handleOpenAddRoom = () => {
     setEditingRoom(null);
+    setIsBulkAdd(false);
+    setBulkRangeEnd('');
     setRoomForm({
       roomNumber: '',
       type: 'Standard',
@@ -241,17 +270,35 @@ export default function Accommodation() {
       toast.error('Please fill in all required fields');
       return;
     }
+    if (isBulkAdd && !editingRoom && !bulkRangeEnd) {
+      toast.error('Please specify the end of the room range');
+      return;
+    }
     try {
-      const payload = editingRoom ? { ...roomForm, id: editingRoom.id } : roomForm;
-      await apiFetch('/api/accommodation/rooms', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      toast.success(editingRoom ? 'Room updated successfully' : 'Room added successfully');
+      setIsSavingBooking(true);
+      if (editingRoom) {
+        const payload = { ...roomForm, id: editingRoom.id };
+        await apiFetch('/api/accommodation/rooms', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      } else {
+        const roomNumbers = isBulkAdd ? generateRoomRange(roomForm.roomNumber, bulkRangeEnd) : [roomForm.roomNumber];
+        await Promise.all(roomNumbers.map(rNum => {
+          const payload = { ...roomForm, roomNumber: rNum };
+          return apiFetch('/api/accommodation/rooms', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+        }));
+      }
+      toast.success(editingRoom ? 'Room updated successfully' : 'Room(s) added successfully');
       fetchAllData();
       setIsRoomDialogOpen(false);
     } catch (err: any) {
-      toast.error('Failed to save room: ' + err.message);
+      toast.error('Failed to save room(s): ' + err.message);
+    } finally {
+      setIsSavingBooking(false);
     }
   };
 
@@ -367,6 +414,100 @@ export default function Accommodation() {
   const [isRoomPopoverOpen, setIsRoomPopoverOpen] = useState(false);
   const [isSavingBooking, setIsSavingBooking] = useState(false);
 
+  const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
+  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
+  const receiptIframeRef = useRef<HTMLIFrameElement>(null);
+  const autoPrintIframeRef = useRef<HTMLIFrameElement>(null);
+
+  const handleReceiptAction = async (url: string) => {
+    try {
+      const token = sessionStorage.getItem('token');
+      const response = await fetch(url, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch receipt preview');
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+
+      if (settings?.autoPrintReceipts) {
+        toast.info('Sending receipt to printer...');
+        try {
+          const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
+          const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(localPrinterName)}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/pdf',
+            },
+            body: blob,
+          });
+          if (printResponse.ok) {
+            toast.success(`Receipt printed successfully via local print service on ${localPrinterName}!`);
+            return;
+          } else {
+            console.warn('Local print service failed, falling back to browser preview...');
+          }
+        } catch (e) {
+          console.warn('Local print service offline, falling back to browser preview...', e);
+        }
+      }
+
+      if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(receiptPreviewUrl);
+      }
+      setReceiptPreviewUrl(blobUrl);
+      setReceiptPreviewOpen(true);
+    } catch (error) {
+      console.error('Error loading receipt preview:', error);
+      toast.error('Failed to load receipt preview');
+      window.open(url, '_blank');
+    }
+  };
+
+  const handlePrint = async () => {
+    if (receiptPreviewUrl) {
+      try {
+        const res = await fetch(receiptPreviewUrl);
+        const blob = await res.blob();
+        const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
+        const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(localPrinterName)}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+          },
+          body: blob,
+        });
+        if (printResponse.ok) {
+          toast.success(`Sent to printer via local print service on ${localPrinterName}!`);
+          return;
+        }
+      } catch (e) {
+        console.warn('Local print service not available for manual print, using browser print');
+      }
+    }
+
+    if (receiptIframeRef.current) {
+      try {
+        receiptIframeRef.current.contentWindow?.print();
+      } catch (e) {
+        if (receiptPreviewUrl) {
+          window.open(receiptPreviewUrl, '_blank');
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(receiptPreviewUrl);
+      }
+    };
+  }, [receiptPreviewUrl]);
+
   const [bookingForm, setBookingForm] = useState({
     customerId: '',
     guestMobile: '',
@@ -387,7 +528,7 @@ export default function Accommodation() {
 
   // Add Customer Popup States
   const [isAddCustomerDialogOpen, setIsAddCustomerDialogOpen] = useState(false);
-  const [newCustomerForm, setNewCustomerForm] = useState({ name: '', email: '', phone: '' });
+  const [newCustomerForm, setNewCustomerForm] = useState({ name: '', email: '', phone: '', idNumber: '', customerType: 'ROOM' });
   const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
 
   const handleAddCustomerSubmit = async () => {
@@ -398,10 +539,12 @@ export default function Accommodation() {
         name: newCustomerForm.name,
         email: newCustomerForm.email,
         phone: newCustomerForm.phone,
+        idNumber: newCustomerForm.idNumber,
+        customerType: newCustomerForm.customerType,
       });
       // Set the newly created customer ID to avoid double creation on Save Booking
       setBookingForm(prev => ({ ...prev, customerId: String(newCust?.id || ''), guestMobile: newCustomerForm.phone, newGuestName: '' }));
-      setNewCustomerForm({ name: '', email: '', phone: '' });
+      setNewCustomerForm({ name: '', email: '', phone: '', idNumber: '', customerType: 'ROOM' });
       setIsAddCustomerDialogOpen(false);
       toast.success('Customer added successfully! Selected for booking.');
     } catch (err: any) {
@@ -420,6 +563,85 @@ export default function Accommodation() {
   const [manualMpesaRef, setManualMpesaRef] = useState('');
   const stopPollingRef = useRef(false);
   const pollSessionRef = useRef(0);
+
+  // Split Payment Form States
+  const [bookingFormPayments, setBookingFormPayments] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
+    cash: { active: false, amount: '', reference: '' },
+    card: { active: false, amount: '', reference: '' },
+    mpesa: { active: false, amount: '', reference: '' },
+    bank: { active: false, amount: '', reference: '' },
+  });
+
+  // Add Payment Modal States
+  const [isAddPaymentDialogOpen, setIsAddPaymentDialogOpen] = useState(false);
+  const [addPaymentModes, setAddPaymentModes] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
+    cash: { active: false, amount: '', reference: '' },
+    card: { active: false, amount: '', reference: '' },
+    mpesa: { active: false, amount: '', reference: '' },
+    bank: { active: false, amount: '', reference: '' },
+  });
+
+  const openAddPaymentDialog = () => {
+    // initialize from whatever is already in the main form state
+    setAddPaymentModes(JSON.parse(JSON.stringify(bookingFormPayments)));
+    setIsAddPaymentDialogOpen(true);
+  };
+
+  const handleCompleteAddPayment = async () => {
+    if (editingBooking) {
+      let totalPaidInDialog = 0;
+      const paymentsToPost: any[] = [];
+      for (const [key, p] of Object.entries(addPaymentModes)) {
+        if (p.active) {
+          const amt = parseFloat(p.amount) || 0;
+          if (amt > 0) {
+            totalPaidInDialog += amt;
+            const methodLabel = key.toUpperCase();
+            paymentsToPost.push({
+              bookingId: editingBooking.id,
+              method: methodLabel === 'MPESA' ? 'MPESA' : methodLabel === 'BANK' ? 'BANK TRANSFER' : methodLabel,
+              amount: amt,
+              reference: p.reference || 'Partial Payment',
+              createdBy: user?.name || user?.username || 'System',
+              approvedBy: user?.name || user?.username || 'System'
+            });
+          }
+        }
+      }
+
+      if (totalPaidInDialog > 0) {
+        try {
+          for (const pay of paymentsToPost) {
+            await apiFetch(`/api/accommodation/bookings/${editingBooking.id}/payments`, {
+              method: 'POST',
+              body: JSON.stringify(pay)
+            });
+          }
+          toast.success('Payments recorded successfully');
+          fetchAllData();
+          setEditingBooking({ ...editingBooking, paidAmount: Number(editingBooking.paidAmount) + totalPaidInDialog });
+        } catch (err: any) {
+          toast.error('Failed to record payments: ' + err.message);
+          return;
+        }
+      }
+      
+      const emptyState = {
+        cash: { active: false, amount: '', reference: '' },
+        card: { active: false, amount: '', reference: '' },
+        mpesa: { active: false, amount: '', reference: '' },
+        bank: { active: false, amount: '', reference: '' },
+      };
+      setAddPaymentModes(emptyState);
+      setBookingFormPayments(emptyState);
+      setIsAddPaymentDialogOpen(false);
+    } else {
+      // For NEW bookings, just save to state. They get posted when hitting "Save Booking".
+      setBookingFormPayments(JSON.parse(JSON.stringify(addPaymentModes)));
+      setIsAddPaymentDialogOpen(false);
+      toast.success('Payment split updated');
+    }
+  };
 
   // Checkout Payment Popup States
   const [isCheckoutPaymentDialogOpen, setIsCheckoutPaymentDialogOpen] = useState(false);
@@ -494,6 +716,12 @@ export default function Accommodation() {
     setEditingBooking(null);
     setBookingActiveTab('details');
     setGuestListInput([]);
+    setBookingFormPayments({
+      cash: { active: true, amount: '', reference: '' },
+      card: { active: false, amount: '', reference: '' },
+      mpesa: { active: false, amount: '', reference: '' },
+      bank: { active: false, amount: '', reference: '' },
+    });
     setBookingForm({
       customerId: '',
       guestMobile: '',
@@ -516,6 +744,12 @@ export default function Accommodation() {
     setEditingBooking(booking);
     setBookingActiveTab('details');
     setGuestListInput(booking.guestList || []);
+    setBookingFormPayments({
+      cash: { active: true, amount: '', reference: '' },
+      card: { active: false, amount: '', reference: '' },
+      mpesa: { active: false, amount: '', reference: '' },
+      bank: { active: false, amount: '', reference: '' },
+    });
     setBookingForm({
       customerId: booking.customerId,
       guestMobile: booking.guestMobile,
@@ -670,8 +904,27 @@ export default function Accommodation() {
       return;
     }
 
-    if (bookingForm.paidAmount > bookingSummary.totalDue) {
-      toast.error(`Paid amount (KES ${bookingForm.paidAmount.toLocaleString()}) cannot exceed the total due amount of KES ${bookingSummary.totalDue.toLocaleString()}`);
+    let totalNewPayment = 0;
+    const paymentMethodsToSave: { method: string; amount: number; reference: string }[] = [];
+
+    for (const [methodKey, p] of Object.entries(bookingFormPayments)) {
+      if (p.active) {
+        const amt = parseFloat(p.amount) || 0;
+        if (amt > 0) {
+          totalNewPayment += amt;
+          const methodLabel = methodKey.toUpperCase();
+          paymentMethodsToSave.push({
+            method: methodLabel === 'MPESA' ? 'MPESA' : methodLabel === 'BANK' ? 'BANK TRANSFER' : methodLabel,
+            amount: amt,
+            reference: p.reference || 'Booking Payment'
+          });
+        }
+      }
+    }
+
+    const previouslyPaid = editingBooking ? Number(editingBooking.paidAmount) : 0;
+    if ((previouslyPaid + totalNewPayment) > bookingSummary.totalDue) {
+      toast.error(`Total paid amount (KES ${(previouslyPaid + totalNewPayment).toLocaleString()}) cannot exceed the total due amount of KES ${bookingSummary.totalDue.toLocaleString()}`);
       return;
     }
 
@@ -690,8 +943,8 @@ export default function Accommodation() {
         reservationType: bookingForm.reservationType,
         checkedIn: bookingForm.checkedIn,
         noOfChildren: Number(bookingForm.noOfChildren),
-        paymentMethod: bookingForm.paymentMethod,
-        paidAmount: Number(bookingForm.paidAmount),
+        paymentMethod: paymentMethodsToSave.length > 0 ? paymentMethodsToSave[0].method : (editingBooking ? editingBooking.paymentMethod : 'CASH'),
+        paidAmount: previouslyPaid, // Bypass backend auto-create payment
         discount: Number(bookingForm.discount),
         status: bookingStatus,
         guestList: guestListInput,
@@ -708,21 +961,32 @@ export default function Accommodation() {
 
       const finalBooking = savedBookingRes.data || savedBookingRes;
 
-      if (bookingForm.paymentMethod === 'MPESA' && !useStkPush && bookingForm.paidAmount > 0) {
+      // Post the multiple payments manually
+      for (const pay of paymentMethodsToSave) {
         await apiFetch(`/api/accommodation/bookings/${finalBooking.id}/payments`, {
           method: 'POST',
           body: JSON.stringify({
             bookingId: finalBooking.id,
-            method: 'MPESA',
-            amount: bookingForm.paidAmount,
-            reference: manualMpesaRef || 'Manual M-Pesa Payment',
+            method: pay.method,
+            amount: pay.amount,
+            reference: pay.reference,
             createdBy: user?.name || user?.username || 'System',
             approvedBy: user?.name || user?.username || 'System'
           })
         });
       }
 
+      // Clear the bookingFormPayments state after successfully saving
+      setBookingFormPayments({
+        cash: { active: false, amount: '', reference: '' },
+        card: { active: false, amount: '', reference: '' },
+        mpesa: { active: false, amount: '', reference: '' },
+        bank: { active: false, amount: '', reference: '' },
+      });
+
       toast.success(editingBooking ? 'Booking details updated' : 'New booking saved');
+      const receiptUrl = `${getBaseUrl()}/api/accommodation/bookings/${finalBooking.id}/receipt`;
+      handleReceiptAction(receiptUrl);
       fetchAllData();
       setIsBookingDialogOpen(false);
     } catch (err: any) {
@@ -732,7 +996,7 @@ export default function Accommodation() {
     }
   };
 
-  const handleMpesaStkPush = async () => {
+  const handleMpesaStkPush = async (overridePayments?: any) => {
     if (!mpesaPhone) {
       toast.error('Please enter M-Pesa Phone Number');
       return;
@@ -754,8 +1018,34 @@ export default function Accommodation() {
       finalCustName = match ? match.name : 'Guest';
     }
 
-    if (bookingForm.paidAmount > bookingSummary.totalDue) {
-      toast.error(`Paid amount (KES ${bookingForm.paidAmount.toLocaleString()}) cannot exceed the total due amount of KES ${bookingSummary.totalDue.toLocaleString()}`);
+    let totalNewPayment = 0;
+    const paymentMethodsToSave: { method: string; amount: number; reference: string }[] = [];
+
+    const paymentsToIterate = overridePayments || bookingFormPayments;
+    for (const [methodKey, p] of Object.entries(paymentsToIterate as Record<string, { active: boolean; amount: string; reference: string }>)) {
+      if (p.active) {
+        const amt = parseFloat(p.amount) || 0;
+        if (amt > 0) {
+          totalNewPayment += amt;
+          const methodLabel = methodKey.toUpperCase();
+          paymentMethodsToSave.push({
+            method: methodLabel === 'MPESA' ? 'MPESA' : methodLabel === 'BANK' ? 'BANK TRANSFER' : methodLabel,
+            amount: amt,
+            reference: p.reference || 'Booking Payment'
+          });
+        }
+      }
+    }
+
+    const mpesaPayment = paymentMethodsToSave.find(p => p.method === 'MPESA');
+    if (!mpesaPayment) {
+      toast.error('No M-Pesa payment amount specified for STK Push in the popup');
+      return;
+    }
+
+    const previouslyPaid = editingBooking ? Number(editingBooking.paidAmount) : 0;
+    if ((previouslyPaid + totalNewPayment) > bookingSummary.totalDue) {
+      toast.error(`Total paid amount (KES ${(previouslyPaid + totalNewPayment).toLocaleString()}) cannot exceed the total due amount of KES ${bookingSummary.totalDue.toLocaleString()}`);
       return;
     }
 
@@ -774,11 +1064,12 @@ export default function Accommodation() {
         reservationType: bookingForm.reservationType,
         checkedIn: bookingForm.checkedIn,
         noOfChildren: Number(bookingForm.noOfChildren),
-        paymentMethod: 'MPESA',
-        paidAmount: editingBooking ? Number(bookingForm.paidAmount) : 0,
+        paymentMethod: paymentMethodsToSave.length > 0 ? paymentMethodsToSave[0].method : (editingBooking ? editingBooking.paymentMethod : 'CASH'),
+        paidAmount: previouslyPaid, // bypass auto-create
         discount: Number(bookingForm.discount),
         status: bookingStatus,
         guestList: guestListInput,
+        roomAllocations: bookingForm.roomAllocations,
         createdBy: user?.name || user?.username || 'System',
         approvedBy: user?.name || user?.username || 'System',
         ...(editingBooking ? { id: editingBooking.id, transactionNumber: editingBooking.transactionNumber } : { transactionNumber: '#' + (bookings.length + 3) }),
@@ -791,6 +1082,30 @@ export default function Accommodation() {
 
       const finalBooking = savedBookingRes.data || savedBookingRes;
 
+      // Manually post non-MPESA payments
+      const otherPayments = paymentMethodsToSave.filter(p => p.method !== 'MPESA');
+      for (const pay of otherPayments) {
+        await apiFetch(`/api/accommodation/bookings/${finalBooking.id}/payments`, {
+          method: 'POST',
+          body: JSON.stringify({
+            bookingId: finalBooking.id,
+            method: pay.method,
+            amount: pay.amount,
+            reference: pay.reference,
+            createdBy: user?.name || user?.username || 'System',
+            approvedBy: user?.name || user?.username || 'System'
+          })
+        });
+      }
+
+      // Clear the bookingFormPayments state
+      setBookingFormPayments({
+        cash: { active: false, amount: '', reference: '' },
+        card: { active: false, amount: '', reference: '' },
+        mpesa: { active: false, amount: '', reference: '' },
+        bank: { active: false, amount: '', reference: '' },
+      });
+
       // 2. Trigger STK push
       setIsPollingMpesa(true);
       setMpesaStatus('PENDING');
@@ -802,7 +1117,7 @@ export default function Accommodation() {
         method: 'POST',
         body: JSON.stringify({
           phoneNumber: mpesaPhone,
-          amount: bookingForm.paidAmount,
+          amount: mpesaPayment.amount,
           journalNumber: finalBooking.transactionNumber
         })
       });
@@ -937,6 +1252,8 @@ export default function Accommodation() {
       });
 
       toast.success('Guest checked out successfully and payments recorded');
+      const receiptUrl = `${getBaseUrl()}/api/accommodation/bookings/${checkoutBooking.id}/receipt`;
+      handleReceiptAction(receiptUrl);
       fetchAllData();
       setIsCheckoutPaymentDialogOpen(false);
       setIsBookingDialogOpen(false);
@@ -1052,8 +1369,10 @@ export default function Accommodation() {
     }
   };
 
-  const handlePrintReceipt = () => {
-    toast.info('Printing receipt details...');
+  const handlePrintReceipt = (bookingId: string | number) => {
+    toast.info('Preparing receipt details...');
+    const receiptUrl = `${getBaseUrl()}/api/accommodation/bookings/${bookingId}/receipt`;
+    handleReceiptAction(receiptUrl);
   };
 
 
@@ -1640,25 +1959,46 @@ export default function Accommodation() {
 
       {/* ==================== MODAL: ADD/EDIT ROOM ==================== */}
       <Dialog open={isRoomDialogOpen} onOpenChange={setIsRoomDialogOpen}>
-        <DialogContent className="max-w-xl rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl">
-          <DialogHeader className="border-b pb-4">
+        <DialogContent className="max-w-xl rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="border-b pb-3 px-5 pt-5">
             <DialogTitle className="text-lg font-bold text-slate-855 dark:text-slate-100">
               {editingRoom ? 'Edit Guest Room' : 'Add Guest Room'}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-450 mt-1">
               Provide necessary specs and rates for guest room
             </DialogDescription>
+            {!editingRoom && (
+              <div className="flex items-center space-x-2 mt-3 bg-slate-50 p-2.5 rounded-lg border">
+                <Switch id="bulk-add" checked={isBulkAdd} onCheckedChange={setIsBulkAdd} />
+                <Label htmlFor="bulk-add" className="text-xs font-semibold cursor-pointer">Create multiple rooms (Bulk Add Range)</Label>
+              </div>
+            )}
           </DialogHeader>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 py-4">
-            <div className="space-y-1.5 md:col-span-1">
-              <Label className="text-xs font-bold text-slate-550 uppercase">Room Number *</Label>
-              <Input
-                placeholder="e.g. 101"
-                value={roomForm.roomNumber}
-                onChange={e => setRoomForm(prev => ({ ...prev, roomNumber: e.target.value }))}
-                className="rounded-xl"
-              />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-5 overflow-y-auto">
+            <div className={cn("space-y-1.5", isBulkAdd ? "md:col-span-2" : "md:col-span-1")}>
+              <Label className="text-xs font-bold text-slate-550 uppercase">
+                {isBulkAdd ? "Room Number Range *" : "Room Number *"}
+              </Label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  placeholder={isBulkAdd ? "Start (e.g. 101)" : "e.g. 101"}
+                  value={roomForm.roomNumber}
+                  onChange={e => setRoomForm(prev => ({ ...prev, roomNumber: e.target.value }))}
+                  className="rounded-xl flex-1"
+                />
+                {isBulkAdd && (
+                  <>
+                    <span className="text-slate-400 font-medium text-xs">to</span>
+                    <Input
+                      placeholder="End (e.g. 110)"
+                      value={bulkRangeEnd}
+                      onChange={e => setBulkRangeEnd(e.target.value)}
+                      className="rounded-xl flex-1"
+                    />
+                  </>
+                )}
+              </div>
             </div>
             <div className="space-y-1.5 md:col-span-1">
               <Label className="text-xs font-bold text-slate-550 uppercase">Room Type *</Label>
@@ -1714,7 +2054,7 @@ export default function Accommodation() {
               />
             </div>
 
-            <div className="md:col-span-3 flex items-center justify-between border-t border-b py-3 my-2">
+            <div className="md:col-span-3 flex items-center justify-between border-t border-b py-2 my-1">
               <div>
                 <p className="text-sm font-bold text-slate-750 dark:text-slate-200">Active</p>
                 <p className="text-[11px] text-slate-450">Determine if room is ready for occupancy listing</p>
@@ -1749,7 +2089,7 @@ export default function Accommodation() {
             </div>
           </div>
 
-          <DialogFooter className="border-t pt-4">
+          <DialogFooter className="border-t p-4 mt-auto">
             <Button variant="outline" onClick={() => setIsRoomDialogOpen(false)} className="rounded-xl px-5">
               Cancel
             </Button>
@@ -1903,7 +2243,7 @@ export default function Accommodation() {
                           <SelectValue placeholder="select a customer..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {customers.map(c => (
+                          {customers.filter(c => !c.customerType || c.customerType === 'ROOM' || c.customerType === 'BOTH').map(c => (
                             <SelectItem key={c.id} value={String(c.id)}>
                               {c.name}
                             </SelectItem>
@@ -2085,56 +2425,64 @@ export default function Accommodation() {
                   </div>
 
                   {/* Payment and Discount section */}
-                  <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-550 uppercase">Payment Method</Label>
-                      <Select
-                        value={bookingForm.paymentMethod}
-                        onValueChange={val => setBookingForm(prev => ({ ...prev, paymentMethod: val }))}
-                        disabled={editingBooking?.status === 'CHECKED OUT'}
-                      >
-                        <SelectTrigger className="rounded-xl">
-                          <SelectValue placeholder="CASH" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CASH">CASH</SelectItem>
-                          <SelectItem value="MPESA">MPESA</SelectItem>
-                          <SelectItem value="CARD">CARD</SelectItem>
-                          <SelectItem value="BANK TRANSFER">BANK TRANSFER</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  <div className="border-t pt-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <Label className="text-sm font-bold text-slate-700 uppercase">Payment Information</Label>
+                      {editingBooking && (
+                        <div className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-bold">
+                          Amount Paid So Far: KES {Number(editingBooking.paidAmount).toLocaleString()}
+                        </div>
+                      )}
                     </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-550 uppercase">Paid Amount (KES)</Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">KES</span>
-                        <Input
-                          type="number"
-                          value={bookingForm.paidAmount}
-                          onChange={e => setBookingForm(prev => ({ ...prev, paidAmount: Number(e.target.value) }))}
-                          className="pl-11 rounded-xl"
-                          disabled={editingBooking?.status === 'CHECKED OUT'}
-                        />
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-550 uppercase">Discount (KES)</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">KES</span>
+                          <Input
+                            type="number"
+                            value={bookingForm.discount}
+                            onChange={e => setBookingForm(prev => ({ ...prev, discount: Number(e.target.value) }))}
+                            className="pl-11 rounded-xl"
+                            disabled={editingBooking?.status === 'CHECKED OUT'}
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-550 uppercase">Discount (KES)</Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">KES</span>
-                        <Input
-                          type="number"
-                          value={bookingForm.discount}
-                          onChange={e => setBookingForm(prev => ({ ...prev, discount: Number(e.target.value) }))}
-                          className="pl-11 rounded-xl"
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-bold text-slate-550 uppercase">{editingBooking ? 'Add New Payment(s)' : 'Initial Payment(s)'}</Label>
+                        <Button 
+                          variant="outline" 
+                          onClick={openAddPaymentDialog}
                           disabled={editingBooking?.status === 'CHECKED OUT'}
-                        />
+                          className="border-emerald-500 text-emerald-650 bg-emerald-50 hover:bg-emerald-100 rounded-xl h-8 font-bold text-xs px-4"
+                        >
+                          <Plus className="w-3 h-3 mr-1"/> Add Split Payment
+                        </Button>
                       </div>
+                      
+                      {Object.entries(bookingFormPayments).some(([_, data]) => data.active && parseFloat(data.amount) > 0) ? (
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          {Object.entries(bookingFormPayments).map(([key, data]) => {
+                            if (!data.active || !(parseFloat(data.amount) > 0)) return null;
+                            return (
+                              <div key={key} className="flex items-center justify-between bg-slate-50/50 p-2 rounded-xl border border-slate-100">
+                                <span className="text-xs font-bold uppercase text-slate-600">{key}</span>
+                                <span className="text-xs font-bold text-slate-800">KES {parseFloat(data.amount).toLocaleString()}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">No split payments added yet. Click 'Add Split Payment' to define payments.</p>
+                      )}
                     </div>
                   </div>
 
-                  {bookingForm.paymentMethod === 'MPESA' && bookingForm.paidAmount > 0 && (
+                  {bookingFormPayments.mpesa.active && parseFloat(bookingFormPayments.mpesa.amount) > 0 && (
                     <div className="mt-4 p-4 border border-blue-105 rounded-xl bg-blue-50/50 dark:bg-blue-955/10 space-y-4 animate-in fade-in slide-in-from-top-2">
                       <div className="flex items-center justify-between border-b pb-2">
                         <div className="space-y-0.5">
@@ -2474,9 +2822,10 @@ export default function Accommodation() {
                 {editingBooking ? (
                   <>
                     <div className="flex gap-2">
-                      <Button variant="outline" onClick={handlePrintReceipt} className="border-slate-350 text-slate-700 bg-white hover:bg-slate-50 flex-1 rounded-xl h-10 font-bold gap-1 text-xs">
+                      <Button variant="outline" onClick={() => handlePrintReceipt(editingBooking.id)} className="border-slate-350 text-slate-700 bg-white hover:bg-slate-50 flex-1 rounded-xl h-10 font-bold gap-1 text-xs">
                         <Printer className="h-4 w-4" /> Print Receipt
                       </Button>
+
                       {editingBooking.status === 'CHECKED IN' && (
                         <Button onClick={() => handleCheckoutBooking(editingBooking.id)} className="bg-orange-500 hover:bg-orange-655 text-white flex-1 rounded-xl h-10 font-bold text-xs">
                           Check Out
@@ -2555,21 +2904,170 @@ export default function Accommodation() {
                 className="rounded-xl"
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label htmlFor="cust-phone" className="text-xs font-bold text-slate-550 uppercase">Phone Number</Label>
               <Input
                 id="cust-phone"
+                placeholder="0700 000 000"
                 value={newCustomerForm.phone}
                 onChange={(e) => setNewCustomerForm(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="+1 (555) 000-0000"
                 className="rounded-xl"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cust-id" className="text-xs font-bold text-slate-550 uppercase">ID Number</Label>
+              <Input
+                id="cust-id"
+                placeholder="National ID or Passport"
+                value={newCustomerForm.idNumber}
+                onChange={(e) => setNewCustomerForm(prev => ({ ...prev, idNumber: e.target.value }))}
+                className="rounded-xl"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cust-type" className="text-xs font-bold text-slate-550 uppercase">Customer Type</Label>
+              <Select 
+                value={newCustomerForm.customerType} 
+                onValueChange={(val) => setNewCustomerForm(prev => ({ ...prev, customerType: val }))}
+              >
+                <SelectTrigger className="rounded-xl">
+                  <SelectValue placeholder="Select type..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="POS">POS Customer</SelectItem>
+                  <SelectItem value="ROOM">Room Customer</SelectItem>
+                  <SelectItem value="BOTH">Both</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter className="border-t pt-4">
             <Button variant="outline" onClick={() => setIsAddCustomerDialogOpen(false)} className="rounded-xl px-5">Cancel</Button>
             <Button onClick={handleAddCustomerSubmit} disabled={!newCustomerForm.name || isSubmittingCustomer} className="bg-primary hover:bg-primary/95 text-white rounded-xl px-5 font-semibold">
               {isSubmittingCustomer ? 'Adding...' : 'Add Customer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* ==================== MODAL: ADD PAYMENT ==================== */}
+      <Dialog open={isAddPaymentDialogOpen} onOpenChange={setIsAddPaymentDialogOpen}>
+        <DialogContent className="max-w-md rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl overflow-y-auto max-h-[90vh]">
+          <DialogHeader className="border-b pb-4">
+            <DialogTitle className="text-lg font-bold text-slate-800 dark:text-slate-100">
+              Add Split Payments
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 mt-1">
+              {editingBooking ? `Booking Ref: ${editingBooking.transactionNumber}` : 'New Booking Payment'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <Label className="text-sm font-bold text-[#4a3629]">Select Payment Methods</Label>
+
+            <div className="space-y-3">
+              {(['cash', 'card', 'mpesa', 'bank'] as const).map((method) => {
+                const isActive = addPaymentModes[method]?.active;
+                return (
+                  <div key={method} className="flex items-center gap-3">
+                    <div className="w-28 flex items-center space-x-2">
+                      <Checkbox
+                        id={`chk-add-pay-${method}`}
+                        checked={isActive}
+                        onCheckedChange={(c) => {
+                          setAddPaymentModes(prev => ({
+                            ...prev,
+                            [method]: { ...prev[method], active: !!c }
+                          }));
+                        }}
+                        className="data-[state=checked]:bg-[#8c5a3c] data-[state=checked]:border-[#8c5a3c]"
+                      />
+                      <Label htmlFor={`chk-add-pay-${method}`} className="capitalize flex items-center gap-2 cursor-pointer font-bold text-[#4a3629] text-sm">
+                        {method === 'cash' && <Banknote className="h-4 w-4 text-slate-500" />}
+                        {method === 'card' && <CreditCard className="h-4 w-4 text-slate-500" />}
+                        {method === 'mpesa' && <Smartphone className="h-4 w-4 text-slate-500" />}
+                        {method === 'bank' && <DollarSign className="h-4 w-4 text-slate-500" />}
+                        {method === 'mpesa' ? 'Mobile' : method === 'bank' ? 'Bank' : method}
+                      </Label>
+                    </div>
+
+                    <Input
+                      type="number"
+                      value={addPaymentModes[method].amount}
+                      onChange={(e) => {
+                        setAddPaymentModes(prev => ({
+                          ...prev,
+                          [method]: { ...prev[method], amount: e.target.value }
+                        }));
+                      }}
+                      placeholder="Amount"
+                      disabled={!isActive}
+                      className="h-9 w-28 rounded-md bg-transparent border-slate-200"
+                    />
+
+                    {method === 'mpesa' && useStkPush ? (
+                      <div className="flex-1 flex items-center gap-2">
+                        <Input
+                          type="text"
+                          value={mpesaPhone}
+                          onChange={(e) => setMpesaPhone(e.target.value)}
+                          placeholder="07..."
+                          disabled={!isActive}
+                          className="h-9 flex-1 rounded-md bg-transparent border-slate-200"
+                        />
+                        <Button 
+                          className="bg-[#8c5a3c] hover:bg-[#734a31] text-white h-9 px-4 rounded-md font-bold"
+                          disabled={!isActive || !addPaymentModes[method].amount || !mpesaPhone}
+                          onClick={() => {
+                             setBookingFormPayments(addPaymentModes);
+                             setIsAddPaymentDialogOpen(false);
+                             handleMpesaStkPush(addPaymentModes);
+                          }}
+                        >
+                          Push
+                        </Button>
+                      </div>
+                    ) : (
+                      <Input
+                        type="text"
+                        value={addPaymentModes[method].reference}
+                        onChange={(e) => {
+                          setAddPaymentModes(prev => ({
+                            ...prev,
+                            [method]: { ...prev[method], reference: e.target.value }
+                          }));
+                        }}
+                        placeholder="Ref (optional)"
+                        disabled={!isActive}
+                        className="h-9 flex-1 rounded-md bg-transparent border-slate-200"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between pt-4 mt-2">
+              <Label htmlFor="use-stk-push" className="text-sm text-slate-500 cursor-pointer">Use M-Pesa STK Push</Label>
+              <Switch
+                id="use-stk-push"
+                checked={useStkPush}
+                onCheckedChange={setUseStkPush}
+                className="data-[state=checked]:bg-[#8c5a3c]"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="border-t pt-4 sm:justify-end">
+            <Button variant="outline" onClick={() => setIsAddPaymentDialogOpen(false)} className="rounded-xl px-5">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCompleteAddPayment}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-6 font-bold shadow-md shadow-emerald-600/20"
+            >
+              Save Payments
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2718,6 +3216,62 @@ export default function Accommodation() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={receiptPreviewOpen} onOpenChange={setReceiptPreviewOpen}>
+        <DialogContent className="max-w-3xl h-[80vh] flex flex-col p-0">
+          <DialogHeader className="p-4 border-b bg-card">
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5" />
+              Receipt Preview
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 bg-muted p-4 overflow-hidden relative">
+            {receiptPreviewUrl && (
+              <iframe
+                ref={receiptIframeRef}
+                src={receiptPreviewUrl}
+                className="w-full h-full border-none"
+                title="Receipt Preview"
+                onLoad={() => {
+                  if (settings?.autoPrintReceipts) {
+                    handlePrint();
+                  }
+                }}
+              />
+            )}
+          </div>
+          <DialogFooter className="p-4 border-t bg-card flex justify-between">
+            <Button variant="outline" onClick={() => setReceiptPreviewOpen(false)}>Close</Button>
+            {receiptPreviewUrl && (
+              <Button onClick={handlePrint}>
+                <Receipt className="h-4 w-4 mr-2" />
+                Print Receipt
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hidden iframe for background auto-printing */}
+      <div style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none', visibility: 'hidden' }}>
+        {settings?.autoPrintReceipts && receiptPreviewUrl && (
+          <iframe
+            key={receiptPreviewUrl} // Key identifies new print jobs
+            ref={autoPrintIframeRef}
+            src={receiptPreviewUrl}
+            onLoad={() => {
+              if (autoPrintIframeRef.current) {
+                try {
+                  autoPrintIframeRef.current.contentWindow?.focus();
+                  autoPrintIframeRef.current.contentWindow?.print();
+                } catch (e) {
+                  console.error("Background print failed:", e);
+                }
+              }
+            }}
+            title="Auto Print Iframe"
+          />
+        )}
+      </div>
     </AppLayout>
   );
 }

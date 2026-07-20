@@ -15,6 +15,13 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
     Table,
     TableBody,
     TableCell,
@@ -44,6 +51,8 @@ export default function Customers() {
         name: '',
         email: '',
         phone: '',
+        idNumber: '',
+        customerType: 'BOTH',
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -61,9 +70,11 @@ export default function Customers() {
                 name: newCustomer.name,
                 email: newCustomer.email,
                 phone: newCustomer.phone,
+                idNumber: newCustomer.idNumber,
+                customerType: newCustomer.customerType,
             });
 
-            setNewCustomer({ name: '', email: '', phone: '' });
+            setNewCustomer({ name: '', email: '', phone: '', idNumber: '', customerType: 'BOTH' });
             setIsAddDialogOpen(false);
         } finally {
             setIsSubmitting(false);
@@ -135,6 +146,18 @@ export default function Customers() {
                                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                                         <Phone className="h-3 w-3" />
                                                         {customer.phone}
+                                                    </div>
+                                                )}
+                                                {customer.idNumber && (
+                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                        <span className="text-[10px] font-bold uppercase">ID:</span>
+                                                        {customer.idNumber}
+                                                    </div>
+                                                )}
+                                                {customer.customerType && (
+                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                        <span className="text-[10px] font-bold uppercase">Type:</span>
+                                                        {customer.customerType}
                                                     </div>
                                                 )}
                                             </div>
@@ -214,6 +237,31 @@ export default function Customers() {
                                     placeholder="+1 (555) 000-0000"
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="idNumber">ID Number</Label>
+                                <Input
+                                    id="idNumber"
+                                    value={newCustomer.idNumber}
+                                    onChange={(e) => setNewCustomer(prev => ({ ...prev, idNumber: e.target.value }))}
+                                    placeholder="Enter National ID or Passport"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="customerType">Customer Type</Label>
+                                <Select 
+                                    value={newCustomer.customerType} 
+                                    onValueChange={(val) => setNewCustomer(prev => ({ ...prev, customerType: val }))}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select type..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="POS">POS Customer</SelectItem>
+                                        <SelectItem value="ROOM">Room Customer</SelectItem>
+                                        <SelectItem value="BOTH">Both</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
@@ -257,6 +305,31 @@ export default function Customers() {
                                         value={editingCustomer.phone || ''}
                                         onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, phone: e.target.value } : null)}
                                     />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="edit-idNumber">ID Number</Label>
+                                    <Input
+                                        id="edit-idNumber"
+                                        value={editingCustomer.idNumber || ''}
+                                        onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, idNumber: e.target.value } : null)}
+                                        placeholder="Enter National ID or Passport"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="edit-customerType">Customer Type</Label>
+                                    <Select 
+                                        value={editingCustomer.customerType || 'BOTH'} 
+                                        onValueChange={(val) => setEditingCustomer(prev => prev ? { ...prev, customerType: val } : null)}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select type..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="POS">POS Customer</SelectItem>
+                                            <SelectItem value="ROOM">Room Customer</SelectItem>
+                                            <SelectItem value="BOTH">Both</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </div>
                         )}

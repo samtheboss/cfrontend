@@ -85,9 +85,9 @@ export default function StockTransfer() {
 
     // Filter variants for search
     const filteredVariants = allVariants.filter(variant =>
-        variant.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        variant.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        variant.barcode.includes(searchQuery)
+        (variant.productName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (variant.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (variant.barcode || '').includes(searchQuery)
     );
 
     const addToTransfer = (variant: typeof allVariants[0]) => {
@@ -184,9 +184,9 @@ export default function StockTransfer() {
                     <TabsTrigger value="new" className="flex-1 sm:flex-none py-2">New Transfer</TabsTrigger>
                     <TabsTrigger value="arrivals" className="flex-1 sm:flex-none py-2 relative">
                         Incoming
-                        {transferHistory.filter(t => t.toLocationId === arrivalsLocationId && t.status === 'PENDING').length > 0 && (
+                        {transferHistory.filter(t => String(t.toLocationId) === String(arrivalsLocationId) && t.status === 'PENDING').length > 0 && (
                             <Badge className="ml-2 px-1.5 py-0 h-5 bg-primary text-[10px]">
-                                {transferHistory.filter(t => t.toLocationId === arrivalsLocationId && t.status === 'PENDING').length}
+                                {transferHistory.filter(t => String(t.toLocationId) === String(arrivalsLocationId) && t.status === 'PENDING').length}
                             </Badge>
                         )}
                     </TabsTrigger>
@@ -411,7 +411,7 @@ export default function StockTransfer() {
                                     </thead>
                                     <tbody className="divide-y">
                                         {transferHistory
-                                            .filter(t => t.toLocationId === arrivalsLocationId && t.status === 'PENDING')
+                                            .filter(t => String(t.toLocationId) === String(arrivalsLocationId) && t.status === 'PENDING')
                                             .map((tr) => {
                                                 const isExpanded = expandedJournals.has(tr.id!);
                                                 const groupedItems = tr.items.reduce((acc, item) => {
@@ -432,7 +432,7 @@ export default function StockTransfer() {
                                                             <td className="p-3 font-mono font-bold text-primary">{tr.journalNumber}</td>
                                                             <td className="p-3">
                                                                 <Badge variant="outline" className="bg-muted text-foreground border-muted-foreground/20">
-                                                                    {locations.find(l => l.id === tr.fromLocationId)?.name}
+                                                                    {locations.find(l => String(l.id) === String(tr.fromLocationId))?.name}
                                                                 </Badge>
                                                             </td>
                                                             <td className="p-3 text-xs text-muted-foreground truncate max-w-[150px]">
@@ -499,7 +499,7 @@ export default function StockTransfer() {
                                             })}
                                     </tbody>
                                 </table>
-                                {transferHistory.filter(t => t.toLocationId === arrivalsLocationId && t.status === 'PENDING').length === 0 && (
+                                {transferHistory.filter(t => String(t.toLocationId) === String(arrivalsLocationId) && t.status === 'PENDING').length === 0 && (
                                     <div className="text-center py-12 text-muted-foreground">
                                         No pending arrivals for {locations.find(l => l.id === arrivalsLocationId)?.name}.
                                     </div>
@@ -551,9 +551,9 @@ export default function StockTransfer() {
                                                         </td>
                                                         <td>
                                                             <div className="flex items-center gap-2 text-xs font-medium">
-                                                                <span>{locations.find(l => l.id === tr.fromLocationId)?.name}</span>
+                                                                <span>{locations.find(l => String(l.id) === String(tr.fromLocationId))?.name}</span>
                                                                 <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                                                                <span>{locations.find(l => l.id === tr.toLocationId)?.name}</span>
+                                                                <span>{locations.find(l => String(l.id) === String(tr.toLocationId))?.name}</span>
                                                             </div>
                                                         </td>
                                                         <td>

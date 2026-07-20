@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Boxes, Lock, User, RotateCcw, CheckCircle2 } from 'lucide-react';
@@ -23,6 +23,24 @@ export default function SignIn() {
   const [showServer, setShowServer] = useState(false);
   const [serverUrl, setServerUrl] = useState(getBaseUrl);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [companyName, setCompanyName] = useState('DEWTECH AND GENERAL SERVICES');
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await fetch(`${getBaseUrl()}/api/system-settings`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result && result.data && result.data.businessName) {
+            setCompanyName(result.data.businessName);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch system settings:', error);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   const handleLogoTap = () => {
     tapCount.current += 1;
@@ -91,7 +109,7 @@ export default function SignIn() {
           >
             <Boxes className="h-7 w-7 text-primary-foreground" />
           </div>
-          <span className="text-2xl font-bold text-foreground">StockFlow</span>
+          <span className="text-2xl font-bold text-foreground">{companyName}</span>
         </div>
 
         <Card>

@@ -45,7 +45,8 @@ import {
   Trash2,
   UserPlus,
   FolderPlus,
-  MapPin
+  MapPin,
+  Key
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -124,19 +125,7 @@ function RightsEditor({
 }
 
 export default function Users() {
-  const {
-    allUsers,
-    allGroups,
-    addUser,
-    updateUser,
-    deleteUser,
-    addGroup,
-    updateGroup,
-    deleteGroup,
-    getUserRights,
-    getGroupById,
-    user: currentUser
-  } = useAuth();
+  const { user: currentUser, allUsers, allGroups, addUser, updateUser, deleteUser, addGroup, updateGroup, deleteGroup, resetPassword, getUserRights, getGroupById } = useAuth();
   const { locations } = useInventory();
   const { toast } = useToast();
 
@@ -145,6 +134,8 @@ export default function Users() {
   // User dialogs
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [resettingPasswordUser, setResettingPasswordUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState('');
   const [newUser, setNewUser] = useState({
     username: '',
     password: '',
@@ -214,6 +205,18 @@ export default function Users() {
     }
     deleteUser(user.id);
     toast({ title: 'User deleted', description: `${user.name} has been removed.` });
+  };
+
+  const handleResetPassword = async () => {
+    if (!resettingPasswordUser || !newPassword) return;
+    try {
+      await resetPassword(resettingPasswordUser.id, newPassword);
+      toast({ title: 'Password reset', description: `Password for ${resettingPasswordUser.name} has been reset.` });
+      setResettingPasswordUser(null);
+      setNewPassword('');
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to reset password', variant: 'destructive' });
+    }
   };
 
   // Group handlers
@@ -399,6 +402,16 @@ export default function Users() {
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
+                              {canEditUser && !isSelf && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setResettingPasswordUser(user)}
+                                  title="Reset Password"
+                                >
+                                  <Key className="h-4 w-4" />
+                                </Button>
+                              )}
                               {canDeleteUser && !isSelf && (
                                 <Button
                                   variant="ghost"
@@ -688,6 +701,33 @@ export default function Users() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditingUser(null)}>Cancel</Button>
               <Button onClick={handleUpdateUser}>Save Changes</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Reset Password Dialog */}
+        <Dialog open={!!resettingPasswordUser} onOpenChange={(open) => { if (!open) { setResettingPasswordUser(null); setNewPassword(''); } }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reset Password</DialogTitle>
+              <DialogDescription>Enter a new password for {resettingPasswordUser?.name}.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="reset-password">New Password</Label>
+                <Input
+                  id="reset-password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setResettingPasswordUser(null); setNewPassword(''); }}>Cancel</Button>
+              <Button onClick={handleResetPassword}>Reset Password</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

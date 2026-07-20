@@ -30,6 +30,7 @@ export interface UserRights {
 
   // Orders / Sales (Window: ORDER_PROCESSING)
   viewOrders: RightValue; // POS Access
+  viewOnlineOrders: RightValue;
   viewAllOrders: RightValue;
   viewPastOrders: RightValue;
   createOrder: RightValue;
@@ -103,6 +104,7 @@ export const defaultRights: UserRights = {
   viewPayments: 'no',
   processPayments: 'no',
   viewOrders: 'no',
+  viewOnlineOrders: 'no',
   viewAllOrders: 'no',
   viewPastOrders: 'no',
   createOrder: 'no',
@@ -149,6 +151,7 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'yes',
       processPayments: 'yes',
       viewOrders: 'yes',
+      viewOnlineOrders: 'yes',
       viewAllOrders: 'yes',
       viewPastOrders: 'yes',
       createOrder: 'yes',
@@ -194,6 +197,7 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'yes',
       processPayments: 'yes',
       viewOrders: 'yes',
+      viewOnlineOrders: 'yes',
       viewAllOrders: 'yes',
       viewPastOrders: 'yes',
       createOrder: 'yes',
@@ -239,6 +243,7 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'no',
       processPayments: 'yes',
       viewOrders: 'yes',
+      viewOnlineOrders: 'no',
       viewAllOrders: 'no',
       viewPastOrders: 'no',
       createOrder: 'yes',
@@ -284,6 +289,7 @@ export const hardcodedUserGroups: UserGroup[] = [
       viewPayments: 'no',
       processPayments: 'no',
       viewOrders: 'no',
+      viewOnlineOrders: 'no',
       viewAllOrders: 'no',
       viewPastOrders: 'no',
       createOrder: 'no',
@@ -367,6 +373,7 @@ export const rightLabels: Record<keyof UserRights, string> = {
   viewPayments: 'View Payments Log',
   processPayments: 'Process Payment',
   viewOrders: 'View Orders / POS',
+  viewOnlineOrders: 'View Online Orders',
   viewAllOrders: 'View All Users Orders',
   viewPastOrders: 'View Past Orders',
   createOrder: 'Create Order',
@@ -390,7 +397,7 @@ export const rightLabels: Record<keyof UserRights, string> = {
 
 export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Dashboard': ['viewDashboard', 'exportDashboard'],
-  'Orders & POS': ['viewOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'reprintReceipt', 'paymentAccess'],
+  'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'reprintReceipt', 'paymentAccess'],
   'Customers': ['viewCustomers', 'createCustomer', 'editCustomer', 'deleteCustomer'],
   'Products & Services': ['viewProducts', 'createProduct', 'editProduct', 'deleteProduct'],
   'Users & Employees': ['viewUsers', 'createUser', 'editUser', 'deleteUser', 'manageUserRoles'],

@@ -9,6 +9,13 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Upload, FileSpreadsheet, Download, Loader2, AlertCircle } from 'lucide-react';
@@ -18,10 +25,11 @@ import { useInventory } from '@/contexts/InventoryContext';
 
 export function ImportProductsDialog() {
     const [file, setFile] = useState<File | null>(null);
+    const [locationId, setLocationId] = useState<string>('');
     const [isUploading, setIsUploading] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const { toast } = useToast();
-    const { refreshData } = useInventory();
+    const { refreshData, locations } = useInventory();
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -35,9 +43,12 @@ export function ImportProductsDialog() {
         setIsUploading(true);
         const formData = new FormData();
         formData.append('file', file);
+        if (locationId) {
+            formData.append('locationId', locationId);
+        }
 
         try {
-            await apiFetch('/api/products/import', {
+            await apiFetch('/api/products/import' + (locationId ? `?locationId=${locationId}` : ''), {
                 method: 'POST',
                 body: formData,
             });
@@ -50,6 +61,7 @@ export function ImportProductsDialog() {
             await refreshData();
             setIsOpen(false);
             setFile(null);
+            setLocationId('');
         } catch (error: any) {
             toast({
                 title: "Import Failed",
@@ -107,6 +119,22 @@ export function ImportProductsDialog() {
                                 <span>{file.name}</span>
                             </div>
                         )}
+                    </div>
+
+                    <div className="grid gap-2">
+                        <Label htmlFor="stock-location">Stock Location (Required if importing stock)</Label>
+                        <Select value={locationId} onValueChange={setLocationId}>
+                            <SelectTrigger id="stock-location">
+                                <SelectValue placeholder="Select location" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {locations.map(loc => (
+                                    <SelectItem key={loc.id} value={loc.id.toString()}>
+                                        {loc.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
 
                     <div className="bg-muted/50 p-4 rounded-lg space-y-2 text-xs">

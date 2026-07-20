@@ -164,6 +164,8 @@ export interface Customer {
   name: string;
   email?: string;
   phone?: string;
+  idNumber?: string;
+  customerType?: string;
   createdAt: Date;
 }
 

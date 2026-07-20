@@ -139,7 +139,20 @@ export default function POS() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const DRAFT_KEY = `pos_draft_order_${user?.id || 'guest'}`;
+
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.cart || [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -185,10 +198,23 @@ export default function POS() {
   });
 
   // Customer state
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.selectedCustomer || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
+  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '', idNumber: '', customerType: 'POS' });
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [postActionPromptOpen, setPostActionPromptOpen] = useState(false);
 
   // M-Pesa Integration States
   const [completedMpesaPayments, setCompletedMpesaPayments] = useState<{ amount: number, reference: string }[]>([]);
@@ -198,7 +224,56 @@ export default function POS() {
   const [useStkPush, setUseStkPush] = useState(true);
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
-  const [currentSaleId, setCurrentSaleId] = useState<number | null>(null);
+  const [currentSaleId, setCurrentSaleId] = useState<number | null>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.currentSaleId || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  // Auto-save draft order
+  useEffect(() => {
+    if (cart.length > 0) {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        cart,
+        selectedCustomer,
+        currentSaleId
+      }));
+    } else {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+  }, [cart, selectedCustomer, currentSaleId, DRAFT_KEY]);
+
+  // Synchronize across multiple tabs
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === DRAFT_KEY) {
+        if (e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            setCart(parsed.cart || []);
+            setSelectedCustomer(parsed.selectedCustomer || null);
+            setCurrentSaleId(parsed.currentSaleId || null);
+          } catch {
+            // Ignore parse errors
+          }
+        } else {
+          setCart([]);
+          setSelectedCustomer(null);
+          setCurrentSaleId(null);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [DRAFT_KEY]);
 
   // Receipt Preview States
   const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
@@ -264,6 +339,7 @@ export default function POS() {
             resetPOSState();
             setCheckoutOpen(false);
             refreshData();
+            setPostActionPromptOpen(true);
           }, 1000);
         } else {
           // If not auto-recorded, just reset polling state so another push can be made
@@ -455,44 +531,51 @@ export default function POS() {
   const updatePrice = (cartItemId: string, newPrice: number) => {
     if (newPrice < 0) return;
     const item = cart.find(i => i.cartItemId === cartItemId);
-    if (item?.printed) {
+    if (!item) return;
+
+    if (item.printed) {
       toast.error('Cannot change the price of printed KOT items');
       return;
     }
+
+    const variant = allVariants?.find(v => v.id?.toString() === item.variantId?.toString());
+    
+    let finalPrice = newPrice;
+    if (isNaN(finalPrice)) {
+      const product = products.find(p => p.id?.toString() === variant?.productId?.toString());
+      if (product && variant) {
+        const priceInfo = getProductPriceInfo(product, variant.id, promotions || []);
+        finalPrice = priceInfo.currentPrice;
+      } else {
+        finalPrice = variant?.price || 0;
+      }
+    }
+
+    if (variant && finalPrice < variant.cost) {
+      toast.error(`Price cannot be below cost price (${sym}${variant.cost})`);
+      return;
+    }
+
     setCart(prev => prev.map(item =>
       item.cartItemId === cartItemId
-        ? { ...item, price: newPrice }
+        ? { ...item, price: finalPrice }
         : item
     ));
-    toast.success('Price updated');
+    if (!isNaN(newPrice)) {
+      toast.success('Price updated');
+    }
   };
 
   const removeFromCart = (cartItemId: string) => {
-    const item = cart.find(i => i.cartItemId === cartItemId);
-    if (item?.printed) {
-      toast.error('Printed KOT items cannot be removed from the cart');
-      return;
-    }
-    setCart(prev => prev.filter(item => item.cartItemId !== cartItemId));
+    setCart(prev => prev.filter(item => cartItemId !== item.cartItemId));
   };
 
   const clearCart = () => {
-    const hasPrinted = cart.some(item => item.printed);
-    if (hasPrinted) {
-      const nonPrinted = cart.filter(item => !item.printed);
-      if (nonPrinted.length === 0) {
-        toast.error('All items in the cart are printed KOT items and cannot be removed');
-      } else {
-        setCart(nonPrinted);
-        toast.info('Cleared non-printed items. Printed KOT items remain in the cart.');
-      }
-    } else {
-      setCart([]);
-    }
+    setCart([]);
   };
 
   const dispatchKOTs = async (dbSaleId: string | number, newItems: typeof cart) => {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       toast.info('Routing KOTs to printers...');
 
       // 1. Group new items by printer name
@@ -649,6 +732,7 @@ export default function POS() {
 
       setCart(prev => prev.map(item => ({ ...item, printed: true })));
       refreshData();
+      setPostActionPromptOpen(true);
     } catch (err: any) {
       toast.error("Failed to save KOT order to database: " + err.message);
     }
@@ -722,7 +806,7 @@ export default function POS() {
 
   const handleReceiptAction = async (url: string) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       // Fetch the PDF blob using auth token
       const response = await fetch(url, {
         headers: {
@@ -907,6 +991,7 @@ export default function POS() {
       resetPOSState();
       setCheckoutOpen(false);
       refreshData();
+      setPostActionPromptOpen(true);
     } catch (error) {
       // Error already shown by createSale
     } finally {
@@ -979,6 +1064,7 @@ export default function POS() {
       resetPOSState();
       setCheckoutOpen(false);
       refreshData();
+      setPostActionPromptOpen(true);
     } catch (error) {
       // Error already shown by createSale or apiFetch
     } finally {
@@ -1028,6 +1114,7 @@ export default function POS() {
         mobile: { active: false, amount: '', reference: '' }
       });
       refreshData();
+      setPostActionPromptOpen(true);
     } catch (error: any) {
       toast.error(error.message || 'Failed to receive payment');
     } finally {
@@ -1120,6 +1207,7 @@ export default function POS() {
         id: `stk-${requestId}`,
         customer: selectedCustomer,
         items: cart,
+        userId: user?.id,
         timestamp: new Date()
       };
       holdOrder(heldOrder);
@@ -1140,6 +1228,7 @@ export default function POS() {
       id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
       customer: selectedCustomer,
       items: [...cart],
+      userId: user?.id,
       timestamp: new Date()
     };
 
@@ -1155,6 +1244,7 @@ export default function POS() {
         id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
         customer: selectedCustomer,
         items: [...cart], // Create a copy to ensure reference doesn't change
+        userId: user?.id,
         timestamp: new Date()
       };
       holdOrder(currentOrder);
@@ -1204,6 +1294,7 @@ export default function POS() {
         id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
         customer: selectedCustomer,
         items: [...cart],
+        userId: user?.id,
         timestamp: new Date()
       };
       holdOrder(currentOrder);
@@ -1253,9 +1344,11 @@ export default function POS() {
       name: newCustomer.name.trim(),
       email: newCustomer.email.trim() || undefined,
       phone: newCustomer.phone.trim() || undefined,
+      idNumber: newCustomer.idNumber.trim() || undefined,
+      customerType: newCustomer.customerType,
     });
 
-    setNewCustomer({ name: '', email: '', phone: '' });
+    setNewCustomer({ name: '', email: '', phone: '', idNumber: '', customerType: 'POS' });
     setAddCustomerDialogOpen(false);
     toast.success('Customer added successfully');
   };
@@ -1339,25 +1432,23 @@ export default function POS() {
   const filteredActiveOrders = filterOrders(combinedActiveOrders);
   const filteredSalesHistory = filterOrders(salesHistory);
 
-  // Sales with PAYMENT_PENDING status — stock already deducted, awaiting payment
   const pendingPaymentSales = useMemo(() => {
     const canViewAll = rights?.viewAllOrders !== 'no';
-    const canViewPast = rights?.viewPastOrders !== 'no';
-    const todayStart = startOfDay(new Date());
-    const todayEnd = endOfDay(new Date());
-
-    return (transactions || [])
-      .filter(t => t.type === 'SALE' && t.status === 'PAYMENT_PENDING')
+    
+    // Instead of using `transactions`, use `salesHistory` to ensure we have Sale objects with all fields
+    return (salesHistory || [])
+      .filter(t => t.status === 'PAYMENT_PENDING')
       .filter(t => {
-        if (!canViewAll && t.userId?.toString() !== user?.id?.toString()) return false;
+        // Enforce user scope
+        if (!canViewAll) {
+          // If userId is missing, fallback to assuming it's theirs for safety (though it shouldn't be missing)
+          // Actually, we must strictly check, but let's allow it if it strictly matches
+          if (t.userId?.toString() !== user?.id?.toString()) return false;
+        }
         
-        const orderDate = new Date(t.timestamp);
-        if (!canViewPast && !isWithinInterval(orderDate, { start: todayStart, end: todayEnd })) return false;
-
         return true;
-      })
-      .map(t => t as Sale);
-  }, [transactions, rights, user]);
+      });
+  }, [salesHistory, rights, user]);
 
   const handleOpenReturn = async (sale: Sale) => {
     setSaleToReturn(sale);
@@ -1717,7 +1808,7 @@ export default function POS() {
                     <CommandList>
                       <CommandEmpty>No customer found.</CommandEmpty>
                       <CommandGroup>
-                        {contextCustomers.map((customer) => (
+                        {contextCustomers.filter(c => !c.customerType || c.customerType === 'POS' || c.customerType === 'BOTH').map((customer) => (
                           <CommandItem
                             key={customer.id}
                             value={customer.name}
@@ -1769,26 +1860,26 @@ export default function POS() {
                 <p className="text-sm text-muted-foreground">Select products to add them to the cart</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-1.5">
                 {cart.map((item) => (
-                  <div key={item.cartItemId || item.variantId} className="flex items-start gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/50 rounded-lg">
+                  <div key={item.cartItemId || item.variantId} className="flex items-center gap-2 px-2 py-1.5 bg-muted/50 rounded-md">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-xs sm:text-sm truncate">{item.productName}</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground font-medium">
+                      <p className="font-medium text-xs sm:text-[13px] leading-tight truncate">{item.productName}</p>
+                      <p className="text-[10px] sm:text-[11px] leading-tight text-muted-foreground font-medium mt-0.5">
                         {item.attributes && Object.keys(item.attributes).length > 0
                           ? Object.values(item.attributes).join(' / ')
                           : item.variantSku}
                       </p>
                       {item.attributes && Object.keys(item.attributes).length > 0 && (
-                        <p className="text-[9px] sm:text-[10px] text-muted-foreground uppercase">{item.variantSku}</p>
+                        <p className="text-[9px] leading-tight text-muted-foreground uppercase mt-0.5">{item.variantSku}</p>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-1.5 sm:gap-2">
+                    <div className="flex flex-col items-end gap-1">
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="ghost" className="h-auto p-0 hover:bg-transparent font-semibold text-primary text-xs sm:text-sm">
+                          <Button variant="ghost" className="h-5 p-0 hover:bg-transparent font-semibold text-primary text-xs sm:text-[13px]">
                             {settings?.currency || '$'}{(item.price * item.quantity).toFixed(2)}
-                            <Edit className="ml-1 h-2.5 w-2.5 sm:h-3 sm:w-3 opacity-50" />
+                            <Edit className="ml-1 h-2.5 w-2.5 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-48">
@@ -1804,30 +1895,30 @@ export default function POS() {
                         </PopoverContent>
                       </Popover>
 
-                      <div className="flex items-center gap-0.5 sm:gap-1">
+                      <div className="flex items-center gap-0.5">
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-6 w-6 sm:h-7 sm:w-7"
+                          className="h-5 w-5 sm:h-6 sm:w-6"
                           onClick={() => updateQuantity(item.cartItemId || item.variantId, -1)}
                           disabled={item.quantity <= 1 || !!item.printed}
                         >
-                          <Minus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          <Minus className="h-2.5 w-2.5" />
                         </Button>
-                        <span className="w-6 sm:w-8 text-center text-xs sm:text-sm font-medium">{item.quantity}</span>
+                        <span className="w-5 sm:w-6 text-center text-xs sm:text-[13px] font-medium">{item.quantity}</span>
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-6 w-6 sm:h-7 sm:w-7"
+                          className="h-5 w-5 sm:h-6 sm:w-6"
                           onClick={() => updateQuantity(item.cartItemId || item.variantId, 1)}
                           disabled={!!item.printed}
                         >
-                          <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          <Plus className="h-2.5 w-2.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`h-6 w-6 sm:h-7 sm:w-7 ${item.printed ? 'text-slate-300 cursor-not-allowed' : 'text-destructive'}`}
+                          className={`h-5 w-5 sm:h-6 sm:w-6 ml-0.5 ${item.printed ? 'text-slate-300 cursor-not-allowed' : 'text-destructive'}`}
                           onClick={() => removeFromCart(item.cartItemId || item.variantId)}
                           disabled={!!item.printed}
                           title={item.printed ? "Printed KOT item - cannot delete" : "Remove item"}
@@ -2667,14 +2758,39 @@ export default function POS() {
                 placeholder="customer@email.com"
               />
             </div>
-            <div className="grid gap-2">
+            <div className="space-y-2">
               <Label htmlFor="customerPhone">Phone</Label>
-              <Input
+              <Input 
                 id="customerPhone"
                 value={newCustomer.phone}
                 onChange={(e) => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="555-0100"
+                placeholder="0700 000 000"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="idNumber">ID Number</Label>
+              <Input
+                id="idNumber"
+                value={newCustomer.idNumber}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, idNumber: e.target.value }))}
+                placeholder="National ID or Passport"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customerType">Customer Type</Label>
+              <Select 
+                value={newCustomer.customerType} 
+                onValueChange={(val) => setNewCustomer(prev => ({ ...prev, customerType: val }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="POS">POS Customer</SelectItem>
+                  <SelectItem value="ROOM">Room Customer</SelectItem>
+                  <SelectItem value="BOTH">Both</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -2947,6 +3063,27 @@ export default function POS() {
           />
         )}
       </div>
+
+      {/* Post Action Logout Prompt */}
+      <Dialog open={postActionPromptOpen} onOpenChange={setPostActionPromptOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Action Successful</DialogTitle>
+            <DialogDescription>
+              Your transaction was processed successfully. What would you like to do next?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex justify-end gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setPostActionPromptOpen(false)}>
+              Stay Here
+            </Button>
+            <Button variant="destructive" onClick={() => { setPostActionPromptOpen(false); logout(); }}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

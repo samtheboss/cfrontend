@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -56,10 +56,19 @@ interface MenuCard {
 }
 
 export default function DashboardMenu() {
-  const { user, getUserRights } = useAuth();
+  const { user, getUserRights, getLandingPage } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<'all' | 'core' | 'catalog' | 'purchasing' | 'management'>('all');
+
+  useEffect(() => {
+    if (user) {
+      const landingPage = getLandingPage(user);
+      if (landingPage !== '/') {
+        navigate(landingPage, { replace: true });
+      }
+    }
+  }, [user, getLandingPage, navigate]);
 
   const rights = user ? getUserRights(user) : null;
 
@@ -99,7 +108,7 @@ export default function DashboardMenu() {
       href: '/orders',
       icon: ShoppingBag,
       iconGradientClass: 'from-indigo-500 to-blue-500 shadow-indigo-500/20',
-      requiredRight: 'viewOrders',
+      requiredRight: 'viewOnlineOrders',
       hasRedDot: true,
       category: 'core'
     },
@@ -305,7 +314,6 @@ export default function DashboardMenu() {
           </div>
         </div>
 
-        {/* Category Filters */}
         <div className="flex overflow-x-auto scrollbar-none gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
           {[
             { id: 'all', label: 'All Modules' },
@@ -313,7 +321,10 @@ export default function DashboardMenu() {
             { id: 'catalog', label: 'Inventory & Catalog' },
             { id: 'purchasing', label: 'Purchasing & Ledger' },
             { id: 'management', label: 'Admin & Reports' }
-          ].map((cat) => (
+          ].filter(cat => cat.id === 'all' || menuItems.some(item => 
+            item.category === cat.id && 
+            (!item.requiredRight || !rights || rights[item.requiredRight as any] !== 'no')
+          )).map((cat) => (
             <button
               key={cat.id}
               onClick={() => setActiveCategory(cat.id as any)}

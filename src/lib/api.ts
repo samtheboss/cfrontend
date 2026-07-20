@@ -23,7 +23,7 @@ export async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token');
 
   const isFormData = options.body instanceof FormData;
 
@@ -40,8 +40,8 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     if (response.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
       window.location.href = '/signin';
     }
     const error = await response.json().catch(() => ({ message: 'An error occurred' }));

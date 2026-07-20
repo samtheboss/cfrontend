@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -62,6 +62,36 @@ export default function StockTake() {
     const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
     const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!selectedLocationId && locations.length > 0) {
+            const locId = user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id;
+            if (locId) {
+                setSelectedLocationId(locId.toString());
+            }
+        }
+    }, [locations, selectedLocationId, user]);
+
+    useEffect(() => {
+        if (stockTakeItems.length > 0 && selectedLocationId) {
+            setStockTakeItems(prev => prev.map(item => {
+                const product = products.find(p => p.name === item.productName);
+                const variant = product?.variants.find(v => v.id.toString() === item.variantId.toString());
+                if (variant) {
+                    const newSystemStock = variant.locationStock[selectedLocationId] || 0;
+                    const variance = countedItems.has(item.variantId) 
+                        ? parseFloat((item.countedStock - newSystemStock).toFixed(3))
+                        : 0;
+                    return {
+                        ...item,
+                        systemStock: newSystemStock,
+                        variance
+                    };
+                }
+                return item;
+            }));
+        }
+    }, [selectedLocationId, products, countedItems]);
 
     // Initialize stock take (Active only)
     const startStockTake = () => {
@@ -375,16 +405,16 @@ export default function StockTake() {
 
     return (
         <AppLayout title="Stock Take">
-            <div className="container mx-auto py-8">
-                <div className="flex items-center justify-between mb-8">
+            <div className="container mx-auto py-4">
+                <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-semibold">Stock Take - {locations.find(l => l.id.toString() === selectedLocationId)?.name || 'Select Location'}</h2>
                 </div>
 
                 {/* Progress Header */}
-                <Card className="mb-6">
-                    <CardContent className="py-6">
-                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-4">
-                            <div className="flex flex-col md:flex-row md:items-center gap-6">
+                <Card className="mb-4">
+                    <CardContent className="p-4">
+                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-3">
+                            <div className="flex flex-col md:flex-row md:items-center gap-4">
                                 <div>
                                     <h3 className="font-semibold">Counting Progress</h3>
                                     <p className="text-sm text-muted-foreground">
@@ -442,7 +472,7 @@ export default function StockTake() {
                 </Card>
 
                 {/* Search & Filter */}
-                <div className="flex flex-wrap items-center gap-4 mb-6">
+                <div className="flex flex-wrap items-center gap-3 mb-4">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
@@ -513,7 +543,7 @@ export default function StockTake() {
                 </div>
 
                 {/* Items Grid */}
-                <div className="space-y-6">
+                <div className="space-y-3">
                     {filteredGroupNames.map((productName) => {
                         const productItems = groupedItems[productName];
                         const allCounted = productItems.every(i => countedItems.has(i.variantId));
@@ -534,18 +564,19 @@ export default function StockTake() {
                                 allCounted ? 'border-l-success' : someCounted ? 'border-l-warning' : 'border-l-muted'
                             )}>
                                 <div
-                                    className="p-4 cursor-pointer hover:bg-muted/30 flex items-center justify-between"
+                                    className="p-3 cursor-pointer hover:bg-muted/30 flex items-center justify-between"
                                     onClick={toggleExpand}
                                 >
-                                    <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-3">
                                         <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
                                             <Package className="h-6 w-6 text-primary" />
                                         </div>
                                         <div>
                                             <h3 className="font-semibold">{productName}</h3>
                                             <p className="text-sm text-muted-foreground">
-                                                {productItems.length} variant{productItems.length !== 1 ? 's' : ''} •
-                                                {productItems.filter(i => countedItems.has(i.variantId)).length} counted
+                                                {productItems.length} variant{productItems.length !== 1 ? 's' : ''} • 
+                                                {' '}{productItems.filter(i => countedItems.has(i.variantId)).length} counted • 
+                                                {' '}Stock: {productItems.reduce((sum, item) => sum + item.systemStock, 0).toFixed(3)} {productItems[0]?.unit}
                                             </p>
                                         </div>
                                     </div>
@@ -570,7 +601,7 @@ export default function StockTake() {
                                             {productItems.map(item => {
                                                 const isCounted = countedItems.has(item.variantId);
                                                 return (
-                                                    <div key={item.variantId} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                    <div key={item.variantId} className="p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
                                                         <div className="flex-1">
                                                             <p className="text-sm font-semibold">
                                                                 {(item as any).attributes && Object.keys((item as any).attributes).length > 0

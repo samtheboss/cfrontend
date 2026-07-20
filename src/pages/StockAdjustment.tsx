@@ -1,4 +1,4 @@
-import { useState, Fragment } from 'react';
+import { useState, Fragment, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -58,6 +58,23 @@ export default function StockAdjustment() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraftDialogOpen, setIsDraftDialogOpen] = useState(false);
   const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
+
+  // Update current stock of pending adjustments when location changes
+  useEffect(() => {
+    if (pendingAdjustments.length > 0 && selectedLocationId) {
+      setPendingAdjustments(prev => prev.map(item => {
+        const product = products.find(p => p.name === item.productName);
+        const variant = product?.variants.find(v => v.id.toString() === item.variantId.toString());
+        if (variant) {
+          return {
+            ...item,
+            currentStock: variant.locationStock[selectedLocationId] || 0
+          };
+        }
+        return item;
+      }));
+    }
+  }, [selectedLocationId, products]);
   const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [showAllProducts, setShowAllProducts] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(`adj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
@@ -85,10 +102,10 @@ export default function StockAdjustment() {
   const filteredProductsBySearch = products
     .filter(product => product.isActive !== false)
     .filter(product =>
-      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.variants
         .filter(v => v.isActive !== false)
-        .some(v => v.sku.toLowerCase().includes(searchQuery.toLowerCase()) || v.barcode.includes(searchQuery))
+        .some(v => v.sku?.toLowerCase().includes(searchQuery.toLowerCase()) || v.barcode?.includes(searchQuery))
     );
 
   const handleProductSelect = (product: Product) => {
@@ -323,8 +340,8 @@ export default function StockAdjustment() {
           </div>
         </DialogContent>
       </Dialog>
-      <Tabs defaultValue="adjust" className="space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <Tabs defaultValue="adjust" className="space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <TabsList className="w-full lg:w-auto">
             <TabsTrigger value="adjust" className="flex-1 lg:flex-none">New Adjustment</TabsTrigger>
             <TabsTrigger value="history" className="flex-1 lg:flex-none">
@@ -353,7 +370,7 @@ export default function StockAdjustment() {
                 </SelectTrigger>
                 <SelectContent>
                   {locations.map(loc => (
-                    <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                    <SelectItem key={loc.id} value={loc.id.toString()}>{loc.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -378,14 +395,14 @@ export default function StockAdjustment() {
           </div>
         </div>
 
-        <TabsContent value="adjust" className="space-y-6">
+        <TabsContent value="adjust" className="space-y-4">
           {/* Search */}
           <Card>
-            <CardHeader>
+            {/* <CardHeader className="pb-3">
               <CardTitle className="text-lg">Search Products</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap items-center gap-4">
+            </CardHeader> */}
+            <CardContent className="p-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="relative flex-1 min-w-[200px]">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -448,6 +465,13 @@ export default function StockAdjustment() {
                     </div>
                   </DialogContent>
                 </Dialog>
+
+                <Button
+                  variant={showAllProducts ? 'default' : 'outline'}
+                  onClick={() => setShowAllProducts(!showAllProducts)}
+                >
+                  {showAllProducts ? 'Hide Catalog' : 'Browse Catalog'}
+                </Button>
               </div>
 
               {/* Search Results (List View) - only show if NOT showing all products */}
@@ -487,87 +511,78 @@ export default function StockAdjustment() {
                 </div>
               )}
 
-              {/* Show All Products Toggle */}
-              <div className="mt-4 flex items-center justify-between">
-                <Label className="text-sm font-medium">Show All Products</Label>
-                <Button
-                  variant={showAllProducts ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setShowAllProducts(!showAllProducts)}
-                >
-                  {showAllProducts ? 'Hide Catalog' : 'Browse Catalog'}
-                </Button>
-              </div>
-
               {/* All Products Grid */}
               {showAllProducts && (
-                <div className="mt-4 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-1 max-h-[500px] overflow-y-auto">
-                  {filteredProductsBySearch.flatMap(product =>
-                    product.variants
-                      .filter(v => v.isActive !== false)
-                      .map(variant => ({ product, variant }))
-                  ).map(({ product, variant }) => {
-                    const currentStock = variant.locationStock[selectedLocationId] || 0;
-                    const pending = pendingAdjustments.find(p => p.variantId === variant.id);
-                    const adjustment = pending ? pending.adjustment : 0;
-                    const newStock = currentStock + adjustment;
+                <>
+                  <Label className="text-sm font-medium mt-4 mb-2 block">All Products</Label>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-1 max-h-[500px] overflow-y-auto">
+                    {filteredProductsBySearch.flatMap(product =>
+                      product.variants
+                        .filter(v => v.isActive !== false)
+                        .map(variant => ({ product, variant }))
+                    ).map(({ product, variant }) => {
+                      const currentStock = variant.locationStock[selectedLocationId] || 0;
+                      const pending = pendingAdjustments.find(p => p.variantId === variant.id);
+                      const adjustment = pending ? pending.adjustment : 0;
+                      const newStock = currentStock + adjustment;
 
-                    return (
-                      <div key={variant.id} className="bg-card border rounded-lg shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col group">
-                        <div className="p-3 border-b bg-muted/30 group-hover:bg-muted/50 transition-colors">
-                          <h4 className="font-medium text-sm line-clamp-1 mb-1" title={product.name}>{product.name}</h4>
-                          <div className="flex flex-wrap gap-1 items-center">
-                            <span className="text-[10px] bg-background px-1.5 py-0.5 rounded text-muted-foreground border shadow-sm">
-                              {Object.values(variant.attributes).join(' / ') || 'Default'}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground opacity-70">{variant.sku}</span>
-                          </div>
-                        </div>
-
-                        <div className="p-3 bg-card flex-1 flex flex-col justify-center">
-                          <div className="grid grid-cols-3 gap-2 text-center mb-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
-                            <div>Current</div>
-                            <div>Adj</div>
-                            <div>New</div>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 items-center">
-                            <div className="font-semibold text-sm">{currentStock}</div>
-                            <div>
-                              <Input
-                                type="number"
-                                className="h-8 w-full text-center px-1 text-sm font-medium"
-                                placeholder="0"
-                                value={adjustment === 0 ? '' : adjustment}
-                                onChange={(e) => handleBulkAdjustment(product, variant, parseInt(e.target.value) || 0)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </div>
-                            <div className={`font-bold text-sm ${adjustment !== 0 ? (newStock < 0 ? 'text-destructive' : 'text-primary') : ''}`}>
-                              {newStock}
+                      return (
+                        <div key={variant.id} className="bg-card border rounded-lg shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col group">
+                          <div className="p-2 border-b bg-muted/30 group-hover:bg-muted/50 transition-colors">
+                            <h4 className="font-medium text-sm line-clamp-1 mb-1" title={product.name}>{product.name}</h4>
+                            <div className="flex flex-wrap gap-1 items-center">
+                              <span className="text-[10px] bg-background px-1.5 py-0.5 rounded text-muted-foreground border shadow-sm">
+                                {Object.values(variant.attributes).join(' / ') || 'Default'}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground opacity-70">{variant.sku}</span>
                             </div>
                           </div>
+
+                          <div className="p-2 bg-card flex-1 flex flex-col justify-center">
+                            <div className="grid grid-cols-3 gap-2 text-center mb-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+                              <div>Current</div>
+                              <div>Adj</div>
+                              <div>New</div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 items-center">
+                              <div className="font-semibold text-sm">{currentStock}</div>
+                              <div>
+                                <Input
+                                  type="number"
+                                  className="h-8 w-full text-center px-1 text-sm font-medium"
+                                  placeholder="0"
+                                  value={adjustment === 0 ? '' : adjustment}
+                                  onChange={(e) => handleBulkAdjustment(product, variant, parseInt(e.target.value) || 0)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                              <div className={`font-bold text-sm ${adjustment !== 0 ? (newStock < 0 ? 'text-destructive' : 'text-primary') : ''}`}>
+                                {newStock}
+                              </div>
+                            </div>
+                          </div>
                         </div>
+                      );
+                    })}
+                    {filteredProductsBySearch.length === 0 && (
+                      <div className="col-span-full py-12 text-center text-muted-foreground border rounded-lg border-dashed">
+                        <p>No products found matching your search</p>
                       </div>
-                    );
-                  })}
-                  {filteredProductsBySearch.length === 0 && (
-                    <div className="col-span-full py-12 text-center text-muted-foreground border rounded-lg border-dashed">
-                      <p>No products found matching your search</p>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
 
           {/* Pending Adjustments */}
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-3">
               <CardTitle className="text-lg">Pending Adjustments</CardTitle>
             </CardHeader>
             <CardContent>
               {pendingAdjustments.length === 0 ? (
-                <div className="text-center py-12 flex flex-col items-center gap-2">
+                <div className="text-center py-8 flex flex-col items-center gap-2">
                   <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-2">
                     <Search className="h-6 w-6 text-muted-foreground" />
                   </div>
@@ -577,10 +592,10 @@ export default function StockAdjustment() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <div className="border rounded-lg divide-y">
                     {pendingAdjustments.map((item) => (
-                      <div key={item.variantId} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-4">
+                      <div key={item.variantId} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{item.productName}</p>
                           <p className="text-sm text-muted-foreground font-medium truncate">
@@ -659,7 +674,7 @@ export default function StockAdjustment() {
 
         <TabsContent value="history">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-3">
               <CardTitle className="text-lg">Adjustment History</CardTitle>
             </CardHeader>
             <CardContent>

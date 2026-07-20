@@ -25,6 +25,7 @@ interface AuthContextType {
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
   updateUser: (userId: string, updates: Partial<User>) => void;
   deleteUser: (userId: string) => void;
+  resetPassword: (userId: string, newPassword: string) => Promise<void>;
   // Groups
   allGroups: UserGroup[];
   addGroup: (group: Omit<UserGroup, 'id' | 'createdAt'>) => void;
@@ -96,8 +97,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let logoutTimer: ReturnType<typeof setTimeout>;
 
     const checkAuth = async () => {
-      const token = localStorage.getItem('token');
-      const storedUser = localStorage.getItem('user');
+      const token = sessionStorage.getItem('token');
+      const storedUser = sessionStorage.getItem('user');
 
       if (token && storedUser) {
         if (isTokenExpired(token)) {
@@ -144,8 +145,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.token && response.data) {
         const frontendUser = mapBackendUserToFrontend(response.data);
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('user', JSON.stringify(frontendUser));
+        sessionStorage.setItem('token', response.token);
+        sessionStorage.setItem('user', JSON.stringify(frontendUser));
         setUser(frontendUser);
 
         // Refetch everything to ensure we have the latest rights
@@ -161,8 +162,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
     setUser(null);
     setUsers([]);
     setGroups(hardcodedUserGroups);
@@ -199,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user?.id === userId) {
       const updatedUser = { ...user, ...updates };
       setUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(updatedUser));
+      sessionStorage.setItem('user', JSON.stringify(updatedUser));
     }
 
     // API Call
@@ -226,6 +227,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUsers((prev) => prev.filter((u) => u.id !== userId));
     } catch (error) {
       console.error('Failed to delete user:', error);
+      throw error;
+    }
+  };
+
+  const resetPassword = async (userId: string, newPassword: string) => {
+    try {
+      await apiFetch(`/api/users/${userId}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ newPassword })
+      });
+    } catch (error) {
+      console.error('Failed to reset password:', error);
       throw error;
     }
   };
@@ -336,29 +349,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const getLandingPage = (targetUser: User): string => {
     const rights = getUserRights(targetUser);
 
-    // List of rights that grant access to distinct UI modules in the Dashboard Hub
-    const uiModuleRights = [
-      rights.viewDashboard,
-      rights.viewAccommodation,
-      rights.viewCustomers,
-      rights.viewInventory,
-      rights.stockTake,
-      rights.stockAdjustment,
-      rights.managePurchasing,
-      rights.manageRecipes,
-      rights.viewSettings,
-      rights.viewUsers,
-      rights.viewReports,
-      rights.managePromotions,
-      rights.viewProducts,
+    // Map each module right to its primary path
+    const moduleRights = [
+      { key: 'viewDashboard', path: '/stats' },
+      { key: 'viewOrders', path: '/pos' },
+      { key: 'viewAccommodation', path: '/accommodation' },
+      { key: 'viewOnlineOrders', path: '/orders' },
+      { key: 'viewCustomers', path: '/customers' },
+      { key: 'viewInventory', path: '/inventory' },
+      { key: 'stockTake', path: '/stock-take' },
+      { key: 'stockAdjustment', path: '/adjustments' },
+      { key: 'managePurchasing', path: '/purchasing' },
+      { key: 'manageRecipes', path: '/recipes' },
+      { key: 'viewSettings', path: '/settings' },
+      { key: 'viewUsers', path: '/users' },
+      { key: 'viewReports', path: '/reports' },
+      { key: 'managePromotions', path: '/promotions' },
+      { key: 'viewProducts', path: '/products' },
     ];
 
-    const hasOtherModules = uiModuleRights.some(r => r !== 'no');
+    const activeModules = moduleRights.filter(m => {
+      const val = rights[m.key as keyof UserRights];
+      return val === 'yes' || val === 'supervised';
+    });
 
-    // If the user ONLY has access to orders (POS) and no other modules,
-    // take them straight to the POS screen so they bypass the hub.
-    if (rights.viewOrders !== 'no' && !hasOtherModules) {
-      return '/pos';
+    // If the user ONLY has access to exactly one module, take them straight there
+    if (activeModules.length === 1) {
+      return activeModules[0].path;
     }
 
     return '/';
@@ -376,6 +393,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addUser,
         updateUser,
         deleteUser,
+        resetPassword,
         allGroups: groups,
         addGroup,
         updateGroup,

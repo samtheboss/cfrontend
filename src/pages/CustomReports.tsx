@@ -116,7 +116,7 @@ export default function CustomReports() {
     formData.append('module', reportModule);
     formData.append('params', params.join(','));
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const response = await fetch(`${getBaseUrl()}/api/reports/templates`, {
         method: 'POST',
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -145,7 +145,7 @@ export default function CustomReports() {
     if (!executingTemplate) return;
     setIsExecuting(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const response = await fetch(`${getBaseUrl()}/api/reports/templates/${executingTemplate.id}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
