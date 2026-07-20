@@ -94,6 +94,8 @@ export interface TransactionItem {
   quantityAfter?: number;
   adjustment: number;
   price?: number;
+  taxRate?: number;
+  taxAmount?: number;
   attributes?: Record<string, string>;
 }
 

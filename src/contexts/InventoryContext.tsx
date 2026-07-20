@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category, Promotion, Recipe, Supplier } from '@/types/inventory';
 import { mockProducts, mockLocations, mockAdjustments, mockCustomers } from '@/data/mockData';
 import { toast } from 'sonner';
@@ -88,7 +88,7 @@ interface ApiResponse<T> {
 }
 
 export function InventoryProvider({ children }: { children: ReactNode }) {
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, user } = useAuth();
     const [products, setProducts] = useState<Product[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -529,11 +529,18 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         });
     };
 
+    const userLocations = React.useMemo(() => {
+        if (!user || user.locationId === 'all' || !user.locationId) {
+            return locations;
+        }
+        return locations.filter(loc => loc.id.toString() === String(user.locationId));
+    }, [locations, user]);
+
     return (
         <InventoryContext.Provider
             value={{
                 products,
-                locations,
+                locations: userLocations,
                 categories,
                 customers,
                 transactions,

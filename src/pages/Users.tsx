@@ -376,7 +376,7 @@ export default function Users() {
                           <TableCell>
                             <div className="flex items-center gap-2 text-sm">
                               <MapPin className="h-3 w-3 text-muted-foreground" />
-                              {locations.find(l => l.id === user.locationId)?.name || 'None'}
+                              {user.locationId === 'all' ? 'All Locations' : locations.find(l => l.id.toString() === String(user.locationId))?.name || 'None'}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -599,15 +599,16 @@ export default function Users() {
               <div className="space-y-2">
                 <Label htmlFor="new-location">Main Location</Label>
                 <Select
-                  value={newUser.locationId}
+                  value={newUser.locationId ? String(newUser.locationId) : ''}
                   onValueChange={(value) => setNewUser(prev => ({ ...prev, locationId: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a location" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="all">All Locations</SelectItem>
                     {locations.map(loc => (
-                      <SelectItem key={loc.id} value={loc.id}>
+                      <SelectItem key={loc.id} value={String(loc.id)}>
                         {loc.name}
                       </SelectItem>
                     ))}
@@ -681,15 +682,16 @@ export default function Users() {
                 <div className="space-y-2">
                   <Label htmlFor="edit-location">Main Location</Label>
                   <Select
-                    value={editingUser.locationId}
+                    value={editingUser.locationId ? String(editingUser.locationId) : ''}
                     onValueChange={(value) => setEditingUser(prev => prev ? { ...prev, locationId: value } : null)}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a location" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="all">All Locations</SelectItem>
                       {locations.map(loc => (
-                        <SelectItem key={loc.id} value={loc.id}>
+                        <SelectItem key={loc.id} value={String(loc.id)}>
                           {loc.name}
                         </SelectItem>
                       ))}

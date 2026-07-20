@@ -182,7 +182,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           phoneNumber: newUser.phoneNumber,
           role: newUser.groupId === 'group-admin' ? 'ADMIN' : 'USER',
           // Backend should ideally take groupId directly now
-          userGroupId: newUser.groupId
+          userGroupId: newUser.groupId,
+          locationId: newUser.locationId
         }),
       });
       await fetchUsers();

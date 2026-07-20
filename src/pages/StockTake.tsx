@@ -48,7 +48,7 @@ export default function StockTake() {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedLocationId, setSelectedLocationId] = useState<string>(
-        (user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString()
+        ((user?.locationId === 'all' ? null : user?.locationId) || locations.find(l => l.isMain)?.id || locations[0]?.id || '').toString()
     );
     const [isCountingMode, setIsCountingMode] = useState(false);
     const [stockTakeItems, setStockTakeItems] = useState<StockTakeItem[]>([]);
@@ -65,7 +65,8 @@ export default function StockTake() {
 
     useEffect(() => {
         if (!selectedLocationId && locations.length > 0) {
-            const locId = user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id;
+            const userLoc = user?.locationId === 'all' ? null : user?.locationId;
+            const locId = userLoc || locations.find(l => l.isMain)?.id || locations[0]?.id;
             if (locId) {
                 setSelectedLocationId(locId.toString());
             }
@@ -581,6 +582,19 @@ export default function StockTake() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3">
+                                        {productItems.length === 1 && (
+                                            <div className="mr-2" onClick={(e) => e.stopPropagation()}>
+                                                <Input
+                                                    type="number"
+                                                    step="0.001"
+                                                    min="0"
+                                                    value={productItems[0].countedStock || ''}
+                                                    onChange={(e) => updateCount(productItems[0].variantId, parseFloat(e.target.value) || 0)}
+                                                    className="text-center h-9 w-24 font-bold"
+                                                    placeholder="Count"
+                                                />
+                                            </div>
+                                        )}
                                         {hasAnyVariance && (
                                             <Badge variant="secondary" className="bg-warning/10 text-warning-foreground border-warning/20">
                                                 <AlertTriangle className="h-3 w-3 mr-1" /> Variance

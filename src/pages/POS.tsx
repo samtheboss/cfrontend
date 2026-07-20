@@ -166,7 +166,7 @@ export default function POS() {
   const [ordersDialogOpen, setOrdersDialogOpen] = useState(false);
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
   const [saleToReturn, setSaleToReturn] = useState<Sale | null>(null);
-  const [returnItems, setReturnItems] = useState<{ variantId: string; quantity: number; price: number }[]>([]);
+  const [returnItems, setReturnItems] = useState<{ variantId: string; quantity: number; price: number; taxRate?: number }[]>([]);
   const [returnableLimits, setReturnableLimits] = useState<Record<string, { original: number, returned: number, remaining: number }>>({});
   // Removed local state: activeOrders and salesHistory now come from context
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -1470,7 +1470,8 @@ export default function POS() {
     setReturnItems(sale.items.map(item => ({
       variantId: item.variantId,
       quantity: 0,
-      price: item.price
+      price: item.price,
+      taxRate: item.taxRate
     })).filter(item => (limitMap[item.variantId]?.remaining || 0) > 0)); // Only include items that can be returned? 
     // Actually, keep all but ensure max is enforced. Better to keep them so we can show "Fully Returned".
 
@@ -1488,7 +1489,22 @@ export default function POS() {
   };
 
   const calculateReturnTotal = () => {
-    return returnItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    if (!saleToReturn) return 0;
+    
+    // Determine if the original sale was VAT inclusive by checking if the total amount equals the sum of base prices
+    const sumOriginalPrices = saleToReturn.items.reduce((sum, item) => sum + ((item.price || 0) * Math.abs(item.adjustment)), 0);
+    const originalTotal = saleToReturn.totalAmount || saleToReturn.total || 0;
+    const isOriginalSaleInclusive = Math.abs(originalTotal - sumOriginalPrices) < 0.1;
+
+    return returnItems.reduce((sum, item) => {
+      const amount = item.price * item.quantity;
+      if (isOriginalSaleInclusive) {
+        return sum + amount; // The base price already included tax
+      } else {
+        const rate = (item.taxRate ?? 16.0) / 100;
+        return sum + amount + (amount * rate); // Tax was added on top of base price
+      }
+    }, 0);
   };
 
   const submitReturn = async () => {

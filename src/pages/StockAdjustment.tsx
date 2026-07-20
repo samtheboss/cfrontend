@@ -48,7 +48,7 @@ export default function StockAdjustment() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLocationId, setSelectedLocationId] = useState<string>(
-    user?.locationId || locations.find(l => l.isMain)?.id || locations[0]?.id
+    (user?.locationId === 'all' ? null : user?.locationId) || locations.find(l => l.isMain)?.id || locations[0]?.id || ''
   );
   const [pendingAdjustments, setPendingAdjustments] = useState<PendingAdjustment[]>([]);
   const [reason, setReason] = useState('');
@@ -58,6 +58,16 @@ export default function StockAdjustment() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraftDialogOpen, setIsDraftDialogOpen] = useState(false);
   const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedLocationId && locations.length > 0) {
+      const userLoc = user?.locationId === 'all' ? null : user?.locationId;
+      const locId = userLoc || locations.find(l => l.isMain)?.id || locations[0]?.id;
+      if (locId) {
+        setSelectedLocationId(locId.toString());
+      }
+    }
+  }, [locations, selectedLocationId, user]);
 
   // Update current stock of pending adjustments when location changes
   useEffect(() => {

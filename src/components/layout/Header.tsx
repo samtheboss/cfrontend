@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
+import { useInventory } from '@/contexts/InventoryContext';
 import { Badge } from '@/components/ui/badge';
 
 interface HeaderProps {
@@ -20,6 +21,7 @@ interface HeaderProps {
 
 export function Header({ title, onMenuClick }: HeaderProps) {
   const { user, logout, getGroupById } = useAuth();
+  const { locations } = useInventory();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -86,6 +88,11 @@ export function Header({ title, onMenuClick }: HeaderProps) {
                   )}
                   <span className="text-xs text-muted-foreground">@{user?.username}</span>
                 </div>
+                {user?.locationId && (
+                  <div className="text-xs text-muted-foreground mt-1">
+                    📍 {user.locationId === 'all' ? 'All Locations' : locations.find(l => l.id.toString() === String(user.locationId))?.name || 'Unknown Location'}
+                  </div>
+                )}
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
