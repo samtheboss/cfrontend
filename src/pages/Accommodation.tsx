@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -587,16 +588,15 @@ export default function Accommodation() {
     setIsAddPaymentDialogOpen(true);
   };
 
-  const handleCompleteAddPayment = async () => {
+  const handleCompleteAddPayment = async (finalPayments: PaymentDetails[]) => {
     if (editingBooking) {
       let totalPaidInDialog = 0;
       const paymentsToPost: any[] = [];
-      for (const [key, p] of Object.entries(addPaymentModes)) {
-        if (p.active) {
-          const amt = parseFloat(p.amount) || 0;
+      for (const p of finalPayments) {
+          const amt = p.amount;
           if (amt > 0) {
             totalPaidInDialog += amt;
-            const methodLabel = key.toUpperCase();
+            const methodLabel = p.method.toUpperCase();
             paymentsToPost.push({
               bookingId: editingBooking.id,
               method: methodLabel === 'MPESA' ? 'MPESA' : methodLabel === 'BANK' ? 'BANK TRANSFER' : methodLabel,
@@ -606,7 +606,6 @@ export default function Accommodation() {
               approvedBy: user?.name || user?.username || 'System'
             });
           }
-        }
       }
 
       if (totalPaidInDialog > 0) {
@@ -620,6 +619,7 @@ export default function Accommodation() {
           toast.success('Payments recorded successfully');
           fetchAllData();
           setEditingBooking({ ...editingBooking, paidAmount: Number(editingBooking.paidAmount) + totalPaidInDialog });
+          setBookingForm(prev => ({ ...prev, paidAmount: Number(prev.paidAmount) + totalPaidInDialog }));
         } catch (err: any) {
           toast.error('Failed to record payments: ' + err.message);
           return;
@@ -636,16 +636,38 @@ export default function Accommodation() {
       setBookingFormPayments(emptyState);
       setIsAddPaymentDialogOpen(false);
     } else {
-      // For NEW bookings, just save to state. They get posted when hitting "Save Booking".
-      setBookingFormPayments(JSON.parse(JSON.stringify(addPaymentModes)));
+      const newState = {
+        cash: { active: false, amount: '', reference: '' },
+        card: { active: false, amount: '', reference: '' },
+        mpesa: { active: false, amount: '', reference: '' },
+        bank: { active: false, amount: '', reference: '' },
+      };
+      for (const p of finalPayments) {
+          newState[p.method] = { active: true, amount: String(p.amount), reference: p.reference || '' };
+      }
+      setBookingFormPayments(newState);
       setIsAddPaymentDialogOpen(false);
       toast.success('Payment split updated');
     }
   };
 
   // Checkout Payment Popup States
-  const [isCheckoutPaymentDialogOpen, setIsCheckoutPaymentDialogOpen] = useState(false);
+  
+  // Checkout Helper
   const [checkoutBooking, setCheckoutBooking] = useState<Booking | null>(null);
+  
+  const checkoutOutstanding = useMemo(() => {
+    if (!checkoutBooking) return 0;
+    const room = rooms.find(r => String(r.id) === String(checkoutBooking.roomId));
+    const pkg = packages.find(p => String(p.id) === String(checkoutBooking.packageId));
+    const rate = room?.nightlyRate || 0;
+    const pkgAmt = pkg?.amount || 0;
+    const nights = Math.max(1, differenceInDays(new Date(checkoutBooking.checkOutDate), new Date(checkoutBooking.checkInDate)));
+    const totalDue = (rate + pkgAmt) * nights - (checkoutBooking.discount || 0);
+    return Math.max(0, totalDue - checkoutBooking.paidAmount);
+  }, [checkoutBooking, rooms, packages]);
+
+  const [isCheckoutPaymentDialogOpen, setIsCheckoutPaymentDialogOpen] = useState(false);
   const [checkoutPayments, setCheckoutPayments] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
     cash: { active: true, amount: '', reference: '' },
     card: { active: false, amount: '', reference: '' },
@@ -676,15 +698,18 @@ export default function Accommodation() {
     const totalPackageRate = packageRate * nights;
     const totalDue = totalRoomRate + totalPackageRate - (bookingForm.discount || 0);
 
+    const previouslyPaid = editingBooking ? Number(editingBooking.paidAmount) : 0;
+
     return {
       roomRate,
       packageRate,
       nightlyTotal,
       nights,
       totalDue,
-      totalRoomRate
+      totalRoomRate,
+      outstandingBalance: Math.max(0, totalDue - previouslyPaid)
     };
-  }, [bookingForm, rooms, packages]);
+  }, [bookingForm, rooms, packages, editingBooking]);
 
   const availableRooms = useMemo(() => {
     if (!bookingForm.checkInDate || !bookingForm.checkOutDate) {
@@ -1187,7 +1212,7 @@ export default function Accommodation() {
     setIsCheckoutPaymentDialogOpen(true);
   };
 
-  const handleCompleteCheckoutPayment = async () => {
+  const handleCompleteCheckoutPayment = async (finalPayments: PaymentDetails[]) => {
     if (!checkoutBooking) return;
 
     // Calculate required outstanding balance to enforce exact payment matching
@@ -1202,19 +1227,17 @@ export default function Accommodation() {
     let totalPaidInDialog = 0;
     const paymentMethodsToSave: { method: string; amount: number; reference: string }[] = [];
 
-    for (const [methodKey, p] of Object.entries(checkoutPayments)) {
-      if (p.active) {
-        const amt = parseFloat(p.amount) || 0;
+    for (const p of finalPayments) {
+        const amt = p.amount;
         if (amt > 0) {
           totalPaidInDialog += amt;
-          const methodLabel = methodKey.toUpperCase();
+          const methodLabel = p.method.toUpperCase();
           paymentMethodsToSave.push({
             method: methodLabel === 'MPESA' ? 'MPESA' : methodLabel === 'BANK' ? 'BANK TRANSFER' : methodLabel,
             amount: amt,
             reference: p.reference || 'Checkout Payment'
           });
         }
-      }
     }
 
     if (Math.abs(totalPaidInDialog - outstanding) > 0.01) {
@@ -2952,270 +2975,29 @@ export default function Accommodation() {
 
 
       {/* ==================== MODAL: ADD PAYMENT ==================== */}
-      <Dialog open={isAddPaymentDialogOpen} onOpenChange={setIsAddPaymentDialogOpen}>
-        <DialogContent className="max-w-md rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl overflow-y-auto max-h-[90vh]">
-          <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-lg font-bold text-slate-800 dark:text-slate-100">
-              Add Split Payments
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500 mt-1">
-              {editingBooking ? `Booking Ref: ${editingBooking.transactionNumber}` : 'New Booking Payment'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <Label className="text-sm font-bold text-[#4a3629]">Select Payment Methods</Label>
-
-            <div className="space-y-3">
-              {(['cash', 'card', 'mpesa', 'bank'] as const).map((method) => {
-                const isActive = addPaymentModes[method]?.active;
-                return (
-                  <div key={method} className="flex items-center gap-3">
-                    <div className="w-28 flex items-center space-x-2">
-                      <Checkbox
-                        id={`chk-add-pay-${method}`}
-                        checked={isActive}
-                        onCheckedChange={(c) => {
-                          setAddPaymentModes(prev => ({
-                            ...prev,
-                            [method]: { ...prev[method], active: !!c }
-                          }));
-                        }}
-                        className="data-[state=checked]:bg-[#8c5a3c] data-[state=checked]:border-[#8c5a3c]"
-                      />
-                      <Label htmlFor={`chk-add-pay-${method}`} className="capitalize flex items-center gap-2 cursor-pointer font-bold text-[#4a3629] text-sm">
-                        {method === 'cash' && <Banknote className="h-4 w-4 text-slate-500" />}
-                        {method === 'card' && <CreditCard className="h-4 w-4 text-slate-500" />}
-                        {method === 'mpesa' && <Smartphone className="h-4 w-4 text-slate-500" />}
-                        {method === 'bank' && <DollarSign className="h-4 w-4 text-slate-500" />}
-                        {method === 'mpesa' ? 'Mobile' : method === 'bank' ? 'Bank' : method}
-                      </Label>
-                    </div>
-
-                    <Input
-                      type="number"
-                      value={addPaymentModes[method].amount}
-                      onChange={(e) => {
-                        setAddPaymentModes(prev => ({
-                          ...prev,
-                          [method]: { ...prev[method], amount: e.target.value }
-                        }));
-                      }}
-                      placeholder="Amount"
-                      disabled={!isActive}
-                      className="h-9 w-28 rounded-md bg-transparent border-slate-200"
-                    />
-
-                    {method === 'mpesa' && useStkPush ? (
-                      <div className="flex-1 flex items-center gap-2">
-                        <Input
-                          type="text"
-                          value={mpesaPhone}
-                          onChange={(e) => setMpesaPhone(e.target.value)}
-                          placeholder="07..."
-                          disabled={!isActive}
-                          className="h-9 flex-1 rounded-md bg-transparent border-slate-200"
-                        />
-                        <Button 
-                          className="bg-[#8c5a3c] hover:bg-[#734a31] text-white h-9 px-4 rounded-md font-bold"
-                          disabled={!isActive || !addPaymentModes[method].amount || !mpesaPhone}
-                          onClick={() => {
-                             setBookingFormPayments(addPaymentModes);
-                             setIsAddPaymentDialogOpen(false);
-                             handleMpesaStkPush(addPaymentModes);
-                          }}
-                        >
-                          Push
-                        </Button>
-                      </div>
-                    ) : (
-                      <Input
-                        type="text"
-                        value={addPaymentModes[method].reference}
-                        onChange={(e) => {
-                          setAddPaymentModes(prev => ({
-                            ...prev,
-                            [method]: { ...prev[method], reference: e.target.value }
-                          }));
-                        }}
-                        placeholder="Ref (optional)"
-                        disabled={!isActive}
-                        className="h-9 flex-1 rounded-md bg-transparent border-slate-200"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-between pt-4 mt-2">
-              <Label htmlFor="use-stk-push" className="text-sm text-slate-500 cursor-pointer">Use M-Pesa STK Push</Label>
-              <Switch
-                id="use-stk-push"
-                checked={useStkPush}
-                onCheckedChange={setUseStkPush}
-                className="data-[state=checked]:bg-[#8c5a3c]"
-              />
-            </div>
-          </div>
-
-          <DialogFooter className="border-t pt-4 sm:justify-end">
-            <Button variant="outline" onClick={() => setIsAddPaymentDialogOpen(false)} className="rounded-xl px-5">
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCompleteAddPayment}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-6 font-bold shadow-md shadow-emerald-600/20"
-            >
-              Save Payments
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <PaymentDialog
+          open={isAddPaymentDialogOpen}
+          onOpenChange={setIsAddPaymentDialogOpen}
+          totalAmount={bookingSummary.outstandingBalance || 0}
+          onSubmit={handleCompleteAddPayment}
+          title="Add Split Payments"
+          subtitle={editingBooking ? `Booking Ref: ${editingBooking.transactionNumber}` : 'New Booking Payment'}
+          submitText="Save Payments"
+          allowPartialPayment={true}
+          initialPayments={bookingFormPayments}
+        />
 
       {/* ==================== MODAL: COMPLETE CHECKOUT SPLIT PAYMENT ==================== */}
-      <Dialog open={isCheckoutPaymentDialogOpen} onOpenChange={setIsCheckoutPaymentDialogOpen}>
-        <DialogContent className="max-w-md rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl overflow-y-auto max-h-[90vh]">
-          <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-lg font-bold text-slate-800 dark:text-slate-100">
-              Complete Checkout Payment
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500 mt-1">
-              Booking Ref: {checkoutBooking?.transactionNumber} | Guest: {checkoutBooking?.customerName}
-            </DialogDescription>
-          </DialogHeader>
-
-          {/* Payment Method Split Selection */}
-          <div className="space-y-4 py-4">
-            <Label className="text-xs font-bold text-slate-550 uppercase">Select Payment Methods</Label>
-
-            {(['cash', 'card', 'mpesa', 'bank'] as const).map((method) => {
-              const isActive = checkoutPayments[method].active;
-              return (
-                <div key={method} className="space-y-3 border rounded-xl p-3 bg-slate-50/50 dark:bg-slate-955/10">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id={`chk-checkout-pay-${method}`}
-                      checked={isActive}
-                      onChange={(e) => {
-                        setCheckoutPayments(prev => ({
-                          ...prev,
-                          [method]: { ...prev[method], active: e.target.checked }
-                        }));
-                      }}
-                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary accent-primary"
-                    />
-                    <Label htmlFor={`chk-checkout-pay-${method}`} className="capitalize flex items-center gap-2 cursor-pointer font-bold text-slate-700 dark:text-slate-200 text-xs uppercase">
-                      {method === 'cash' && <Banknote className="h-4 w-4 text-slate-400" />}
-                      {method === 'card' && <CreditCard className="h-4 w-4 text-slate-400" />}
-                      {method === 'mpesa' && <Smartphone className="h-4 w-4 text-slate-400" />}
-                      {method === 'bank' && <DollarSign className="h-4 w-4 text-slate-400" />}
-                      {method === 'mpesa' ? 'M-PESA' : method === 'bank' ? 'BANK TRANSFER' : method}
-                    </Label>
-                  </div>
-
-                  {isActive && (
-                    <div className="grid grid-cols-2 gap-3 pl-6 animate-in fade-in slide-in-from-top-1">
-                      <div className="space-y-1">
-                        <Label htmlFor={`checkout-amount-${method}`} className="text-[10px] font-bold text-slate-550">Amount (KES)</Label>
-                        <Input
-                          id={`checkout-amount-${method}`}
-                          type="number"
-                          value={checkoutPayments[method].amount}
-                          onChange={(e) => {
-                            setCheckoutPayments(prev => ({
-                              ...prev,
-                              [method]: { ...prev[method], amount: e.target.value }
-                            }));
-                          }}
-                          placeholder="0.00"
-                          className="h-9 rounded-lg"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor={`checkout-ref-${method}`} className="text-[10px] font-bold text-slate-550">
-                          {method === 'mpesa' ? 'M-Pesa Phone' : 'Reference (Optional)'}
-                        </Label>
-                        {method === 'mpesa' ? (
-                          <div className="flex gap-2">
-                            <Input
-                              type="text"
-                              value={mpesaPhone}
-                              onChange={(e) => setMpesaPhone(e.target.value)}
-                              placeholder="07..."
-                              className="h-9 rounded-lg flex-1"
-                              disabled={isPollingMpesa}
-                            />
-                            <Button
-                              size="sm"
-                              className="h-9 bg-green-650 hover:bg-green-750 text-white rounded-lg px-3 text-xs"
-                              onClick={handleCheckoutMpesaPush}
-                              disabled={isPollingMpesa}
-                            >
-                              {isPollingMpesa ? '...' : 'Push'}
-                            </Button>
-                          </div>
-                        ) : (
-                          <Input
-                            id={`checkout-ref-${method}`}
-                            type="text"
-                            value={checkoutPayments[method].reference}
-                            onChange={(e) => {
-                              setCheckoutPayments(prev => ({
-                                ...prev,
-                                [method]: { ...prev[method], reference: e.target.value }
-                              }));
-                            }}
-                            placeholder="Ref #"
-                            className="h-9 rounded-lg"
-                          />
-                        )}
-                      </div>
-                      {method === 'mpesa' && (isPollingMpesa || mpesaStatus !== 'IDLE') && (
-                        <div className="col-span-2 py-1">
-                          <div className={`flex items-center gap-2 text-xs font-semibold ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
-                              mpesaStatus === 'SUCCESS' ? 'text-green-600' :
-                                mpesaStatus === 'CANCELLED' ? 'text-amber-600' :
-                                  'text-red-600'
-                            }`}>
-                            <span>
-                              {mpesaStatus === 'PENDING' && 'Waiting for M-Pesa...'}
-                              {mpesaStatus === 'SUCCESS' && 'Confirmed!'}
-                              {mpesaStatus === 'CANCELLED' && 'Cancelled'}
-                              {mpesaStatus === 'FAILED' && 'Failed'}
-                            </span>
-                            {mpesaStatus !== 'SUCCESS' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-[10px]"
-                                onClick={() => checkoutRequestId && manualQueryMpesa(checkoutRequestId)}
-                                disabled={isPollingMpesa}
-                              >
-                                {isPollingMpesa ? 'Checking...' : 'Check Again'}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <DialogFooter className="border-t pt-4">
-            <Button variant="outline" onClick={() => setIsCheckoutPaymentDialogOpen(false)} className="rounded-xl px-5">
-              Cancel
-            </Button>
-            <Button onClick={handleCompleteCheckoutPayment} className="bg-primary hover:bg-primary/95 text-white rounded-xl px-5 font-semibold">
-              Confirm Checkout & Pay
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PaymentDialog
+        open={isCheckoutPaymentDialogOpen}
+        onOpenChange={setIsCheckoutPaymentDialogOpen}
+        totalAmount={checkoutOutstanding}
+        onSubmit={handleCompleteCheckoutPayment}
+        title="Complete Checkout Payment"
+        subtitle={`Booking Ref: ${checkoutBooking?.transactionNumber} | Guest: ${checkoutBooking?.customerName}`}
+        submitText="Confirm Checkout & Pay"
+        initialPayments={checkoutPayments}
+      />
       <Dialog open={receiptPreviewOpen} onOpenChange={setReceiptPreviewOpen}>
         <DialogContent className="max-w-3xl h-[80vh] flex flex-col p-0">
           <DialogHeader className="p-4 border-b bg-card">

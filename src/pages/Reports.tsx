@@ -32,9 +32,11 @@ export default function Reports() {
   const { allUsers } = useAuth();
   const { sym } = useCurrency();
 
-    // Report State (Global Filters)
+  // Report State (Global Filters)
   const [startDate, setStartDate] = useState<string>('2024-01-01');
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [reportLocationId, setReportLocationId] = useState<string>('all');
+  const [reportUserId, setReportUserId] = useState<string>('all');
 
   // All Sales (Primary Data Source)
   const sales = useMemo(() => transactions.filter(t => t.type === 'SALE'), [transactions]);
@@ -51,9 +53,12 @@ export default function Reports() {
 
     return sales.filter(s => {
       const d = new Date(s.timestamp);
-      return (isAfter(d, start) || isEqual(d, start)) && (isBefore(d, end) || isEqual(d, end));
+      const inDateRange = (isAfter(d, start) || isEqual(d, start)) && (isBefore(d, end) || isEqual(d, end));
+      const matchLocation = reportLocationId === 'all' || !s.locationId || String(s.locationId) === reportLocationId;
+      const matchUser = reportUserId === 'all' || !s.userId || String(s.userId) === reportUserId || String((s as any).cashierId) === reportUserId || String((s as any).createdBy) === reportUserId;
+      return inDateRange && matchLocation && matchUser;
     });
-  }, [sales, startDate, endDate]);
+  }, [sales, startDate, endDate, reportLocationId, reportUserId]);
 
   // Returns Data
   const returns = useMemo(() => transactions.filter(t => t.type === 'RETURN'), [transactions]);
@@ -64,9 +69,12 @@ export default function Reports() {
 
     return returns.filter(s => {
       const d = new Date(s.timestamp);
-      return (isAfter(d, start) || isEqual(d, start)) && (isBefore(d, end) || isEqual(d, end));
+      const inDateRange = (isAfter(d, start) || isEqual(d, start)) && (isBefore(d, end) || isEqual(d, end));
+      const matchLocation = reportLocationId === 'all' || !s.locationId || String(s.locationId) === reportLocationId;
+      const matchUser = reportUserId === 'all' || !s.userId || String(s.userId) === reportUserId || String((s as any).cashierId) === reportUserId || String((s as any).createdBy) === reportUserId;
+      return inDateRange && matchLocation && matchUser;
     });
-  }, [returns, startDate, endDate]);
+  }, [returns, startDate, endDate, reportLocationId, reportUserId]);
 
   // Key Metrics (Based on Filtered Sales)
   const totalSales = filteredSales.reduce((sum, s) => sum + (s.total || s.totalAmount || 0), 0);
@@ -146,13 +154,65 @@ export default function Reports() {
     fetchPayments();
   }, [startDate, endDate]);
 
+  const filteredCombinedPayments = useMemo(() => {
+    return combinedPayments.filter(p => {
+      const matchLocation = reportLocationId === 'all' || !p.locationId || String(p.locationId) === reportLocationId;
+      const matchUser = reportUserId === 'all' || !p.userId || String(p.userId) === reportUserId || String(p.cashierId) === reportUserId || String(p.createdBy) === reportUserId;
+      return matchLocation && matchUser;
+    });
+  }, [combinedPayments, reportLocationId, reportUserId]);
+
   const paymentStats = useMemo(() => {
     const stats: Record<string, number> = {};
-    combinedPayments.forEach(p => {
+    filteredCombinedPayments.forEach(p => {
       stats[p.method] = (stats[p.method] || 0) + p.amount;
     });
     return stats;
-  }, [combinedPayments]);
+  }, [filteredCombinedPayments]);
+
+  // Purchases Data
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
+  const [isPurchasesLoading, setIsPurchasesLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchPurchases = async () => {
+      setIsPurchasesLoading(true);
+      try {
+        const res = await apiFetch<{ data: any[] }>('/api/purchase-orders');
+        setPurchaseOrders(res.data || []);
+      } catch (err: any) {
+        toast.error('Failed to load purchases: ' + err.message);
+      } finally {
+        setIsPurchasesLoading(false);
+      }
+    };
+    fetchPurchases();
+  }, []);
+
+  const filteredPurchases = useMemo(() => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    return purchaseOrders.filter(po => {
+      const d = new Date(po.dateReceived || po.createdAt || po.timestamp);
+      const inDateRange = (isAfter(d, start) || isEqual(d, start)) && (isBefore(d, end) || isEqual(d, end));
+      const matchLocation = reportLocationId === 'all' || !po.locationId || String(po.locationId) === reportLocationId;
+      const matchUser = reportUserId === 'all' || !po.userId || String(po.userId) === reportUserId || String(po.createdBy) === reportUserId;
+      return inDateRange && matchLocation && matchUser;
+    });
+  }, [purchaseOrders, startDate, endDate, reportLocationId, reportUserId]);
+
+  const totalPurchasesAmount = filteredPurchases.reduce((sum, po) => sum + (po.total || po.totalAmount || 0), 0);
+  
+  const dailyPurchases = useMemo(() => {
+    const trend: Record<string, number> = {};
+    filteredPurchases.forEach(po => {
+      const day = format(new Date(po.dateReceived || po.createdAt || po.timestamp), 'MMM d');
+      trend[day] = (trend[day] || 0) + (po.total || po.totalAmount || 0);
+    });
+    return Object.entries(trend).map(([day, purchases]) => ({ day, purchases }));
+  }, [filteredPurchases]);
 
   // Stock Movement Report State
   const [selectedProductId, setSelectedProductId] = useState<string>(''); // Product ID
@@ -443,6 +503,34 @@ export default function Reports() {
             <Label className="text-xs">To</Label>
             <Input type="date" className="w-full sm:w-auto bg-background" value={endDate} onChange={e => setEndDate(e.target.value)} />
           </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs">Location</Label>
+            <Select value={reportLocationId} onValueChange={setReportLocationId}>
+              <SelectTrigger className="w-[150px] bg-background">
+                <SelectValue placeholder="All Locations" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Locations</SelectItem>
+                {locations.map(loc => (
+                  <SelectItem key={loc.id} value={String(loc.id)}>{loc.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs">User</Label>
+            <Select value={reportUserId} onValueChange={setReportUserId}>
+              <SelectTrigger className="w-[150px] bg-background">
+                <SelectValue placeholder="All Users" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Users</SelectItem>
+                {allUsers.map(u => (
+                  <SelectItem key={u.id} value={String(u.id)}>{u.name || u.username}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="sm:ml-auto w-full sm:w-auto">
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="w-full sm:w-auto">
@@ -456,6 +544,7 @@ export default function Reports() {
         <TabsList className="w-full justify-start overflow-x-auto flex-nowrap scrollbar-none h-auto p-1 bg-muted/50">
           <TabsTrigger value="stock" className="whitespace-nowrap min-w-fit">Stock Report</TabsTrigger>
           <TabsTrigger value="sales" className="whitespace-nowrap min-w-fit">Sales Report</TabsTrigger>
+          <TabsTrigger value="purchases" className="whitespace-nowrap min-w-fit">Purchases Report</TabsTrigger>
           <TabsTrigger value="returns" className="whitespace-nowrap min-w-fit">Returns</TabsTrigger>
           <TabsTrigger value="payments" className="whitespace-nowrap min-w-fit">Payments Report</TabsTrigger>
           <TabsTrigger value="fast-moving" className="whitespace-nowrap min-w-fit">Fast Moving Items</TabsTrigger>
@@ -700,9 +789,9 @@ export default function Reports() {
                     <tbody>
                       {isPaymentsLoading ? (
                         <tr><td colSpan={6} className="text-center py-4"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></td></tr>
-                      ) : combinedPayments.length === 0 ? (
+                      ) : filteredCombinedPayments.length === 0 ? (
                         <tr><td colSpan={6} className="text-center py-4 text-muted-foreground">No payments found for this period.</td></tr>
-                      ) : combinedPayments.map(p => (
+                      ) : filteredCombinedPayments.map(p => (
                         <tr key={p.id}>
                           <td>{format(new Date(p.date), 'MMM d, yyyy HH:mm')}</td>
                           <td>
@@ -992,6 +1081,96 @@ export default function Reports() {
                           <td className="text-xs text-muted-foreground italic truncate max-w-[150px]">
                             {adj.notes || '---'}
                           </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="purchases" className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Purchases</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">{sym}{totalPurchasesAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Tax</CardTitle></CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {sym}{filteredPurchases.reduce((sum, po) => sum + (po.tax || po.taxAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">PO Count</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">{filteredPurchases.length}</div></CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Purchases Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyPurchases}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="day" className="text-xs" />
+                    <YAxis className="text-xs" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }}
+                    />
+                    <Bar dataKey="purchases" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Detailed Purchases History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="min-w-[700px] inline-block align-middle p-4 sm:p-0">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Supplier</th>
+                        <th>PO #</th>
+                        <th>Items</th>
+                        <th>Status</th>
+                        <th>Payment</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {isPurchasesLoading ? (
+                        <tr><td colSpan={7} className="text-center py-4"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></td></tr>
+                      ) : filteredPurchases.length === 0 ? (
+                        <tr><td colSpan={7} className="text-center py-4 text-muted-foreground">No purchases found for this period.</td></tr>
+                      ) : filteredPurchases.map((po) => (
+                        <tr key={po.id}>
+                          <td>{format(new Date(po.dateReceived || po.createdAt || po.timestamp), 'MMM d, yyyy HH:mm')}</td>
+                          <td>{po.supplier?.name || '-'}</td>
+                          <td>{po.journalNumber || po.id}</td>
+                          <td>
+                            {(po.items || []).map((i: any) => `${i.productName || i.sku} (${i.quantity})`).join(', ')}
+                          </td>
+                          <td><Badge variant="outline">{po.status}</Badge></td>
+                          <td><Badge variant="secondary">{po.paymentStatus}</Badge></td>
+                          <td className="font-semibold">{sym}{(po.total || po.totalAmount || 0).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>

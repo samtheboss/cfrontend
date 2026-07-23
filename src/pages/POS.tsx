@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
 import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { apiFetch, getBaseUrl } from '@/lib/api';
@@ -897,50 +898,15 @@ export default function POS() {
     }
   };
 
-  const handleCheckout = async () => {
-    if (totalPaid < total - 0.01) {
-      toast.error('Payment amount is less than total');
-      return;
-    }
+  const handleCheckout = async (finalPayments: PaymentDetails[]) => {
+    // PaymentDialog already handles amount validation, we just process what we receive
+    const totalPaid = finalPayments.reduce((sum, p) => sum + p.amount, 0);
 
-    // Determine payment methods list - Cap at total (exclude change)
-    const payments: { method: string; amount: number; reference?: string }[] = [];
-    let remaining = total;
-
-    // 1. Process M-Pesa/Mobile (Confirmed & UI)
-    completedMpesaPayments.forEach(p => {
-      const amt = Math.min(p.amount, remaining);
-      if (amt > 0) {
-        payments.push({ method: 'MOBILE', amount: amt, reference: p.reference });
-        remaining -= amt;
-      }
-    });
-
-    if (paymentMethods.mobile.active && parseFloat(paymentMethods.mobile.amount) > 0) {
-      const amt = Math.min(parseFloat(paymentMethods.mobile.amount), remaining);
-      if (amt > 0) {
-        payments.push({ method: 'MOBILE', amount: amt, reference: paymentMethods.mobile.reference });
-        remaining -= amt;
-      }
-    }
-
-    // 2. Process Card
-    if (paymentMethods.card.active && parseFloat(paymentMethods.card.amount) > 0) {
-      const amt = Math.min(parseFloat(paymentMethods.card.amount), remaining);
-      if (amt > 0) {
-        payments.push({ method: 'CARD', amount: amt, reference: paymentMethods.card.reference });
-        remaining -= amt;
-      }
-    }
-
-    // 3. Process Cash (Any remaining bill goes here)
-    if (paymentMethods.cash.active && parseFloat(paymentMethods.cash.amount) > 0) {
-      const amt = Math.min(parseFloat(paymentMethods.cash.amount), remaining);
-      if (amt > 0) {
-        payments.push({ method: 'CASH', amount: amt, reference: paymentMethods.cash.reference });
-        remaining -= amt;
-      }
-    }
+    const payments = finalPayments.map(p => ({
+      method: p.method.toUpperCase(),
+      amount: p.amount,
+      reference: p.reference
+    }));
 
     // Build sale data for backend
     const saleData = {
@@ -1072,31 +1038,14 @@ export default function POS() {
     }
   };
 
-  const handleReceivePayment = async () => {
+  const handleReceivePayment = async (finalPayments: PaymentDetails[]) => {
     if (!receivePaymentSale) return;
 
-    const payments: { method: string; amount: number; reference?: string }[] = [];
-    let remaining = Number(receivePaymentSale.totalAmount) || 0;
-
-    if (receivePaymentMethods.mobile.active && parseFloat(receivePaymentMethods.mobile.amount) > 0) {
-      const amt = Math.min(parseFloat(receivePaymentMethods.mobile.amount), remaining);
-      if (amt > 0) { payments.push({ method: 'MOBILE', amount: amt, reference: receivePaymentMethods.mobile.reference }); remaining -= amt; }
-    }
-    if (receivePaymentMethods.card.active && parseFloat(receivePaymentMethods.card.amount) > 0) {
-      const amt = Math.min(parseFloat(receivePaymentMethods.card.amount), remaining);
-      if (amt > 0) { payments.push({ method: 'CARD', amount: amt, reference: receivePaymentMethods.card.reference }); remaining -= amt; }
-    }
-    if (receivePaymentMethods.cash.active && parseFloat(receivePaymentMethods.cash.amount) > 0) {
-      const amt = Math.min(parseFloat(receivePaymentMethods.cash.amount), remaining);
-      if (amt > 0) { payments.push({ method: 'CASH', amount: amt, reference: receivePaymentMethods.cash.reference }); remaining -= amt; }
-    }
-
-    const totalReceived = payments.reduce((s, p) => s + p.amount, 0);
-    const due = Number(receivePaymentSale.totalAmount) || 0;
-    if (totalReceived < due - 0.01) {
-      toast.error('Payment amount is less than total due');
-      return;
-    }
+    const payments = finalPayments.map(p => ({
+      method: p.method.toUpperCase(),
+      amount: p.amount,
+      reference: p.reference
+    }));
 
     setIsReceivingPayment(true);
     try {
@@ -1108,15 +1057,10 @@ export default function POS() {
       const receiptUrl = `${getBaseUrl()}/api/transactions/sale/${receivePaymentSale.id}/receipt`;
       handleReceiptAction(receiptUrl);
       setReceivePaymentSale(null);
-      setReceivePaymentMethods({
-        cash: { active: false, amount: '', reference: '' },
-        card: { active: false, amount: '', reference: '' },
-        mobile: { active: false, amount: '', reference: '' }
-      });
       refreshData();
       setPostActionPromptOpen(true);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to receive payment');
+      throw error; // Let PaymentDialog catch and display it
     } finally {
       setIsReceivingPayment(false);
     }
@@ -1388,7 +1332,7 @@ export default function POS() {
       const matchDate = isWithinInterval(orderDate, { start, end });
 
       return matchSearch && matchDate;
-    });
+    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   };
 
   const databasePendingOrders = useMemo(() => {
@@ -1447,7 +1391,7 @@ export default function POS() {
         }
         
         return true;
-      });
+      }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [salesHistory, rights, user]);
 
   const handleOpenReturn = async (sale: Sale) => {
@@ -1466,14 +1410,20 @@ export default function POS() {
     });
     setReturnableLimits(limitMap);
 
-    // Initialize return items with 0 quantity
-    setReturnItems(sale.items.map(item => ({
-      variantId: item.variantId,
-      quantity: 0,
-      price: item.price,
-      taxRate: item.taxRate
-    })).filter(item => (limitMap[item.variantId]?.remaining || 0) > 0)); // Only include items that can be returned? 
-    // Actually, keep all but ensure max is enforced. Better to keep them so we can show "Fully Returned".
+    // Initialize return items with 0 quantity, deduplicating by variantId
+    const uniqueReturnItems = new Map();
+    sale.items.forEach(item => {
+      if (!uniqueReturnItems.has(item.variantId)) {
+        uniqueReturnItems.set(item.variantId, {
+          variantId: item.variantId,
+          quantity: 0,
+          price: item.price,
+          taxRate: item.taxRate
+        });
+      }
+    });
+    
+    setReturnItems(Array.from(uniqueReturnItems.values()).filter(item => (limitMap[item.variantId]?.remaining || 0) > 0));
 
     setIdempotencyKey(`ret-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
     setReturnDialogOpen(true);
@@ -2069,222 +2019,28 @@ export default function POS() {
         </button>
       </div>
 
-      {/* Checkout Dialog */}
-      <Dialog open={checkoutOpen} onOpenChange={(open) => {
-        if (!isProcessing) {
-          setCheckoutOpen(open);
-          if (!open) {
-            // Signal to stop polling when dialog closes
-            stopPollingRef.current = true;
-            setIsPollingMpesa(false);
-            setMpesaStatus('IDLE');
-            setCheckoutRequestId(null);
-          } else {
-            // Opening dialog
-            setPaymentMethods({
-              cash: { active: false, amount: '', reference: '' },
-              card: { active: false, amount: '', reference: '' },
-              mobile: { active: false, amount: '', reference: '' }
-            });
-
-            // Reset M-Pesa states
-            setMpesaPhone('');
-            setMpesaStatus('IDLE');
-            setCheckoutRequestId(null);
-            setIsPollingMpesa(false);
-            stopPollingRef.current = false;
-            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-          }
+      <PaymentDialog
+        open={checkoutOpen}
+        onOpenChange={setCheckoutOpen}
+        totalAmount={total}
+        onSubmit={handleCheckout}
+        isProcessing={isProcessing}
+        onCancel={() => setCheckoutOpen(false)}
+        title="Complete Payment"
+        description="Select payment methods and process the transaction."
+        extraActions={
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handlePayLater}
+            disabled={isProcessing}
+            id="pay-later-btn"
+            className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-600 dark:hover:bg-amber-950"
+          >
+            {isProcessing ? 'Saving...' : '📝 Place And Bill'}
+          </Button>
         }
-      }}>
-        <DialogContent className="max-w-lg h-[95vh] sm:h-auto flex flex-col p-0 overflow-hidden">
-          <div className="p-4 md:p-6 pb-2 shrink-0">
-            <DialogHeader>
-              <DialogTitle>Complete Payment</DialogTitle>
-              <DialogDescription>
-                Total amount due: {sym}{total.toFixed(2)}
-                {selectedCustomer && (
-                  <span className="block mt-1">Customer: {selectedCustomer.name}</span>
-                )}
-              </DialogDescription>
-            </DialogHeader>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 md:p-6 pt-0 min-h-0 space-y-4">
-            {/* Payment Summary */}
-            <div className="grid grid-cols-3 gap-2 text-center p-3 bg-muted/50 rounded-lg">
-              <div>
-                <div className="text-xs text-muted-foreground">Total Due</div>
-                <div className="font-semibold">{sym}{total.toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Paid</div>
-                <div className="font-semibold text-green-600">{sym}{totalPaid.toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">
-                  {totalPaid.toFixed(2) >= total.toFixed(2) ? 'Change' : 'Remaining'}
-                </div>
-                <div className={`font-semibold ${totalPaid >= total ? 'text-blue-600' : 'text-red-600'}`}>
-                  {sym}{Math.abs(totalPaid - total).toFixed(2)}
-                </div>
-              </div>
-            </div>
-
-            {/* Payment Methods Checkboxes */}
-            <div className="space-y-3 border rounded-md p-4">
-              <Label className="text-sm font-medium">Select Payment Methods</Label>
-
-              {(['cash', 'card', 'mobile'] as const).map((method) => (
-                <div key={method} className="space-y-1.5">
-                  {/* Single-line row: [checkbox + icon + label] [amount] [ref/phone] */}
-                  <div className="grid grid-cols-[160px_1fr_1fr] items-center gap-2">
-                    {/* Checkbox + label */}
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`pay-${method}`}
-                        checked={paymentMethods[method].active}
-                        onCheckedChange={(checked) => handlePaymentMethodToggle(method, checked === true)}
-                      />
-                      <Label htmlFor={`pay-${method}`} className="capitalize flex items-center gap-1.5 cursor-pointer text-sm">
-                        {method === 'cash' && <Banknote className="h-4 w-4 text-muted-foreground" />}
-                        {method === 'card' && <CreditCard className="h-4 w-4 text-muted-foreground" />}
-                        {method === 'mobile' && <Smartphone className="h-4 w-4 text-muted-foreground" />}
-                        {method === 'cash' ? 'Cash' : method === 'card' ? 'Card' : 'Mobile'}
-                      </Label>
-                    </div>
-                    {/* Amount */}
-                    <Input
-                      id={`amount-${method}`}
-                      type="number"
-                      value={paymentMethods[method].amount}
-                      onChange={(e) => updatePaymentDetail(method, 'amount', e.target.value)}
-                      placeholder="Amount"
-                      className="h-8 text-sm"
-                      disabled={!paymentMethods[method].active || (isPollingMpesa && method === 'mobile')}
-                    />
-                    {/* Reference / Phone */}
-                    {method === 'mobile' && paymentMethods[method].active && useStkPush ? (
-                      <div className="flex gap-1.5">
-                        <Input
-                          id="mpesa-phone"
-                          type="text"
-                          value={mpesaPhone}
-                          onChange={(e) => setMpesaPhone(e.target.value)}
-                          placeholder="07..."
-                          className="h-8 flex-1 text-sm"
-                          disabled={isPollingMpesa}
-                        />
-                        <Button
-                          size="sm"
-                          className="h-8 px-2 text-xs"
-                          onClick={handleMpesaPush}
-                          disabled={isPollingMpesa}
-                        >
-                          {isPollingMpesa ? '...' : 'Push'}
-                        </Button>
-                      </div>
-                    ) : (
-                      <Input
-                        id={`ref-${method}`}
-                        type="text"
-                        value={paymentMethods[method].reference}
-                        onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
-                        placeholder={method === 'mobile' ? 'Ref Code' : 'Ref (optional)'}
-                        className="h-8 text-sm"
-                        disabled={!paymentMethods[method].active}
-                      />
-                    )}
-                  </div>
-
-                  {/* STK push toggle — compact full-width row, only shown when mobile is active */}
-                  {method === 'mobile' && paymentMethods[method].active && (
-                    <div className="flex items-center justify-between pl-7 pr-1 py-1 bg-muted/40 rounded text-xs">
-                      <span className="text-muted-foreground">Use M-Pesa STK Push</span>
-                      <Switch
-                        id="toggle-stk-pos"
-                        checked={useStkPush}
-                        onCheckedChange={setUseStkPush}
-                        className="scale-75"
-                      />
-                    </div>
-                  )}
-
-                  {method === 'mobile' && (isPollingMpesa || mpesaStatus !== 'IDLE') && (
-                    <div className="col-span-2 space-y-2 py-2">
-                      <div className={`flex items-center justify-center gap-2 text-xs font-medium ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
-                        mpesaStatus === 'SUCCESS' ? 'text-green-600' :
-                          mpesaStatus === 'CANCELLED' ? 'text-amber-600' :
-                            'text-red-600'
-                        }`}>
-                        <span>
-                          {mpesaStatus === 'PENDING' && 'Waiting for M-Pesa confirmation...'}
-                          {mpesaStatus === 'SUCCESS' && 'Payment Successful!'}
-                          {mpesaStatus === 'CANCELLED' && 'Payment Cancelled.'}
-                          {mpesaStatus === 'FAILED' && 'Payment Failed.'}
-                        </span>
-                        {mpesaStatus !== 'SUCCESS' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-[10px]"
-                            onClick={() => checkoutRequestId && manualQueryMpesa(checkoutRequestId)}
-                            disabled={isPollingMpesa}
-                          >
-                            {isPollingMpesa ? 'Checking...' : 'Check Again'}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {completedMpesaPayments.length > 0 && (
-              <div className="space-y-1 py-1">
-                <Label className="text-[10px] text-muted-foreground uppercase font-semibold">Confirmed M-Pesa Payments</Label>
-                {completedMpesaPayments.map((p, i) => (
-                  <div key={i} className="flex justify-between items-center bg-green-50 px-2 py-1 rounded text-xs border border-green-100">
-                    <span className="font-mono text-[10px]">{p.reference}</span>
-                    <span className="font-semibold text-green-700">{sym}{p.amount.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {(totalPaid < total) && (
-              <div className="text-xs text-red-500 text-center font-medium">
-                Balance remaining: {sym}{(total - totalPaid).toFixed(2)}
-              </div>
-            )}
-          </div>
-
-          <div className="p-4 md:p-6 border-t shrink-0 bg-background pb-[calc(1rem+env(safe-area-inset-bottom))]">
-            <DialogFooter className="flex flex-row justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setCheckoutOpen(false)} disabled={isProcessing}>Cancel</Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handlePayLater}
-                disabled={isProcessing}
-                id="pay-later-btn"
-                className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-600 dark:hover:bg-amber-950"
-              >
-                {isProcessing ? 'Saving...' : '⏳ Place And Bill'}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleCheckout}
-                disabled={totalPaid < total - 0.01 || isProcessing}
-                className={totalPaid >= total - 0.01 ? 'bg-green-600 hover:bg-green-700' : ''}
-              >
-                {isProcessing ? 'Processing...' : 'Complete Sale'}
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
+      />
 
       {/* Variant Selection Dialog */}
       <Dialog open={variantDialogOpen} onOpenChange={setVariantDialogOpen}>
@@ -2683,15 +2439,12 @@ export default function POS() {
           </DialogHeader>
 
           <div className="py-4 space-y-4 max-h-[60vh] overflow-y-auto">
-            {saleToReturn && saleToReturn.items.map((item, idx) => {
-              const returnItem = returnItems.find(r => r.variantId === item.variantId);
+            {saleToReturn && Array.from(new Set(saleToReturn.items.map(i => i.variantId))).map((variantId, idx) => {
+              const item = saleToReturn.items.find(i => i.variantId === variantId)!;
+              const returnItem = returnItems.find(r => r.variantId === variantId);
 
-              const limit = returnableLimits[item.variantId] || { original: 0, returned: 0, remaining: 0 };
+              const limit = returnableLimits[variantId] || { original: 0, returned: 0, remaining: 0 };
               const maxQty = limit.remaining;
-              // Fallback if limits haven't loaded yet? Or we can default to max adjust if map empty.
-              // But wait, if we initialized with filter, items with 0 limit shouldn't be here if filter worked.
-              // Wait, I filtered `returnItems` initialization, but here I iterate `saleToReturn.items`. 
-              // So finding `returnItem` might fail if it was filtered out.
 
               const currentQty = returnItem?.quantity || 0;
               const isFullyReturned = maxQty <= 0;
@@ -2818,106 +2571,21 @@ export default function POS() {
         </DialogContent>
       </Dialog>
 
-      {/* Receive Payment Dialog */}
-      <Dialog open={!!receivePaymentSale} onOpenChange={(open) => { if (!open && !isReceivingPayment) { setReceivePaymentSale(null); setReceivePaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' } }); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5 text-amber-500" />
-              Receive Payment
-            </DialogTitle>
-            <DialogDescription>
-              {receivePaymentSale && (
-                <>
-                  <span className="block font-medium text-foreground">{receivePaymentSale.journalNumber}</span>
-                  Total due: <span className="font-semibold text-amber-600">{sym}{(Number(receivePaymentSale.totalAmount) || 0).toFixed(2)}</span>
-                </>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            {/* Payment summary */}
-            <div className="grid grid-cols-2 gap-2 text-center p-3 bg-muted/50 rounded-lg">
-              <div>
-                <div className="text-xs text-muted-foreground">Total Due</div>
-                <div className="font-semibold text-amber-600">{sym}{(Number(receivePaymentSale?.totalAmount) || 0).toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Entered</div>
-                <div className="font-semibold text-green-600">
-                  {sym}{(
-                    (receivePaymentMethods.cash.active ? parseFloat(receivePaymentMethods.cash.amount) || 0 : 0) +
-                    (receivePaymentMethods.card.active ? parseFloat(receivePaymentMethods.card.amount) || 0 : 0) +
-                    (receivePaymentMethods.mobile.active ? parseFloat(receivePaymentMethods.mobile.amount) || 0 : 0)
-                  ).toFixed(2)}
-                </div>
-              </div>
-            </div>
-
-            {/* Payment Methods */}
-            <div className="space-y-3 border rounded-md p-4">
-              <Label className="text-sm font-medium">Payment Method</Label>
-              {(['cash', 'card', 'mobile'] as const).map((method) => (
-                <div key={method} className="grid grid-cols-[140px_1fr] items-center gap-2">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`rcv-pay-${method}`}
-                      checked={receivePaymentMethods[method].active}
-                      onCheckedChange={(checked) => {
-                        const due = Number(receivePaymentSale?.totalAmount) || 0;
-                        const alreadyEntered = Object.entries(receivePaymentMethods)
-                          .filter(([k]) => k !== method)
-                          .reduce((s, [, v]) => s + (v.active ? parseFloat(v.amount) || 0 : 0), 0);
-                        const remaining = Math.max(0, due - alreadyEntered);
-                        setReceivePaymentMethods(prev => ({
-                          ...prev,
-                          [method]: checked
-                            ? { ...prev[method], active: true, amount: remaining.toFixed(2) }
-                            : { ...prev[method], active: false, amount: '', reference: '' }
-                        }));
-                      }}
-                    />
-                    <Label htmlFor={`rcv-pay-${method}`} className="capitalize flex items-center gap-1.5 cursor-pointer text-sm">
-                      {method === 'cash' && <Banknote className="h-4 w-4 text-muted-foreground" />}
-                      {method === 'card' && <CreditCard className="h-4 w-4 text-muted-foreground" />}
-                      {method === 'mobile' && <Smartphone className="h-4 w-4 text-muted-foreground" />}
-                      {method === 'cash' ? 'Cash' : method === 'card' ? 'Card' : 'Mobile'}
-                    </Label>
-                  </div>
-                  <Input
-                    id={`rcv-amount-${method}`}
-                    type="number"
-                    value={receivePaymentMethods[method].amount}
-                    onChange={(e) => setReceivePaymentMethods(prev => ({ ...prev, [method]: { ...prev[method], amount: e.target.value } }))}
-                    placeholder="Amount"
-                    className="h-8 text-sm"
-                    disabled={!receivePaymentMethods[method].active}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setReceivePaymentSale(null); }} disabled={isReceivingPayment}>Cancel</Button>
-            <Button
-              id="confirm-receive-payment-btn"
-              className="bg-amber-500 hover:bg-amber-600 text-white"
-              onClick={handleReceivePayment}
-              disabled={isReceivingPayment || (
-                !receivePaymentMethods.cash.active &&
-                !receivePaymentMethods.card.active &&
-                !receivePaymentMethods.mobile.active
-              )}
-            >
-              {isReceivingPayment ? 'Processing...' : (
-                <><Wallet className="h-4 w-4 mr-2" />Confirm Payment</>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PaymentDialog
+        open={!!receivePaymentSale}
+        onOpenChange={(open) => {
+          if (!open && !isReceivingPayment) {
+            setReceivePaymentSale(null);
+          }
+        }}
+        totalAmount={Number(receivePaymentSale?.totalAmount || 0)}
+        onSubmit={handleReceivePayment}
+        isProcessing={isReceivingPayment}
+        onCancel={() => setReceivePaymentSale(null)}
+        title="Receive Payment"
+        description={`Record payment for order #${receivePaymentSale?.journalNumber}`}
+        submitText="Confirm Payment"
+      />
 
       {/* Receipt Preview Dialog */}
       <Dialog open={receiptPreviewOpen} onOpenChange={setReceiptPreviewOpen}>
