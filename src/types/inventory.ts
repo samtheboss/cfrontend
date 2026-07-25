@@ -110,7 +110,7 @@ export interface StockTakeItem {
   attributes?: Record<string, string>;
 }
 
-export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE' | 'RETURN' | 'RECEIVED' | 'PRODUCTION';
+export type TransactionType = 'ADJUSTMENT' | 'TRANSFER' | 'STOCK_TAKE' | 'SALE' | 'RETURN' | 'RECEIVED' | 'PRODUCTION' | 'CONSUMPTION';
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'RECEIVED' | 'DRAFT' | 'PAYMENT_PENDING';
 
 export interface Supplier {

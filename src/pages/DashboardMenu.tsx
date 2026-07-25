@@ -103,6 +103,15 @@ export default function DashboardMenu() {
       category: 'core'
     },
     {
+      name: 'Accommodation Expenses',
+      description: 'Record operating costs and view auto-consumption logs',
+      href: '/accommodation-expenses',
+      icon: Wallet,
+      iconGradientClass: 'from-fuchsia-500 to-pink-600 shadow-fuchsia-500/20',
+      requiredRight: 'viewAccommodation',
+      category: 'core'
+    },
+    {
       name: 'Online Orders',
       description: 'View and manage orders received from e-commerce',
       href: '/orders',

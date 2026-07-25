@@ -28,6 +28,7 @@ import Recipes from "./pages/Recipes";
 import Purchasing from "./pages/Purchasing";
 import SupplierAccounts from "./pages/SupplierAccounts";
 import Accommodation from "./pages/Accommodation";
+import AccommodationExpenses from "./pages/AccommodationExpenses";
 import CustomReports from "./pages/CustomReports";
 import NotFound from "./pages/NotFound";
 
@@ -54,6 +55,7 @@ const App = () => (
               <Route path="/purchasing" element={<ProtectedRoute requiredRight="managePurchasing"><Purchasing /></ProtectedRoute>} />
               <Route path="/supplier-accounts" element={<ProtectedRoute requiredRight="managePurchasing"><SupplierAccounts /></ProtectedRoute>} />
               <Route path="/accommodation" element={<ProtectedRoute requiredRight="viewAccommodation"><Accommodation /></ProtectedRoute>} />
+              <Route path="/accommodation-expenses" element={<ProtectedRoute requiredRight="viewAccommodation"><AccommodationExpenses /></ProtectedRoute>} />
               <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
               <Route path="/custom-reports" element={<ProtectedRoute requiredRight="viewReports"><CustomReports /></ProtectedRoute>} />

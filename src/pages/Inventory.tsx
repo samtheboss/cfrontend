@@ -59,7 +59,7 @@ export default function Inventory() {
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       activeVariants.some(v =>
         v.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        v.barcode.includes(searchQuery)
+        v.barcode?.includes(searchQuery)
       );
 
     const matchesStock = stockFilter === 'all' || (

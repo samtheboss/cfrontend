@@ -151,7 +151,7 @@ interface ApiResponse<T> {
 
 export default function Accommodation() {
   const { user } = useAuth();
-  const { customers, addCustomer, settings } = useInventory();
+  const { customers, addCustomer, settings, products } = useInventory();
   const [activeTab, setActiveTab] = useState('rooms');
 
   // --- Core States ---
@@ -159,6 +159,64 @@ export default function Accommodation() {
   const [packages, setPackages] = useState<BillingPackage[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // --- Room Setup States ---
+  interface RoomSetupItem {
+    id?: any;
+    roomId: any;
+    variantId: any;
+    productName: string;
+    sku: string;
+    quantity: number;
+    costPrice: number;
+    isActive: boolean;
+  }
+  const [selectedRoomForSetup, setSelectedRoomForSetup] = useState<string>('');
+  const [roomSetupItems, setRoomSetupItems] = useState<RoomSetupItem[]>([]);
+  const [isAddSetupItemOpen, setIsAddSetupItemOpen] = useState(false);
+  const [isSetupItemPopoverOpen, setIsSetupItemPopoverOpen] = useState(false);
+  const [isRoomSetupPopoverOpen, setIsRoomSetupPopoverOpen] = useState(false);
+  const [setupForm, setSetupForm] = useState({
+    variantId: '',
+    quantity: 1,
+    costPrice: 0,
+  });
+  const [isCopySetupOpen, setIsCopySetupOpen] = useState(false);
+  const [copyTargetRooms, setCopyTargetRooms] = useState<string[]>([]);
+
+  const fetchRoomSetupItems = async (roomId: string) => {
+    if (!roomId) return;
+    try {
+      const res = await apiFetch<ApiResponse<RoomSetupItem[]>>(`/api/accommodation/rooms/${roomId}/inventory`);
+      setRoomSetupItems(res.data || []);
+    } catch (err: any) {
+      toast.error('Failed to fetch room inventory setup: ' + err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedRoomForSetup) {
+      fetchRoomSetupItems(selectedRoomForSetup);
+    }
+  }, [selectedRoomForSetup]);
+
+  const allVariants = useMemo(() => {
+    if (!products) return [];
+    return products.flatMap(p => 
+      (p.variants || []).map(v => ({
+        ...v,
+        productName: p.name,
+        displayName: `${p.name} (${Object.values(v.attributes || {}).join('/') || 'Default'}) - SKU: ${v.sku}`
+      }))
+    );
+  }, [products]);
+
+  // Set default selected room for setup when rooms load
+  useEffect(() => {
+    if (rooms.length > 0 && !selectedRoomForSetup) {
+      setSelectedRoomForSetup(String(rooms[0].id));
+    }
+  }, [rooms, selectedRoomForSetup]);
 
   // Load from backend
   const fetchAllData = async () => {
@@ -1431,12 +1489,14 @@ export default function Accommodation() {
                 {activeTab === 'schedules' && 'Room Schedules'}
                 {activeTab === 'bookings' && 'Bookings & Transactions'}
                 {activeTab === 'packages' && 'Billing Packages'}
+                {activeTab === 'room-setup' && 'Room Inventory Setup'}
               </h1>
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {activeTab === 'rooms' && 'Manage hotel guest rooms and status'}
                 {activeTab === 'schedules' && `Week of ${format(daysOfWeek[0], 'dd MMM')} - ${format(daysOfWeek[6], 'dd MMM yyyy')}`}
                 {activeTab === 'bookings' && 'Manage all guest room bookings, check-ins, and check-outs'}
                 {activeTab === 'packages' && 'Extra charge packages applied to room bookings'}
+                {activeTab === 'room-setup' && 'Configure consumable items allocated to each room on check-in'}
               </p>
             </div>
 
@@ -1445,6 +1505,7 @@ export default function Accommodation() {
               <TabsTrigger value="schedules" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Room Schedules</TabsTrigger>
               <TabsTrigger value="bookings" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Bookings & Transactions</TabsTrigger>
               <TabsTrigger value="packages" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Billing Packages</TabsTrigger>
+              <TabsTrigger value="room-setup" className="rounded-lg px-4 py-2 text-xs font-semibold shrink-0">Room Setup</TabsTrigger>
             </TabsList>
           </div>
 
@@ -1976,6 +2037,182 @@ export default function Accommodation() {
                 </Table>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ==================== TABS CONTENT: ROOM SETUP ==================== */}
+          <TabsContent value="room-setup" className="space-y-6 mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Room Selector and Copy Options Sidebar */}
+              <div className="lg:col-span-1 space-y-4">
+                <Card className="border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl p-4">
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs font-bold text-slate-550 uppercase tracking-wider">Select Room to Configure</Label>
+                      <Popover open={isRoomSetupPopoverOpen} onOpenChange={setIsRoomSetupPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={isRoomSetupPopoverOpen}
+                            className="w-full mt-1.5 justify-between rounded-xl font-normal h-10 border-slate-205 dark:bg-slate-950 dark:border-slate-800"
+                          >
+                            <span className="truncate">
+                              {selectedRoomForSetup
+                                ? (() => {
+                                    const match = rooms.find(r => String(r.id) === selectedRoomForSetup);
+                                    return match ? `Room ${match.roomNumber} (${match.type})` : "Select a room...";
+                                  })()
+                                : "Select a room..."}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start" style={{ pointerEvents: 'auto' }}>
+                          <Command className="w-full">
+                            <CommandInput placeholder="Search rooms..." />
+                            <CommandList className="max-h-[250px] overflow-y-auto">
+                              <CommandEmpty>No room found.</CommandEmpty>
+                              <CommandGroup>
+                                {rooms.map(room => (
+                                  <CommandItem
+                                    key={room.id}
+                                    value={`Room ${room.roomNumber} ${room.type}`}
+                                    onSelect={() => {
+                                      setSelectedRoomForSetup(String(room.id));
+                                      setIsRoomSetupPopoverOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedRoomForSetup === String(room.id) ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    Room {room.roomNumber} ({room.type})
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100">
+                      <Button 
+                        onClick={() => {
+                          setCopyTargetRooms([]);
+                          setIsCopySetupOpen(true);
+                        }} 
+                        variant="outline" 
+                        className="w-full border-slate-200 text-slate-700 dark:text-slate-350 dark:border-slate-800 rounded-xl h-10 text-xs font-bold"
+                        disabled={!selectedRoomForSetup || roomSetupItems.length === 0}
+                      >
+                        Copy Configuration to...
+                      </Button>
+                      <p className="text-[10px] text-slate-450 mt-1.5 leading-relaxed">
+                        Copy this room's inventory consumption specs to other rooms in bulk.
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Configure Consumables List */}
+              <div className="lg:col-span-3 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                      Consumable Allocation
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Items that are automatically deducted from stock when this room is checked-in.
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      setSetupForm({ variantId: '', quantity: 1, costPrice: 0 });
+                      setIsAddSetupItemOpen(true);
+                    }} 
+                    className="bg-primary hover:bg-primary/95 text-white font-medium px-4 rounded-xl shadow-md h-10 text-xs font-bold"
+                    disabled={!selectedRoomForSetup}
+                  >
+                    <Plus className="h-4 w-4 mr-1.5" /> Allocate Item
+                  </Button>
+                </div>
+
+                <Card className="border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+                  <CardContent className="p-0 overflow-x-auto">
+                    <Table>
+                      <TableHeader className="bg-slate-50 dark:bg-slate-950/40">
+                        <TableRow>
+                          <TableHead className="font-bold text-xs uppercase text-slate-550">PRODUCT</TableHead>
+                          <TableHead className="font-bold text-xs uppercase text-slate-550">SKU</TableHead>
+                          <TableHead className="font-bold text-xs uppercase text-slate-550 text-right">QTY TO DEDUCT</TableHead>
+                          <TableHead className="font-bold text-xs uppercase text-slate-550 text-right">UNIT COST (KES)</TableHead>
+                          <TableHead className="font-bold text-xs uppercase text-slate-550 text-right">TOTAL COST (KES)</TableHead>
+                          <TableHead className="w-[80px]"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {roomSetupItems.map(item => (
+                          <TableRow key={item.id} className="hover:bg-slate-50/50">
+                            <TableCell className="font-bold text-slate-850 dark:text-slate-150">{item.productName}</TableCell>
+                            <TableCell className="text-slate-550 font-medium">{item.sku}</TableCell>
+                            <TableCell className="text-right font-bold text-slate-700 dark:text-slate-200">{item.quantity}</TableCell>
+                            <TableCell className="text-right font-medium text-slate-600 dark:text-slate-350">
+                              KES {item.costPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell className="text-right font-bold text-slate-800 dark:text-slate-100">
+                              KES {(item.costPrice * item.quantity).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button 
+                                variant="ghost" 
+                                className="h-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg px-2"
+                                onClick={async () => {
+                                  if (confirm('Remove item from this room configuration?')) {
+                                    try {
+                                      await apiFetch(`/api/accommodation/rooms/${selectedRoomForSetup}/inventory/${item.id}`, { method: 'DELETE' });
+                                      toast.success('Consumable removed');
+                                      fetchRoomSetupItems(selectedRoomForSetup);
+                                    } catch (err: any) {
+                                      toast.error('Failed to remove: ' + err.message);
+                                    }
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {roomSetupItems.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="h-32 text-center text-slate-400">
+                              No inventory consumables configured for this room yet.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        {roomSetupItems.length > 0 && (
+                          <TableRow className="bg-slate-50/40 font-bold border-t">
+                            <TableCell colSpan={2}>Check-in Consumable Expense Cost</TableCell>
+                            <TableCell className="text-right">
+                              {roomSetupItems.reduce((acc, item) => acc + item.quantity, 0)} items
+                            </TableCell>
+                            <TableCell></TableCell>
+                            <TableCell className="text-right text-primary">
+                              KES {roomSetupItems.reduce((acc, item) => acc + (item.costPrice * item.quantity), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell></TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
@@ -3054,6 +3291,186 @@ export default function Accommodation() {
           />
         )}
       </div>
+
+      {/* ==================== MODAL: ADD SETUP ITEM ==================== */}
+      <Dialog open={isAddSetupItemOpen} onOpenChange={setIsAddSetupItemOpen}>
+        <DialogContent className="max-w-md rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl">
+          <DialogHeader className="border-b pb-4">
+            <DialogTitle className="text-lg font-bold text-slate-850 dark:text-slate-100">Allocate Consumable</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-slate-555 uppercase">Select Product Variant *</Label>
+              <Popover open={isSetupItemPopoverOpen} onOpenChange={setIsSetupItemPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isSetupItemPopoverOpen}
+                    className="w-full justify-between rounded-xl font-normal h-10 border-slate-200 dark:bg-slate-950 dark:border-slate-800"
+                  >
+                    <span className="truncate">
+                      {setupForm.variantId
+                        ? allVariants.find(v => String(v.id) === String(setupForm.variantId))?.displayName
+                        : "Search product variant..."}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start" style={{ pointerEvents: 'auto' }}>
+                  <Command className="w-full">
+                    <CommandInput placeholder="Search variants..." />
+                    <CommandList className="max-h-[250px] overflow-y-auto">
+                      <CommandEmpty>No variant found.</CommandEmpty>
+                      <CommandGroup>
+                        {allVariants.map(v => (
+                          <CommandItem
+                            key={v.id}
+                            value={v.displayName}
+                            onSelect={() => {
+                              setSetupForm(prev => ({
+                                ...prev,
+                                variantId: String(v.id),
+                                costPrice: v.cost || 0
+                              }));
+                              setIsSetupItemPopoverOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                String(setupForm.variantId) === String(v.id) ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            {v.displayName}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-555 uppercase">Quantity *</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={setupForm.quantity}
+                  onChange={e => setSetupForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                  className="rounded-xl"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-555 uppercase">Unit Cost (KES)</Label>
+                <Input
+                  type="number"
+                  value={setupForm.costPrice}
+                  onChange={e => setSetupForm(prev => ({ ...prev, costPrice: Number(e.target.value) }))}
+                  className="rounded-xl"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="border-t pt-4">
+            <Button variant="outline" onClick={() => setIsAddSetupItemOpen(false)} className="rounded-xl">Cancel</Button>
+            <Button 
+              onClick={async () => {
+                if (!setupForm.variantId || setupForm.quantity <= 0) {
+                  toast.error('Please specify product and positive quantity');
+                  return;
+                }
+                const match = allVariants.find(v => String(v.id) === String(setupForm.variantId));
+                try {
+                  const payload = {
+                    variantId: setupForm.variantId,
+                    quantity: setupForm.quantity,
+                    costPrice: setupForm.costPrice,
+                    productName: match ? match.productName : 'Product',
+                    sku: match ? match.sku : '',
+                    isActive: true,
+                    createdBy: user?.name || user?.username || 'System'
+                  };
+                  await apiFetch(`/api/accommodation/rooms/${selectedRoomForSetup}/inventory`, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                  });
+                  toast.success('Consumable item added to room setup');
+                  fetchRoomSetupItems(selectedRoomForSetup);
+                  setIsAddSetupItemOpen(false);
+                } catch (err: any) {
+                  toast.error('Failed to save setup item: ' + err.message);
+                }
+              }} 
+              className="bg-primary hover:bg-primary/95 text-white rounded-xl"
+            >
+              Allocate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== MODAL: COPY SETUP TO OTHER ROOMS ==================== */}
+      <Dialog open={isCopySetupOpen} onOpenChange={setIsCopySetupOpen}>
+        <DialogContent className="max-w-md rounded-2xl bg-white dark:bg-slate-900 border shadow-2xl">
+          <DialogHeader className="border-b pb-4">
+            <DialogTitle className="text-lg font-bold text-slate-850 dark:text-slate-100">Copy Allocation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[300px] overflow-y-auto">
+            <p className="text-xs text-slate-550">Select rooms you want to apply this exact configuration to (existing configurations on target rooms will be replaced):</p>
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              {rooms
+                .filter(room => String(room.id) !== selectedRoomForSetup)
+                .map(room => (
+                  <div key={room.id} className="flex items-center space-x-2 p-2 border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <Checkbox 
+                      id={`copy-room-${room.id}`} 
+                      checked={copyTargetRooms.includes(String(room.id))}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setCopyTargetRooms([...copyTargetRooms, String(room.id)]);
+                        } else {
+                          setCopyTargetRooms(copyTargetRooms.filter(id => id !== String(room.id)));
+                        }
+                      }}
+                    />
+                    <label htmlFor={`copy-room-${room.id}`} className="text-xs font-semibold cursor-pointer">
+                      Room {room.roomNumber} ({room.type})
+                    </label>
+                  </div>
+                ))}
+            </div>
+          </div>
+          <DialogFooter className="border-t pt-4">
+            <Button variant="outline" onClick={() => setIsCopySetupOpen(false)} className="rounded-xl">Cancel</Button>
+            <Button 
+              onClick={async () => {
+                if (copyTargetRooms.length === 0) {
+                  toast.error('Please select at least one target room');
+                  return;
+                }
+                try {
+                  await apiFetch(`/api/accommodation/rooms/${selectedRoomForSetup}/inventory/copy`, {
+                    method: 'POST',
+                    body: JSON.stringify(copyTargetRooms.map(Number))
+                  });
+                  toast.success('Configuration copied to target rooms successfully');
+                  setIsCopySetupOpen(false);
+                } catch (err: any) {
+                  toast.error('Failed to copy configuration: ' + err.message);
+                }
+              }} 
+              className="bg-primary hover:bg-primary/95 text-white rounded-xl"
+              disabled={copyTargetRooms.length === 0}
+            >
+              Copy Specifications
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
