@@ -76,7 +76,7 @@ interface InventoryContextType {
     // High-level actions
     processSale: (items: { variantId: string; quantity: number }[], locationId: string) => void;
     updateStock: (variantId: string, locationId: string, delta: number) => void;
-    refreshData: (startDate?: string, endDate?: string) => Promise<void>;
+    refreshData: (startDate?: string, endDate?: string, locationId?: string, userId?: string) => Promise<void>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -122,17 +122,37 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     // Sales history state
     const [salesHistory, setSalesHistory] = useState<Sale[]>([]);
 
-    const fetchInventoryData = async (startDate?: string, endDate?: string) => {
+    const fetchInventoryData = async (startDate?: string, endDate?: string, locationId?: string, userId?: string) => {
         if (!isAuthenticated) return;
         setIsLoading(true);
         try {
-            let queryParams = '';
+            const params = new URLSearchParams();
+            // Format date as local ISO string (no Z suffix) to match backend LocalDateTime
+            const formatLocalISO = (d: Date) => {
+                const pad = (n: number) => String(n).padStart(2, '0');
+                return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            };
             if (startDate && endDate) {
-                const start = new Date(startDate);
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                queryParams = `&startDate=${start.toISOString()}&endDate=${end.toISOString()}`;
+                // Parse as local time (new Date('YYYY-MM-DD') parses as UTC which causes timezone offset issues)
+                const [sy, sm, sd] = startDate.split('-').map(Number);
+                const [ey, em, ed] = endDate.split('-').map(Number);
+                const start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+                const end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+                console.log('[fetchInventoryData] Input dates:', { startDate, endDate });
+                console.log('[fetchInventoryData] Local start:', formatLocalISO(start));
+                console.log('[fetchInventoryData] Local end:', formatLocalISO(end));
+                params.append('startDate', formatLocalISO(start));
+                params.append('endDate', formatLocalISO(end));
             }
+            if (locationId && locationId !== 'all') {
+                params.append('locationId', locationId);
+            }
+            if (userId && userId !== 'all') {
+                params.append('userId', userId);
+            }
+            const queryString = params.toString();
+            const queryParams = queryString ? `&${queryString}` : '';
+            console.log('[fetchInventoryData] Full query params:', queryParams);
 
             const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, promotionsRes, recipesRes, suppliersRes, settingsRes] = await Promise.all([
                 apiFetch<ApiResponse<Product[]>>('/api/products'),

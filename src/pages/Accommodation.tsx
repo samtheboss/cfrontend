@@ -61,6 +61,7 @@ import {
   Smartphone,
   Check,
   Receipt,
+  RefreshCw,
 } from 'lucide-react';
 import { format, addDays, startOfWeek, subWeeks, addWeeks, differenceInDays } from 'date-fns';
 import { apiFetch, getBaseUrl } from '@/lib/api';
@@ -132,6 +133,8 @@ interface Booking {
   packageId: any;
   checkInDate: string; // YYYY-MM-DD
   checkOutDate: string; // YYYY-MM-DD
+  dateCreate?: string; // YYYY-MM-DD
+  dateApproved?: string; // YYYY-MM-DD
   reservationType: string;
   checkedIn: boolean;
   noOfChildren: number;
@@ -141,6 +144,7 @@ interface Booking {
   status: 'VACANT' | 'BOOKED' | 'CHECKED IN' | 'RESERVED' | 'OUT OF ORDER' | 'CHECKED OUT';
   guestList: GuestDetail[];
   roomAllocations?: BookingNight[];
+  idempotencyKey?: string;
 }
 
 interface ApiResponse<T> {
@@ -240,6 +244,16 @@ export default function Accommodation() {
   useEffect(() => {
     fetchAllData();
   }, []);
+
+  const refreshBookings = async () => {
+    try {
+      const bookingsRes = await apiFetch<ApiResponse<Booking[]>>('/api/accommodation/bookings');
+      setBookings(bookingsRes.data || []);
+      toast.success('Bookings refreshed successfully');
+    } catch (err: any) {
+      toast.error('Failed to refresh bookings: ' + err.message);
+    }
+  };
 
   // Re-calculate room statuses based on active bookings today
   useEffect(() => {
@@ -434,9 +448,19 @@ export default function Accommodation() {
         b.guestMobile.includes(bookingSearch) ||
         (room && room.roomNumber.toLowerCase().includes(bookingSearch.toLowerCase()));
 
-      const matchesDate =
-        (!filterStartDate || b.checkOutDate >= filterStartDate) &&
-        (!filterEndDate || b.checkInDate <= filterEndDate);
+      const createDate = b.dateCreate ? b.dateCreate.substring(0, 10) : '';
+      const approvedDate = b.dateApproved ? b.dateApproved.substring(0, 10) : '';
+      
+      let matchesDate = true;
+      if (filterStartDate || filterEndDate) {
+        const createMatches =
+          (!filterStartDate || (createDate !== '' && createDate >= filterStartDate)) &&
+          (!filterEndDate || (createDate !== '' && createDate <= filterEndDate));
+        const approvedMatches =
+          (!filterStartDate || (approvedDate !== '' && approvedDate >= filterStartDate)) &&
+          (!filterEndDate || (approvedDate !== '' && approvedDate <= filterEndDate));
+        matchesDate = createMatches || approvedMatches;
+      }
 
       const matchesStatus = bookingFilterStatus === 'All' || b.status === bookingFilterStatus;
 
@@ -574,6 +598,8 @@ export default function Accommodation() {
     packageId: '',
     checkInDate: format(new Date(), 'yyyy-MM-dd'),
     checkOutDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    dateCreate: new Date().toISOString(),
+    dateApproved: format(new Date(), 'yyyy-MM-dd'),
     reservationType: 'Room Booking',
     checkedIn: false,
     noOfChildren: 0,
@@ -581,6 +607,7 @@ export default function Accommodation() {
     paidAmount: 0,
     discount: 0,
     newGuestName: '',
+    idempotencyKey: '',
   });
 
   const [guestListInput, setGuestListInput] = useState<GuestDetail[]>([]);
@@ -812,6 +839,8 @@ export default function Accommodation() {
       packageId: packages[0]?.id || '',
       checkInDate: initialDate || format(new Date(), 'yyyy-MM-dd'),
       checkOutDate: initialDate ? format(addDays(new Date(initialDate), 1), 'yyyy-MM-dd') : format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      dateCreate: new Date().toISOString(),
+      dateApproved: format(new Date(), 'yyyy-MM-dd'),
       reservationType: 'Room Booking',
       checkedIn: false,
       noOfChildren: 0,
@@ -819,6 +848,7 @@ export default function Accommodation() {
       paidAmount: 0,
       discount: 0,
       newGuestName: '',
+      idempotencyKey: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'booking-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9)),
     });
     setIsBookingDialogOpen(true);
   };
@@ -840,6 +870,8 @@ export default function Accommodation() {
       packageId: String(booking.packageId),
       checkInDate: booking.checkInDate,
       checkOutDate: booking.checkOutDate,
+      dateCreate: booking.dateCreate || booking.checkInDate || new Date().toISOString(),
+      dateApproved: booking.dateApproved || booking.checkInDate || format(new Date(), 'yyyy-MM-dd'),
       reservationType: booking.reservationType,
       checkedIn: booking.checkedIn,
       noOfChildren: booking.noOfChildren,
@@ -848,6 +880,7 @@ export default function Accommodation() {
       discount: booking.discount || 0,
       newGuestName: '',
       roomAllocations: booking.roomAllocations || [],
+      idempotencyKey: booking.idempotencyKey || '',
     });
     setIsBookingDialogOpen(true);
   };
@@ -1034,6 +1067,9 @@ export default function Accommodation() {
         roomAllocations: bookingForm.roomAllocations,
         createdBy: user?.name || user?.username || 'System',
         approvedBy: user?.name || user?.username || 'System',
+        dateCreate: editingBooking ? bookingForm.dateCreate : new Date().toISOString(),
+        dateApproved: bookingForm.dateApproved || format(new Date(), 'yyyy-MM-dd'),
+        idempotencyKey: bookingForm.idempotencyKey,
         ...(editingBooking ? { id: editingBooking.id, transactionNumber: editingBooking.transactionNumber } : { transactionNumber: '#' + (bookings.length + 3) }),
       };
 
@@ -1155,6 +1191,9 @@ export default function Accommodation() {
         roomAllocations: bookingForm.roomAllocations,
         createdBy: user?.name || user?.username || 'System',
         approvedBy: user?.name || user?.username || 'System',
+        dateCreate: editingBooking ? bookingForm.dateCreate : new Date().toISOString(),
+        dateApproved: bookingForm.dateApproved || format(new Date(), 'yyyy-MM-dd'),
+        idempotencyKey: bookingForm.idempotencyKey,
         ...(editingBooking ? { id: editingBooking.id, transactionNumber: editingBooking.transactionNumber } : { transactionNumber: '#' + (bookings.length + 3) }),
       };
 
@@ -1886,6 +1925,9 @@ export default function Accommodation() {
                 <Button variant="outline" size="sm" className="border-blue-350 text-blue-700 bg-blue-50/40 hover:bg-blue-50 rounded-xl h-10 px-4 font-semibold gap-1.5">
                   <FileText className="h-4 w-4" /> Print (.pdf)
                 </Button>
+                <Button variant="outline" size="sm" onClick={refreshBookings} className="border-slate-300 text-slate-700 dark:text-slate-200 bg-slate-50/60 hover:bg-slate-100 dark:bg-slate-800 rounded-xl h-10 px-4 font-semibold gap-1.5" title="Refresh Bookings">
+                  <RefreshCw className="h-4 w-4" /> Refresh
+                </Button>
               </div>
               <Button onClick={() => handleOpenAddBooking()} className="bg-primary hover:bg-primary/95 text-white font-medium px-5 rounded-xl shadow-md transition-all">
                 <Plus className="h-4 w-4 mr-2" />
@@ -1902,6 +1944,8 @@ export default function Accommodation() {
                       <TableHead className="w-[80px] font-bold text-xs uppercase text-slate-550">#</TableHead>
                       <TableHead className="font-bold text-xs uppercase text-slate-550">GUEST</TableHead>
                       <TableHead className="font-bold text-xs uppercase text-slate-550">ROOM</TableHead>
+                      <TableHead className="font-bold text-xs uppercase text-slate-550">DATE CREATED</TableHead>
+                      <TableHead className="font-bold text-xs uppercase text-slate-550">DATE APPROVED</TableHead>
                       <TableHead className="font-bold text-xs uppercase text-slate-550">CHECK-IN</TableHead>
                       <TableHead className="font-bold text-xs uppercase text-slate-550">CHECK-OUT</TableHead>
                       <TableHead className="font-bold text-xs uppercase text-slate-550 text-center">NIGHTS</TableHead>
@@ -1931,6 +1975,12 @@ export default function Accommodation() {
                           </TableCell>
                           <TableCell className="font-bold text-slate-700 dark:text-slate-200">
                             {roomObj ? roomObj.roomNumber : 'Unknown'}
+                          </TableCell>
+                          <TableCell className="text-slate-500 font-medium">
+                            {b.dateCreate ? format(new Date(b.dateCreate), 'dd MMM yyyy, HH:mm') : (b.checkInDate ? format(new Date(b.checkInDate), 'dd MMM yyyy') : '-')}
+                          </TableCell>
+                          <TableCell className="text-slate-500 font-medium">
+                            {b.dateApproved ? format(new Date(b.dateApproved), 'dd MMM yyyy') : (b.checkInDate ? format(new Date(b.checkInDate), 'dd MMM yyyy') : '-')}
                           </TableCell>
                           <TableCell className="text-slate-500 font-medium">
                             {format(new Date(b.checkInDate), 'dd MMM yyyy')}
@@ -2633,6 +2683,29 @@ export default function Accommodation() {
                         value={bookingForm.checkOutDate}
                         onChange={e => setBookingForm(prev => ({ ...prev, checkOutDate: e.target.value }))}
                         disabled={!!editingBooking}
+                        className="rounded-xl"
+                      />
+                    </div>
+
+                    {/* Date Created */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-550 uppercase">Date Created</Label>
+                      <Input
+                        type="text"
+                        value={editingBooking?.dateCreate ? format(new Date(editingBooking.dateCreate), 'dd MMM yyyy, HH:mm') : 'Current Timestamp (Auto)'}
+                        disabled
+                        className="rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 font-medium"
+                      />
+                    </div>
+
+                    {/* Date Approved */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-550 uppercase">Date Approved *</Label>
+                      <Input
+                        type="date"
+                        value={bookingForm.dateApproved || ''}
+                        onChange={e => setBookingForm(prev => ({ ...prev, dateApproved: e.target.value }))}
+                        disabled={editingBooking?.status === 'CHECKED OUT'}
                         className="rounded-xl"
                       />
                     </div>

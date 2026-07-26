@@ -7,7 +7,7 @@ import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer, Wallet } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -174,10 +174,12 @@ export default function POS() {
 
   // Receive Payment dialog state
   const [receivePaymentSale, setReceivePaymentSale] = useState<Sale | null>(null);
-  const [receivePaymentMethods, setReceivePaymentMethods] = useState({
+  const [receivePaymentMethods, setReceivePaymentMethods] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
     cash: { active: false, amount: '', reference: '' },
     card: { active: false, amount: '', reference: '' },
-    mobile: { active: false, amount: '', reference: '' }
+    mobile: { active: false, amount: '', reference: '' },
+    bank: { active: false, amount: '', reference: '' },
+    complimentary: { active: false, amount: '', reference: '' }
   });
   const [isReceivingPayment, setIsReceivingPayment] = useState(false);
 
@@ -192,10 +194,12 @@ export default function POS() {
   const [activeTab, setActiveTab] = useState<'products' | 'cart'>('products');
 
   // Payment methods state
-  const [paymentMethods, setPaymentMethods] = useState({
+  const [paymentMethods, setPaymentMethods] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
     cash: { active: false, amount: '', reference: '' },
     card: { active: false, amount: '', reference: '' },
-    mobile: { active: false, amount: '', reference: '' }
+    mobile: { active: false, amount: '', reference: '' },
+    bank: { active: false, amount: '', reference: '' },
+    complimentary: { active: false, amount: '', reference: '' }
   });
 
   // Customer state
@@ -758,7 +762,7 @@ export default function POS() {
     .reduce((sum, method) => method.active ? sum + (parseFloat(method.amount) || 0) : sum, 0)
     + completedMpesaPayments.reduce((sum, p) => sum + p.amount, 0);
 
-  const handlePaymentMethodToggle = (method: 'cash' | 'card' | 'mobile', active: boolean) => {
+  const handlePaymentMethodToggle = (method: string, active: boolean) => {
     setPaymentMethods(prev => {
       const newState = { ...prev };
       if (active) {
@@ -766,18 +770,18 @@ export default function POS() {
         const currentPaid = Object.values(prev)
           .reduce((sum, m) => m.active ? sum + (parseFloat(m.amount) || 0) : sum, 0);
         const remaining = Math.max(0, total - currentPaid);
-        newState[method] = { ...prev[method], active: true, amount: remaining.toFixed(2) };
+        newState[method] = { ...(prev[method] || { active: false, amount: '', reference: '' }), active: true, amount: remaining.toFixed(2) };
       } else {
-        newState[method] = { ...prev[method], active: false, amount: '', reference: '' };
+        newState[method] = { ...(prev[method] || { active: false, amount: '', reference: '' }), active: false, amount: '', reference: '' };
       }
       return newState;
     });
   };
 
-  const updatePaymentDetail = (method: 'cash' | 'card' | 'mobile', field: 'amount' | 'reference', value: string) => {
+  const updatePaymentDetail = (method: string, field: 'amount' | 'reference', value: string) => {
     setPaymentMethods(prev => ({
       ...prev,
-      [method]: { ...prev[method], [field]: value }
+      [method]: { ...(prev[method] || { active: false, amount: '', reference: '' }), [field]: value }
     }));
   };
 
@@ -786,7 +790,9 @@ export default function POS() {
     setPaymentMethods({
       cash: { active: false, amount: '', reference: '' },
       card: { active: false, amount: '', reference: '' },
-      mobile: { active: false, amount: '', reference: '' }
+      mobile: { active: false, amount: '', reference: '' },
+      bank: { active: false, amount: '', reference: '' },
+      complimentary: { active: false, amount: '', reference: '' }
     });
     const defaultCust = contextCustomers?.find(
       c => c.name?.toUpperCase() === 'CASH-SALES ACCOUNT'
@@ -1099,6 +1105,12 @@ export default function POS() {
     }
     if (paymentMethods.card.active) {
       payments.push({ method: 'CARD', amount: parseFloat(paymentMethods.card.amount) || 0, reference: paymentMethods.card.reference });
+    }
+    if (paymentMethods.bank?.active) {
+      payments.push({ method: 'BANK', amount: parseFloat(paymentMethods.bank.amount) || 0, reference: paymentMethods.bank.reference });
+    }
+    if (paymentMethods.complimentary?.active) {
+      payments.push({ method: 'COMPLIMENTARY', amount: parseFloat(paymentMethods.complimentary.amount) || 0, reference: paymentMethods.complimentary.reference });
     }
     // Mobile is being paid via Mpesa STK
     payments.push({ method: 'MOBILE', amount: amount, reference: 'MPESA-STK' });
@@ -1992,7 +2004,7 @@ export default function POS() {
           disabled={cart.length === 0}
           onClick={() => {
             if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
-            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: true, amount: total.toFixed(2), reference: '' } });
+            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: true, amount: total.toFixed(2), reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
             setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
             setCheckoutOpen(true);
           }}
@@ -2002,13 +2014,45 @@ export default function POS() {
           Mob Money
         </button>
 
+        {/* Bank Transfer */}
+        <button
+          id="pos-bank-btn"
+          disabled={cart.length === 0}
+          onClick={() => {
+            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: true, amount: total.toFixed(2), reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
+            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+            setCheckoutOpen(true);
+          }}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-600 hover:bg-blue-700 text-white active:brightness-90"
+        >
+          <Building className="h-5 w-5" />
+          Bank
+        </button>
+
+        {/* Complimentary */}
+        <button
+          id="pos-complimentary-btn"
+          disabled={cart.length === 0}
+          onClick={() => {
+            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: true, amount: total.toFixed(2), reference: '' } });
+            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+            setCheckoutOpen(true);
+          }}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-purple-600 hover:bg-purple-700 text-white active:brightness-90"
+        >
+          <Gift className="h-5 w-5" />
+          Complimentary
+        </button>
+
         {/* Pay Cash */}
         <button
           id="pos-pay-cash-btn"
           disabled={cart.length === 0}
           onClick={() => {
             if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
-            setPaymentMethods({ cash: { active: true, amount: total.toFixed(2), reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' } });
+            setPaymentMethods({ cash: { active: true, amount: total.toFixed(2), reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
             setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
             setCheckoutOpen(true);
           }}

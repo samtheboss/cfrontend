@@ -278,9 +278,13 @@ export default function CustomReports() {
                       <Button
                         className="w-full h-8 text-xs font-medium bg-secondary/50 text-secondary-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
                         onClick={() => {
+                          const today = new Date();
+                          const pad = (n: number) => String(n).padStart(2, '0');
+                          const startDateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}T00:00`;
+                          const endDateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}T23:59`;
                           setExecutingTemplate(template);
                           setExecParams({
-                            ...((template.params?.includes('dateRange')) && { startDate: new Date().toISOString().slice(0,16), endDate: new Date().toISOString().slice(0,16) })
+                            ...((template.params?.includes('dateRange')) && { startDate: startDateStr, endDate: endDateStr })
                           });
                         }}
                       >
