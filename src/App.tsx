@@ -29,6 +29,11 @@ import Purchasing from "./pages/Purchasing";
 import SupplierAccounts from "./pages/SupplierAccounts";
 import Accommodation from "./pages/Accommodation";
 import AccommodationExpenses from "./pages/AccommodationExpenses";
+import Properties from "./pages/Properties";
+import Leases from "./pages/Leases";
+import RentCollection from "./pages/RentCollection";
+import PmsExpenses from "./pages/PmsExpenses";
+import Maintenance from "./pages/Maintenance";
 import CustomReports from "./pages/CustomReports";
 import NotFound from "./pages/NotFound";
 
@@ -56,6 +61,11 @@ const App = () => (
               <Route path="/supplier-accounts" element={<ProtectedRoute requiredRight="managePurchasing"><SupplierAccounts /></ProtectedRoute>} />
               <Route path="/accommodation" element={<ProtectedRoute requiredRight="viewAccommodation"><Accommodation /></ProtectedRoute>} />
               <Route path="/accommodation-expenses" element={<ProtectedRoute requiredRight="viewAccommodation"><AccommodationExpenses /></ProtectedRoute>} />
+              <Route path="/properties" element={<ProtectedRoute requiredRight="viewAccommodation"><Properties /></ProtectedRoute>} />
+              <Route path="/leases" element={<ProtectedRoute requiredRight="viewAccommodation"><Leases /></ProtectedRoute>} />
+              <Route path="/rent-collection" element={<ProtectedRoute requiredRight="viewAccommodation"><RentCollection /></ProtectedRoute>} />
+              <Route path="/pms-expenses" element={<ProtectedRoute requiredRight="viewAccommodation"><PmsExpenses /></ProtectedRoute>} />
+              <Route path="/maintenance" element={<ProtectedRoute requiredRight="viewAccommodation"><Maintenance /></ProtectedRoute>} />
               <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
               <Route path="/custom-reports" element={<ProtectedRoute requiredRight="viewReports"><CustomReports /></ProtectedRoute>} />

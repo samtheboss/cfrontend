@@ -46,8 +46,12 @@ import {
   Receipt,
   Eye,
   Paperclip,
-  Upload
+  Upload,
+  ChevronsUpDown,
+  Check
 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
 import { format } from 'date-fns';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -128,6 +132,7 @@ export default function AccommodationExpenses() {
     attachmentPath: '',
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [isCategoryPopoverOpen, setIsCategoryPopoverOpen] = useState(false);
 
   // Add Category Dialog
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
@@ -635,21 +640,51 @@ export default function AccommodationExpenses() {
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 flex flex-col">
               <Label className="text-xs font-bold text-slate-555 uppercase">Expense Category *</Label>
-              <Select 
-                value={expenseForm.categoryId} 
-                onValueChange={val => setExpenseForm(prev => ({ ...prev, categoryId: val }))}
-              >
-                <SelectTrigger className="rounded-xl h-10 text-xs">
-                  <SelectValue placeholder="Select category..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={isCategoryPopoverOpen} onOpenChange={setIsCategoryPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isCategoryPopoverOpen}
+                    className="w-full justify-between rounded-xl h-10 text-xs font-normal border-slate-200"
+                  >
+                    {expenseForm.categoryId
+                      ? categories.find(c => String(c.id) === String(expenseForm.categoryId))?.name
+                      : 'Select category...'}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search categories..." />
+                    <CommandList>
+                      <CommandEmpty>No categories found.</CommandEmpty>
+                      <CommandGroup>
+                        {categories.map((cat) => (
+                          <CommandItem
+                            key={cat.id}
+                            value={cat.name}
+                            onSelect={() => {
+                              setExpenseForm((prev) => ({ ...prev, categoryId: String(cat.id) }));
+                              setIsCategoryPopoverOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                String(cat.id) === String(expenseForm.categoryId) ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            {cat.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="space-y-1.5">

@@ -14,6 +14,7 @@ import {
   Boxes,
   Truck,
   Bed,
+  Building,
   ChefHat,
   Wallet,
   Clock,
@@ -108,6 +109,51 @@ export default function DashboardMenu() {
       href: '/accommodation-expenses',
       icon: Wallet,
       iconGradientClass: 'from-fuchsia-500 to-pink-600 shadow-fuchsia-500/20',
+      requiredRight: 'viewAccommodation',
+      category: 'core'
+    },
+    {
+      name: 'Properties & Units',
+      description: 'Manage real estate properties, floors, and individual units',
+      href: '/properties',
+      icon: Building,
+      iconGradientClass: 'from-indigo-600 to-indigo-700 shadow-indigo-600/20',
+      requiredRight: 'viewAccommodation',
+      category: 'core'
+    },
+    {
+      name: 'Leases & Agreements',
+      description: 'Create and manage rental lease agreements for tenants',
+      href: '/leases',
+      icon: FileEdit,
+      iconGradientClass: 'from-blue-500 to-cyan-600 shadow-blue-500/20',
+      requiredRight: 'viewAccommodation',
+      category: 'core'
+    },
+    {
+      name: 'Rent Collection',
+      description: 'Generate invoices, process payments, and view rental balances',
+      href: '/rent-collection',
+      icon: Wallet,
+      iconGradientClass: 'from-emerald-500 to-teal-600 shadow-emerald-500/20',
+      requiredRight: 'viewAccommodation',
+      category: 'core'
+    },
+    {
+      name: 'Property Expenses',
+      description: 'Log maintenance costs, utility bills, and other operational expenses',
+      href: '/pms-expenses',
+      icon: CreditCard,
+      iconGradientClass: 'from-pink-500 to-rose-600 shadow-pink-500/20',
+      requiredRight: 'viewAccommodation',
+      category: 'core'
+    },
+    {
+      name: 'Maintenance Requests',
+      description: 'Log, assign, and track maintenance issues and technician costs',
+      href: '/maintenance',
+      icon: ClipboardList,
+      iconGradientClass: 'from-amber-500 to-orange-600 shadow-amber-500/20',
       requiredRight: 'viewAccommodation',
       category: 'core'
     },

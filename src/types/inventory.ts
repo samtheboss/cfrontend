@@ -264,3 +264,80 @@ export interface Promotion {
   createdAt?: string | Date;
   updatedAt?: string | Date;
 }
+
+export interface Property {
+  id?: number;
+  name: string;
+  address?: string;
+  propertyType: 'APARTMENT' | 'HOUSE' | 'OFFICE' | 'SHOP';
+  locationId?: number;
+  ownerName?: string;
+  ownerPhone?: string;
+  ownerEmail?: string;
+  photoUrl?: string;
+}
+
+export interface PropertyUnit {
+  id?: number;
+  propertyId: number;
+  unitNumber: string;
+  floor?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  monthlyRent: number;
+  depositAmount: number;
+  status: 'VACANT' | 'OCCUPIED' | 'RESERVED' | 'UNDER_MAINTENANCE';
+}
+
+export interface PropertyLease {
+  id?: number;
+  leaseNumber?: string;
+  tenantId: number;
+  unitId: number;
+  startDate: string;
+  endDate: string;
+  rentAmount: number;
+  depositAmount: number;
+  billingFrequency: 'MONTHLY' | 'QUARTERLY' | 'ANNUALLY';
+  status: 'ACTIVE' | 'EXPIRED' | 'TERMINATED';
+  nextInvoiceDate?: string;
+  lastInvoicedDate?: string;
+}
+
+export interface PropertyRentInvoice {
+  id?: number;
+  leaseId: number;
+  invoiceNumber: string;
+  dueDate: string;
+  amountDue: number;
+  amountPaid: number;
+  status: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+  billingPeriod: string;
+  createdAt?: string;
+  createdBy?: string;
+}
+
+export interface PropertyRentPayment {
+  id?: number;
+  invoiceId: number;
+  paymentDate?: string;
+  amount: number;
+  paymentMethod: 'CASH' | 'BANK' | 'MOBILE_MONEY' | 'CARD';
+  referenceNumber?: string;
+  receiptNumber?: string;
+  notes?: string;
+  createdBy?: string;
+}
+
+export interface PropertyMaintenanceRequest {
+  id?: number;
+  unitId: number;
+  issueDescription: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'REPORTED' | 'ASSIGNED' | 'COMPLETED';
+  technicianName?: string;
+  cost: number;
+  completionDate?: string;
+  createdAt?: string;
+}
+
