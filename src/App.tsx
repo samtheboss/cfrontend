@@ -35,6 +35,7 @@ import RentCollection from "./pages/RentCollection";
 import PmsExpenses from "./pages/PmsExpenses";
 import Maintenance from "./pages/Maintenance";
 import CustomReports from "./pages/CustomReports";
+import Accounting from "./pages/Accounting";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -61,15 +62,16 @@ const App = () => (
               <Route path="/supplier-accounts" element={<ProtectedRoute requiredRight="managePurchasing"><SupplierAccounts /></ProtectedRoute>} />
               <Route path="/accommodation" element={<ProtectedRoute requiredRight="viewAccommodation"><Accommodation /></ProtectedRoute>} />
               <Route path="/accommodation-expenses" element={<ProtectedRoute requiredRight="viewAccommodation"><AccommodationExpenses /></ProtectedRoute>} />
-              <Route path="/properties" element={<ProtectedRoute requiredRight="viewAccommodation"><Properties /></ProtectedRoute>} />
-              <Route path="/leases" element={<ProtectedRoute requiredRight="viewAccommodation"><Leases /></ProtectedRoute>} />
-              <Route path="/rent-collection" element={<ProtectedRoute requiredRight="viewAccommodation"><RentCollection /></ProtectedRoute>} />
-              <Route path="/pms-expenses" element={<ProtectedRoute requiredRight="viewAccommodation"><PmsExpenses /></ProtectedRoute>} />
-              <Route path="/maintenance" element={<ProtectedRoute requiredRight="viewAccommodation"><Maintenance /></ProtectedRoute>} />
+              <Route path="/properties" element={<ProtectedRoute requiredRight="viewProperties"><Properties /></ProtectedRoute>} />
+              <Route path="/leases" element={<ProtectedRoute requiredRight="viewProperties"><Leases /></ProtectedRoute>} />
+              <Route path="/rent-collection" element={<ProtectedRoute requiredRight="viewProperties"><RentCollection /></ProtectedRoute>} />
+              <Route path="/pms-expenses" element={<ProtectedRoute requiredRight="viewProperties"><PmsExpenses /></ProtectedRoute>} />
+              <Route path="/maintenance" element={<ProtectedRoute requiredRight="viewProperties"><Maintenance /></ProtectedRoute>} />
               <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
               <Route path="/custom-reports" element={<ProtectedRoute requiredRight="viewReports"><CustomReports /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute requiredRight="viewSettings"><Settings /></ProtectedRoute>} />
+              <Route path="/accounting" element={<ProtectedRoute requiredRight="viewReports"><Accounting /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute requiredRight="viewUsers"><Users /></ProtectedRoute>} />
               <Route path="/customers" element={<ProtectedRoute requiredRight="viewCustomers"><Customers /></ProtectedRoute>} />
               <Route path="/locations" element={<ProtectedRoute requiredRight="viewSettings"><Locations /></ProtectedRoute>} />

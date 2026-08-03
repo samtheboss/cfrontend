@@ -118,7 +118,7 @@ export default function DashboardMenu() {
       href: '/properties',
       icon: Building,
       iconGradientClass: 'from-indigo-600 to-indigo-700 shadow-indigo-600/20',
-      requiredRight: 'viewAccommodation',
+      requiredRight: 'viewProperties',
       category: 'core'
     },
     {
@@ -127,7 +127,7 @@ export default function DashboardMenu() {
       href: '/leases',
       icon: FileEdit,
       iconGradientClass: 'from-blue-500 to-cyan-600 shadow-blue-500/20',
-      requiredRight: 'viewAccommodation',
+      requiredRight: 'viewProperties',
       category: 'core'
     },
     {
@@ -136,7 +136,7 @@ export default function DashboardMenu() {
       href: '/rent-collection',
       icon: Wallet,
       iconGradientClass: 'from-emerald-500 to-teal-600 shadow-emerald-500/20',
-      requiredRight: 'viewAccommodation',
+      requiredRight: 'viewProperties',
       category: 'core'
     },
     {
@@ -145,7 +145,7 @@ export default function DashboardMenu() {
       href: '/pms-expenses',
       icon: CreditCard,
       iconGradientClass: 'from-pink-500 to-rose-600 shadow-pink-500/20',
-      requiredRight: 'viewAccommodation',
+      requiredRight: 'viewProperties',
       category: 'core'
     },
     {
@@ -154,7 +154,7 @@ export default function DashboardMenu() {
       href: '/maintenance',
       icon: ClipboardList,
       iconGradientClass: 'from-amber-500 to-orange-600 shadow-amber-500/20',
-      requiredRight: 'viewAccommodation',
+      requiredRight: 'viewProperties',
       category: 'core'
     },
     {
@@ -292,6 +292,15 @@ export default function DashboardMenu() {
       iconGradientClass: 'from-blue-600 to-sky-500 shadow-blue-600/20',
       requiredRight: 'viewProducts',
       category: 'catalog'
+    },
+    {
+      name: 'Accounting & GL',
+      description: 'Chart of accounts, GL journals, posting profiles, and financial reports',
+      href: '/accounting',
+      icon: Calculator,
+      iconGradientClass: 'from-teal-500 to-emerald-600 shadow-teal-500/20',
+      requiredRight: 'viewReports',
+      category: 'management'
     },
     {
       name: 'System Settings',

@@ -911,7 +911,8 @@ export default function POS() {
     const payments = finalPayments.map(p => ({
       method: p.method.toUpperCase(),
       amount: p.amount,
-      reference: p.reference
+      reference: p.reference,
+      glAccountId: p.glAccountId
     }));
 
     // Build sale data for backend

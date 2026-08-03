@@ -54,6 +54,10 @@ export interface UserRights {
   viewAccommodation: RightValue;
   manageAccommodation: RightValue;
 
+  // Properties / PMS
+  viewProperties: RightValue;
+  manageProperties: RightValue;
+
   // Promotions
   managePromotions: RightValue;
 
@@ -121,6 +125,8 @@ export const defaultRights: UserRights = {
   viewReports: 'no',
   viewAccommodation: 'no',
   manageAccommodation: 'no',
+  viewProperties: 'no',
+  manageProperties: 'no',
   managePromotions: 'no',
   viewSettings: 'no',
   editSettings: 'no',
@@ -170,6 +176,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editSettings: 'yes',
       viewAccommodation: 'yes',
       manageAccommodation: 'yes',
+      viewProperties: 'yes',
+      manageProperties: 'yes',
       managePromotions: 'yes',
     },
     createdAt: new Date('2024-01-01'),
@@ -216,6 +224,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editSettings: 'supervised',
       viewAccommodation: 'yes',
       manageAccommodation: 'yes',
+      viewProperties: 'yes',
+      manageProperties: 'yes',
       managePromotions: 'yes',
     },
     createdAt: new Date('2024-01-01'),
@@ -262,6 +272,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editSettings: 'no',
       viewAccommodation: 'no',
       manageAccommodation: 'no',
+      viewProperties: 'no',
+      manageProperties: 'no',
       managePromotions: 'no',
     },
     createdAt: new Date('2024-01-01'),
@@ -308,6 +320,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editSettings: 'no',
       viewAccommodation: 'no',
       manageAccommodation: 'no',
+      viewProperties: 'no',
+      manageProperties: 'no',
       managePromotions: 'no',
     },
     createdAt: new Date('2024-01-01'),
@@ -390,6 +404,8 @@ export const rightLabels: Record<keyof UserRights, string> = {
   viewReports: 'View Reports',
   viewAccommodation: 'View Accommodation',
   manageAccommodation: 'Manage Accommodation',
+  viewProperties: 'View Properties/PMS',
+  manageProperties: 'Manage Properties/PMS',
   managePromotions: 'Manage Promotions',
   viewSettings: 'View Settings',
   editSettings: 'Modify Settings',
@@ -405,6 +421,7 @@ export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Payments': ['viewPayments', 'processPayments'],
   'Reports': ['viewReports'],
   'Accommodation': ['viewAccommodation', 'manageAccommodation'],
+  'Property Management': ['viewProperties', 'manageProperties'],
   'Promotions': ['managePromotions'],
   'Settings': ['viewSettings', 'editSettings'],
 };

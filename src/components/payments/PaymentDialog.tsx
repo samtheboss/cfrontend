@@ -22,6 +22,7 @@ export interface PaymentDetails {
   method: 'cash' | 'card' | 'mobile' | 'bank' | 'complimentary' | string;
   amount: number;
   reference?: string;
+  glAccountId?: number;
 }
 
 interface PaymentDialogProps {
@@ -66,13 +67,12 @@ export function PaymentDialog({
   const activeSubtitle = subtitle ?? description;
   const activeOnConfirm = onConfirm ?? onSubmit ?? (async () => { });
 
-  // Payment states
-  const [paymentMethods, setPaymentMethods] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
-    cash: { active: false, amount: '', reference: '' },
-    card: { active: false, amount: '', reference: '' },
-    mobile: { active: false, amount: '', reference: '' },
-    bank: { active: false, amount: '', reference: '' },
-    complimentary: { active: false, amount: '', reference: '' },
+  const [paymentMethods, setPaymentMethods] = useState<Record<string, { active: boolean; amount: string; reference: string; accountId?: string }>>({
+    cash: { active: false, amount: '', reference: '', accountId: '' },
+    card: { active: false, amount: '', reference: '', accountId: '' },
+    mobile: { active: false, amount: '', reference: '', accountId: '' },
+    bank: { active: false, amount: '', reference: '', accountId: '' },
+    complimentary: { active: false, amount: '', reference: '', accountId: '' },
   });
 
   // MPesa STK Push state
@@ -89,6 +89,16 @@ export function PaymentDialog({
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [dbSearch, setDbSearch] = useState('');
+
+  const [glAccounts, setGlAccounts] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      apiFetch<any[]>('/api/accounting/accounts')
+        .then(res => setGlAccounts(Array.isArray(res) ? res : []))
+        .catch(err => console.error("Failed to load GL accounts for payments", err));
+    }
+  }, [open]);
 
   const fetchDbTransactions = async () => {
     setIsLoadingDb(true);
@@ -160,11 +170,11 @@ export function PaymentDialog({
   useEffect(() => {
     if (open) {
       setPaymentMethods({
-        cash: initialPayments?.cash || { active: true, amount: activeTotalDue.toFixed(2), reference: '' },
-        card: initialPayments?.card || { active: false, amount: '', reference: '' },
-        mobile: initialPayments?.mpesa || initialPayments?.mobile || { active: false, amount: '', reference: '' },
-        bank: initialPayments?.bank || { active: false, amount: '', reference: '' },
-        complimentary: initialPayments?.complimentary || { active: false, amount: '', reference: '' },
+        cash: { active: initialPayments?.cash?.active || true, amount: initialPayments?.cash?.amount || activeTotalDue.toFixed(2), reference: initialPayments?.cash?.reference || '', accountId: '' },
+        card: { active: initialPayments?.card?.active || false, amount: initialPayments?.card?.amount || '', reference: initialPayments?.card?.reference || '', accountId: '' },
+        mobile: { active: (initialPayments?.mpesa?.active || initialPayments?.mobile?.active) || false, amount: (initialPayments?.mpesa?.amount || initialPayments?.mobile?.amount) || '', reference: (initialPayments?.mpesa?.reference || initialPayments?.mobile?.reference) || '', accountId: '' },
+        bank: { active: initialPayments?.bank?.active || false, amount: initialPayments?.bank?.amount || '', reference: initialPayments?.bank?.reference || '', accountId: '' },
+        complimentary: { active: initialPayments?.complimentary?.active || false, amount: initialPayments?.complimentary?.amount || '', reference: initialPayments?.complimentary?.reference || '', accountId: '' },
       });
       setMpesaPhone(defaultPhone || '');
       setMpesaStatus('IDLE');
@@ -188,18 +198,18 @@ export function PaymentDialog({
     setPaymentMethods(prev => ({
       ...prev,
       [method]: {
-        ...(prev[method] || { active: false, amount: '', reference: '' }),
+        ...(prev[method] || { active: false, amount: '', reference: '', accountId: '' }),
         active: checked,
         amount: checked ? (remainder !== 0 ? remainder.toFixed(2) : '') : ''
       }
     }));
   };
 
-  const updatePaymentDetail = (method: string, field: 'amount' | 'reference', value: string) => {
+  const updatePaymentDetail = (method: string, field: 'amount' | 'reference' | 'accountId', value: string) => {
     setPaymentMethods(prev => ({
       ...prev,
       [method]: {
-        ...(prev[method] || { active: false, amount: '', reference: '' }),
+        ...(prev[method] || { active: false, amount: '', reference: '', accountId: '' }),
         [field]: value
       }
     }));
@@ -331,14 +341,14 @@ export function PaymentDialog({
     }
 
     const finalPayments: PaymentDetails[] = [];
-    if (enteredCash > 0) finalPayments.push({ method: 'cash', amount: enteredCash, reference: paymentMethods.cash.reference });
-    if (enteredCard > 0) finalPayments.push({ method: 'card', amount: enteredCard, reference: paymentMethods.card.reference });
-    if (enteredMobile > 0) finalPayments.push({ method: 'mobile', amount: enteredMobile, reference: paymentMethods.mobile.reference });
-    if (enteredBank > 0) finalPayments.push({ method: 'bank', amount: enteredBank, reference: paymentMethods.bank?.reference });
-    if (enteredComplimentary > 0) finalPayments.push({ method: 'complimentary', amount: enteredComplimentary, reference: paymentMethods.complimentary?.reference });
+    if (enteredCash > 0) finalPayments.push({ method: 'cash', amount: enteredCash, reference: paymentMethods.cash.reference, glAccountId: paymentMethods.cash.accountId ? parseInt(paymentMethods.cash.accountId) : undefined });
+    if (enteredCard > 0) finalPayments.push({ method: 'card', amount: enteredCard, reference: paymentMethods.card.reference, glAccountId: paymentMethods.card.accountId ? parseInt(paymentMethods.card.accountId) : undefined });
+    if (enteredMobile > 0) finalPayments.push({ method: 'mobile', amount: enteredMobile, reference: paymentMethods.mobile.reference, glAccountId: paymentMethods.mobile.accountId ? parseInt(paymentMethods.mobile.accountId) : undefined });
+    if (enteredBank > 0) finalPayments.push({ method: 'bank', amount: enteredBank, reference: paymentMethods.bank?.reference, glAccountId: paymentMethods.bank?.accountId ? parseInt(paymentMethods.bank.accountId) : undefined });
+    if (enteredComplimentary > 0) finalPayments.push({ method: 'complimentary', amount: enteredComplimentary, reference: paymentMethods.complimentary?.reference, glAccountId: paymentMethods.complimentary?.accountId ? parseInt(paymentMethods.complimentary.accountId) : undefined });
 
     completedMpesaPayments.forEach(p => {
-      finalPayments.push({ method: 'mobile', amount: p.amount, reference: p.reference });
+      finalPayments.push({ method: 'mobile', amount: p.amount, reference: p.reference, glAccountId: paymentMethods.mobile.accountId ? parseInt(paymentMethods.mobile.accountId) : undefined });
     });
 
     try {
@@ -479,6 +489,26 @@ export function PaymentDialog({
                     />
                   )}
                 </div>
+
+                {paymentMethods[method]?.active && (
+                  <div className="pl-7 pr-2 py-1 flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">Deposit Account:</span>
+                    <select
+                      value={paymentMethods[method]?.accountId || ''}
+                      onChange={(e) => updatePaymentDetail(method, 'accountId', e.target.value)}
+                      className="bg-transparent border border-muted-foreground/20 rounded px-2 py-0.5 text-xs flex-1 max-w-[280px] dark:bg-slate-900"
+                    >
+                      <option value="">Default mapped account</option>
+                      {glAccounts
+                        .filter((acc: any) => acc.type === 'ASSET' && acc.active)
+                        .map((acc: any) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.code} - {acc.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* Mobile Extra Options */}
                 {method === 'mobile' && paymentMethods[method]?.active && (

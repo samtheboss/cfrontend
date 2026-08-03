@@ -56,6 +56,7 @@ import { format } from 'date-fns';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInventory } from '@/contexts/InventoryContext';
+import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
 
 interface Expense {
   id: any;
@@ -132,6 +133,8 @@ export default function AccommodationExpenses() {
     attachmentPath: '',
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [pendingPayload, setPendingPayload] = useState<any>(null);
   const [isCategoryPopoverOpen, setIsCategoryPopoverOpen] = useState(false);
 
   // Add Category Dialog
@@ -144,8 +147,17 @@ export default function AccommodationExpenses() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const catsRes = await apiFetch<ApiResponse<ExpenseCategory[]>>('/api/expenses/categories');
-      setCategories(catsRes.data || []);
+      const catsRes = await apiFetch<any[]>('/api/accounting/accounts');
+      const expenseAccounts = (catsRes || [])
+        .filter((a: any) => a.type === 'EXPENSE' && a.active)
+        .map((a: any) => ({
+          id: a.id,
+          name: `${a.code} - ${a.name}`,
+          description: a.description || '',
+          isActive: a.active,
+          isDefault: false
+        }));
+      setCategories(expenseAccounts);
 
       const roomsRes = await apiFetch<ApiResponse<Room[]>>('/api/accommodation/rooms');
       setRooms(roomsRes.data || []);
@@ -210,36 +222,84 @@ export default function AccommodationExpenses() {
       return;
     }
 
-    try {
-      const categoryObj = categories.find(c => String(c.id) === String(expenseForm.categoryId));
-      const roomObj = rooms.find(r => String(r.id) === String(expenseForm.roomId));
-      const supplierObj = suppliers.find(s => String(s.id) === String(expenseForm.supplierId));
+    const categoryObj = categories.find(c => String(c.id) === String(expenseForm.categoryId));
+    const roomObj = rooms.find(r => String(r.id) === String(expenseForm.roomId));
+    const supplierObj = suppliers.find(s => String(s.id) === String(expenseForm.supplierId));
 
-      const payload = {
-        date: expenseForm.date,
-        categoryId: Number(expenseForm.categoryId),
-        categoryName: categoryObj ? categoryObj.name : '',
-        description: expenseForm.description,
-        roomId: expenseForm.roomId !== 'none' ? Number(expenseForm.roomId) : null,
-        roomNumber: expenseForm.roomId !== 'none' && roomObj ? roomObj.roomNumber : null,
-        supplierId: expenseForm.supplierId !== 'none' ? Number(expenseForm.supplierId) : null,
-        supplierName: expenseForm.supplierId !== 'none' && supplierObj ? supplierObj.name : null,
-        amount: parseFloat(expenseForm.amount),
-        paymentMethod: expenseForm.paymentMethod,
-        referenceNumber: expenseForm.referenceNumber,
-        attachmentPath: expenseForm.attachmentPath,
-        expenseType: 'GENERAL', // UI posts general expenses
-        createdBy: user?.name || user?.username || 'System',
-        approvedBy: user?.name || user?.username || 'System',
+    const payload = {
+      date: expenseForm.date,
+      categoryId: Number(expenseForm.categoryId),
+      categoryName: categoryObj ? categoryObj.name : '',
+      description: expenseForm.description,
+      roomId: expenseForm.roomId !== 'none' ? Number(expenseForm.roomId) : null,
+      roomNumber: expenseForm.roomId !== 'none' && roomObj ? roomObj.roomNumber : null,
+      supplierId: expenseForm.supplierId !== 'none' ? Number(expenseForm.supplierId) : null,
+      supplierName: expenseForm.supplierId !== 'none' && supplierObj ? supplierObj.name : null,
+      amount: parseFloat(expenseForm.amount),
+      paymentMethod: expenseForm.paymentMethod,
+      referenceNumber: expenseForm.referenceNumber,
+      attachmentPath: expenseForm.attachmentPath,
+      expenseType: 'GENERAL', // UI posts general expenses
+      createdBy: user?.name || user?.username || 'System',
+      approvedBy: user?.name || user?.username || 'System',
+    };
+
+    setPendingPayload(payload);
+    setIsPaymentDialogOpen(true);
+  };
+
+  const handleConfirmPayment = async (paymentsList: PaymentDetails[]) => {
+    if (!pendingPayload || paymentsList.length === 0) return;
+
+    try {
+      const backendPaymentLines = paymentsList
+        .filter(p => p.amount > 0)
+        .map(p => {
+          let method = p.method.toUpperCase();
+          if (method === 'MOBILE') method = 'MOBILE_MONEY';
+          return {
+            method: method,
+            amount: p.amount,
+            reference: p.reference || '',
+            accountId: p.glAccountId || null,
+          };
+        });
+
+      if (backendPaymentLines.length === 0) {
+        toast.error('Please record a valid payment');
+        return;
+      }
+
+      const firstActive = backendPaymentLines[0];
+
+      const finalPayload = {
+        ...pendingPayload,
+        paymentMethod: firstActive.method,
+        referenceNumber: firstActive.reference,
+        glAccountId: firstActive.accountId,
+        paymentLines: backendPaymentLines,
       };
 
       await apiFetch('/api/expenses', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(finalPayload),
       });
 
       toast.success('Expense recorded successfully');
+      setIsPaymentDialogOpen(false);
       setIsExpenseDialogOpen(false);
+      setPendingPayload(null);
+      setExpenseForm({
+        date: format(new Date(), 'yyyy-MM-dd'),
+        categoryId: '',
+        description: '',
+        roomId: 'none',
+        supplierId: 'none',
+        amount: '',
+        paymentMethod: 'CASH',
+        referenceNumber: '',
+        attachmentPath: '',
+      });
       fetchData();
     } catch (err: any) {
       toast.error('Failed to save expense: ' + err.message);
@@ -737,33 +797,7 @@ export default function AccommodationExpenses() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-555 uppercase">Payment Method *</Label>
-              <Select 
-                value={expenseForm.paymentMethod} 
-                onValueChange={val => setExpenseForm(prev => ({ ...prev, paymentMethod: val }))}
-              >
-                <SelectTrigger className="rounded-xl h-10 text-xs">
-                  <SelectValue placeholder="Select method..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CASH">CASH</SelectItem>
-                  <SelectItem value="MPESA">M-PESA</SelectItem>
-                  <SelectItem value="CARD">CREDIT/DEBIT CARD</SelectItem>
-                  <SelectItem value="BANK TRANSFER">BANK TRANSFER</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
 
-            <div className="space-y-1.5 col-span-2">
-              <Label className="text-xs font-bold text-slate-555 uppercase">Reference Number / Transaction ID</Label>
-              <Input
-                placeholder="e.g. M-Pesa Code, Check No."
-                value={expenseForm.referenceNumber}
-                onChange={e => setExpenseForm(prev => ({ ...prev, referenceNumber: e.target.value }))}
-                className="rounded-xl h-10 text-xs"
-              />
-            </div>
 
             <div className="space-y-1.5 col-span-2">
               <Label className="text-xs font-bold text-slate-555 uppercase">Description spec</Label>
@@ -850,6 +884,17 @@ export default function AccommodationExpenses() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Payment Popup Dialog */}
+      <PaymentDialog
+        open={isPaymentDialogOpen}
+        onOpenChange={setIsPaymentDialogOpen}
+        title="Expense Payment Details"
+        description={`Select the payment method and target asset account for the expense of KES ${expenseForm.amount}.`}
+        totalDue={parseFloat(expenseForm.amount) || 0}
+        onSubmit={handleConfirmPayment}
+        allowPartialPayment={false}
+      />
     </AppLayout>
   );
 }

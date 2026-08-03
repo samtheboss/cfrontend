@@ -161,6 +161,7 @@ export default function RentCollection() {
           referenceNumber: p.reference || '',
           notes: 'Rent Payment via Payment Dialog',
           createdBy: user?.name || user?.username || 'System',
+          glAccountId: p.glAccountId,
         };
 
         const res = await apiFetch<{ data: PropertyRentPayment }>('/api/pms/payments', {

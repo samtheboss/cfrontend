@@ -688,7 +688,8 @@ export default function Accommodation() {
               amount: amt,
               reference: p.reference || 'Partial Payment',
               createdBy: user?.name || user?.username || 'System',
-              approvedBy: user?.name || user?.username || 'System'
+              approvedBy: user?.name || user?.username || 'System',
+              glAccountId: p.glAccountId
             });
           }
       }
@@ -721,14 +722,18 @@ export default function Accommodation() {
       setBookingFormPayments(emptyState);
       setIsAddPaymentDialogOpen(false);
     } else {
-      const newState = {
+      const newState: Record<string, { active: boolean; amount: string; reference: string; glAccountId?: number }> = {
         cash: { active: false, amount: '', reference: '' },
         card: { active: false, amount: '', reference: '' },
         mpesa: { active: false, amount: '', reference: '' },
         bank: { active: false, amount: '', reference: '' },
       };
       for (const p of finalPayments) {
-          newState[p.method] = { active: true, amount: String(p.amount), reference: p.reference || '' };
+          // Normalize mobile method mapping from finalPayments
+          const methodKey = p.method === 'mobile' ? 'mpesa' : p.method;
+          if (newState[methodKey]) {
+            newState[methodKey] = { active: true, amount: String(p.amount), reference: p.reference || '', glAccountId: p.glAccountId };
+          }
       }
       setBookingFormPayments(newState);
       setIsAddPaymentDialogOpen(false);
@@ -1021,7 +1026,7 @@ export default function Accommodation() {
     }
 
     let totalNewPayment = 0;
-    const paymentMethodsToSave: { method: string; amount: number; reference: string }[] = [];
+    const paymentMethodsToSave: { method: string; amount: number; reference: string; glAccountId?: number }[] = [];
 
     for (const [methodKey, p] of Object.entries(bookingFormPayments)) {
       if (p.active) {
@@ -1032,7 +1037,8 @@ export default function Accommodation() {
           paymentMethodsToSave.push({
             method: methodLabel === 'MPESA' ? 'MPESA' : methodLabel === 'BANK' ? 'BANK TRANSFER' : methodLabel,
             amount: amt,
-            reference: p.reference || 'Booking Payment'
+            reference: p.reference || 'Booking Payment',
+            glAccountId: p.glAccountId
           });
         }
       }
@@ -1090,7 +1096,8 @@ export default function Accommodation() {
             amount: pay.amount,
             reference: pay.reference,
             createdBy: user?.name || user?.username || 'System',
-            approvedBy: user?.name || user?.username || 'System'
+            approvedBy: user?.name || user?.username || 'System',
+            glAccountId: pay.glAccountId
           })
         });
       }
@@ -1322,7 +1329,7 @@ export default function Accommodation() {
     const outstanding = Math.max(0, totalDue - checkoutBooking.paidAmount);
 
     let totalPaidInDialog = 0;
-    const paymentMethodsToSave: { method: string; amount: number; reference: string }[] = [];
+    const paymentMethodsToSave: { method: string; amount: number; reference: string; glAccountId?: number }[] = [];
 
     for (const p of finalPayments) {
         const amt = p.amount;
@@ -1332,7 +1339,8 @@ export default function Accommodation() {
           paymentMethodsToSave.push({
             method: methodLabel === 'MPESA' ? 'MPESA' : methodLabel === 'BANK' ? 'BANK TRANSFER' : methodLabel,
             amount: amt,
-            reference: p.reference || 'Checkout Payment'
+            reference: p.reference || 'Checkout Payment',
+            glAccountId: p.glAccountId
           });
         }
     }
@@ -1353,7 +1361,8 @@ export default function Accommodation() {
             amount: pay.amount,
             reference: pay.reference,
             createdBy: user?.name || user?.username || 'System',
-            approvedBy: user?.name || user?.username || 'System'
+            approvedBy: user?.name || user?.username || 'System',
+            glAccountId: pay.glAccountId
           })
         });
       }

@@ -51,6 +51,7 @@ import {
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
 
 interface Expense {
   id: any;
@@ -98,6 +99,8 @@ export default function PmsExpenses() {
   const [isCategoryPopoverOpen, setIsCategoryPopoverOpen] = useState(false);
   const [isPropertyPopoverOpen, setIsPropertyPopoverOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [pendingPayload, setPendingPayload] = useState<any>(null);
 
   // Form states
   const [newExpense, setNewExpense] = useState({
@@ -120,12 +123,22 @@ export default function PmsExpenses() {
     try {
       const propRes = await apiFetch<{ data: Property[] }>('/api/pms/properties');
       const unitRes = await apiFetch<{ data: PropertyUnit[] }>('/api/pms/units');
-      const catRes = await apiFetch<{ data: ExpenseCategory[] }>('/api/expenses/categories');
+      const catsRes = await apiFetch<any[]>('/api/accounting/accounts');
       const expRes = await apiFetch<{ data: Expense[] }>('/api/expenses?type=PROPERTY');
       
+      const expenseAccounts = (catsRes || [])
+        .filter((a: any) => a.type === 'EXPENSE' && a.active)
+        .map((a: any) => ({
+          id: a.id,
+          name: `${a.code} - ${a.name}`,
+          description: a.description || '',
+          isActive: a.active,
+          isDefault: false
+        }));
+
       setProperties(propRes.data || []);
       setUnits(unitRes.data || []);
-      setCategories(catRes.data || []);
+      setCategories(expenseAccounts);
       setExpenses(expRes.data || []);
     } catch (err: any) {
       toast.error('Failed to load data: ' + err.message);
@@ -145,29 +158,66 @@ export default function PmsExpenses() {
       return;
     }
 
+    const selectedCategory = categories.find((c) => c.id.toString() === newExpense.categoryId);
+    const selectedSupplier = suppliers.find((s) => s.id === newExpense.supplierId);
+    
+    const payload = {
+      ...newExpense,
+      categoryId: parseInt(newExpense.categoryId),
+      propertyId: parseInt(newExpense.propertyId),
+      unitId: newExpense.unitId ? parseInt(newExpense.unitId) : null,
+      supplierId: newExpense.supplierId ? parseInt(newExpense.supplierId) : null,
+      supplierName: selectedSupplier ? selectedSupplier.name : '',
+      categoryName: selectedCategory ? selectedCategory.name : '',
+      amount: parseFloat(newExpense.amount as any),
+      createdBy: 'System',
+    };
+
+    setPendingPayload(payload);
+    setIsPaymentDialogOpen(true);
+  };
+
+  const handleConfirmPayment = async (paymentsList: PaymentDetails[]) => {
+    if (!pendingPayload || paymentsList.length === 0) return;
+
     try {
-      const selectedCategory = categories.find((c) => c.id.toString() === newExpense.categoryId);
-      const selectedSupplier = suppliers.find((s) => s.id === newExpense.supplierId);
-      
-      const payload = {
-        ...newExpense,
-        categoryId: parseInt(newExpense.categoryId),
-        propertyId: parseInt(newExpense.propertyId),
-        unitId: newExpense.unitId ? parseInt(newExpense.unitId) : null,
-        supplierId: newExpense.supplierId ? parseInt(newExpense.supplierId) : null,
-        supplierName: selectedSupplier ? selectedSupplier.name : '',
-        categoryName: selectedCategory ? selectedCategory.name : '',
-        amount: parseFloat(newExpense.amount as any),
-        createdBy: 'System',
+      const backendPaymentLines = paymentsList
+        .filter(p => p.amount > 0)
+        .map(p => {
+          let method = p.method.toUpperCase();
+          if (method === 'MOBILE') method = 'MOBILE_MONEY';
+          return {
+            method: method,
+            amount: p.amount,
+            reference: p.reference || '',
+            accountId: p.glAccountId || null,
+          };
+        });
+
+      if (backendPaymentLines.length === 0) {
+        toast.error('Please record a valid payment');
+        return;
+      }
+
+      const firstActive = backendPaymentLines[0];
+
+      const finalPayload = {
+        ...pendingPayload,
+        paymentMethod: firstActive.method,
+        referenceNumber: firstActive.reference,
+        glAccountId: firstActive.accountId,
+        paymentLines: backendPaymentLines,
       };
 
       await apiFetch('/api/expenses', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(finalPayload),
       });
 
       toast.success('Property expense logged successfully');
+      setIsPaymentDialogOpen(false);
       setIsAddExpenseOpen(false);
+      setPendingPayload(null);
       setNewExpense({
         date: format(new Date(), 'yyyy-MM-dd'),
         categoryId: '',
@@ -519,36 +569,7 @@ export default function PmsExpenses() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="expMethod">Payment Method</Label>
-                  <Select
-                    value={newExpense.paymentMethod}
-                    onValueChange={(val) => setNewExpense((prev) => ({ ...prev, paymentMethod: val }))}
-                  >
-                    <SelectTrigger id="expMethod">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="CASH">Cash</SelectItem>
-                      <SelectItem value="BANK">Bank Transfer</SelectItem>
-                      <SelectItem value="MOBILE_MONEY">Mobile Money (M-Pesa)</SelectItem>
-                      <SelectItem value="CARD">Card</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="expRef">Ref / Tx Number</Label>
-                  <Input
-                    id="expRef"
-                    value={newExpense.referenceNumber}
-                    onChange={(e) =>
-                      setNewExpense((prev) => ({ ...prev, referenceNumber: e.target.value }))
-                    }
-                    placeholder="E.g. reference ID"
-                  />
-                </div>
-              </div>
+
 
               <div className="space-y-1.5">
                 <Label htmlFor="expDesc">Description / Memo</Label>
@@ -580,6 +601,17 @@ export default function PmsExpenses() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Payment Popup Dialog */}
+        <PaymentDialog
+          open={isPaymentDialogOpen}
+          onOpenChange={setIsPaymentDialogOpen}
+          title="Expense Payment Details"
+          description={`Select the payment method and target asset account for the expense of KES ${newExpense.amount}.`}
+          totalDue={newExpense.amount}
+          onSubmit={handleConfirmPayment}
+          allowPartialPayment={false}
+        />
       </div>
     </AppLayout>
   );

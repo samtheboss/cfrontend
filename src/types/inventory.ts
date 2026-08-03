@@ -327,6 +327,7 @@ export interface PropertyRentPayment {
   receiptNumber?: string;
   notes?: string;
   createdBy?: string;
+  glAccountId?: number;
 }
 
 export interface PropertyMaintenanceRequest {

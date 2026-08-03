@@ -338,6 +338,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         editSettings: 'yes',
         viewAccommodation: 'yes',
         manageAccommodation: 'yes',
+        viewProperties: 'yes',
+        manageProperties: 'yes',
         managePromotions: 'yes',
       };
     }
@@ -355,6 +357,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       { key: 'viewDashboard', path: '/stats' },
       { key: 'viewOrders', path: '/pos' },
       { key: 'viewAccommodation', path: '/accommodation' },
+      { key: 'viewProperties', path: '/properties' },
       { key: 'viewOnlineOrders', path: '/orders' },
       { key: 'viewCustomers', path: '/customers' },
       { key: 'viewInventory', path: '/inventory' },
