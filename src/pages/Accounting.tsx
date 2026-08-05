@@ -173,6 +173,11 @@ export default function Accounting() {
   const [mappings, setMappings] = useState<AccountMapping[]>([]);
   const [journals, setJournals] = useState<GlJournal[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  // ── Unposted state ──
+  const [unpostedTxs, setUnpostedTxs] = useState<any[]>([]);
+  const [unpostedPurchases, setUnpostedPurchases] = useState<any[]>([]);
+  const [loadingUnposted, setLoadingUnposted] = useState(false);
 
   // ── Report state ──
   const [reportTab, setReportTab] = useState('trial-balance');
@@ -251,6 +256,35 @@ export default function Accounting() {
       setJournals(jrnls);
     } catch (e: any) {
       toast.error('Failed to load journals: ' + e.message);
+    }
+  }
+
+  async function fetchUnposted() {
+    setLoadingUnposted(true);
+    try {
+      const [txsRes, poRes] = await Promise.all([
+        apiFetch<any>('/api/transactions/unposted'),
+        apiFetch<any>('/api/purchase-orders/unposted')
+      ]);
+      setUnpostedTxs(txsRes.data || []);
+      setUnpostedPurchases(poRes.data || []);
+    } catch (e: any) {
+      toast.error('Failed to load unposted transactions: ' + e.message);
+    } finally {
+      setLoadingUnposted(false);
+    }
+  }
+
+  async function postAllUnposted() {
+    try {
+      const p1 = apiFetch('/api/transactions/push-unposted', { method: 'POST' });
+      const p2 = apiFetch('/api/purchase-orders/push-unposted', { method: 'POST' });
+      await Promise.all([p1, p2]);
+      toast.success('Successfully posted unposted transactions');
+      fetchUnposted();
+      fetchJournals();
+    } catch (e: any) {
+      toast.error('Error posting transactions: ' + e.message);
     }
   }
 
@@ -483,12 +517,13 @@ export default function Accounting() {
   return (
     <AppLayout title="Accounting">
       <div className="space-y-4 py-2 max-w-7xl mx-auto px-4">
-        <Tabs defaultValue="accounts" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-4">
+        <Tabs defaultValue="accounts" className="w-full" onValueChange={(v) => { if (v === 'unposted') fetchUnposted(); }}>
+          <TabsList className="grid w-full grid-cols-5 mb-4">
             <TabsTrigger value="accounts" className="flex items-center gap-2"><BookOpen className="w-4 h-4" /> Chart of Accounts</TabsTrigger>
             <TabsTrigger value="mappings" className="flex items-center gap-2"><Settings2 className="w-4 h-4" /> Posting Profiles</TabsTrigger>
             <TabsTrigger value="journals" className="flex items-center gap-2"><FileText className="w-4 h-4" /> GL Journals</TabsTrigger>
             <TabsTrigger value="reports" className="flex items-center gap-2"><BarChart3 className="w-4 h-4" /> Financial Reports</TabsTrigger>
+            <TabsTrigger value="unposted" className="flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Unposted</TabsTrigger>
           </TabsList>
 
           {/* ══════════════════════════ CHART OF ACCOUNTS ══════════════════════════ */}
@@ -678,6 +713,83 @@ export default function Accounting() {
                     )}
                   </TableBody>
                 </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ══════════════════════════ UNPOSTED TRANSACTIONS ══════════════════════════ */}
+          <TabsContent value="unposted">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg">Unposted Transactions</CardTitle>
+                <div className="flex gap-2">
+                  <Button onClick={fetchUnposted} variant="outline" size="sm" disabled={loadingUnposted}>
+                    <RefreshCw className={`w-4 h-4 mr-1 ${loadingUnposted ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button onClick={postAllUnposted} size="sm" disabled={unpostedTxs.length === 0 && unpostedPurchases.length === 0}>
+                    <Check className="w-4 h-4 mr-1" /> Post All to GL
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingUnposted ? (
+                  <div className="py-8 text-center text-muted-foreground">Loading unposted transactions...</div>
+                ) : (
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-sm font-semibold mb-2">Inventory Transactions ({unpostedTxs.length})</h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Journal #</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead className="text-right">Total Amount</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {unpostedTxs.map(t => (
+                            <TableRow key={t.id}>
+                              <TableCell className="font-mono">{t.journalNumber}</TableCell>
+                              <TableCell>{new Date(t.timestamp).toLocaleString()}</TableCell>
+                              <TableCell>{t.type}</TableCell>
+                              <TableCell className="text-right">{fmt(t.totalAmount || 0)}</TableCell>
+                            </TableRow>
+                          ))}
+                          {unpostedTxs.length === 0 && (
+                            <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-4">No unposted inventory transactions.</TableCell></TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold mb-2">Purchase Orders ({unpostedPurchases.length})</h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>PO #</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Supplier</TableHead>
+                            <TableHead className="text-right">Total Amount</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {unpostedPurchases.map(p => (
+                            <TableRow key={p.id}>
+                              <TableCell className="font-mono">{p.journalNumber}</TableCell>
+                              <TableCell>{new Date(p.timestamp || p.dateReceived).toLocaleString()}</TableCell>
+                              <TableCell>{p.supplier?.name || '—'}</TableCell>
+                              <TableCell className="text-right">{fmt(p.totalAmount || 0)}</TableCell>
+                            </TableRow>
+                          ))}
+                          {unpostedPurchases.length === 0 && (
+                            <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-4">No unposted purchase orders.</TableCell></TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
