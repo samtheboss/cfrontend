@@ -177,6 +177,7 @@ export default function Accounting() {
   // ── Unposted state ──
   const [unpostedTxs, setUnpostedTxs] = useState<any[]>([]);
   const [unpostedPurchases, setUnpostedPurchases] = useState<any[]>([]);
+  const [unpostedAccommodations, setUnpostedAccommodations] = useState<any[]>([]);
   const [loadingUnposted, setLoadingUnposted] = useState(false);
 
   // ── Report state ──
@@ -262,12 +263,14 @@ export default function Accounting() {
   async function fetchUnposted() {
     setLoadingUnposted(true);
     try {
-      const [txsRes, poRes] = await Promise.all([
+      const [txsRes, poRes, accRes] = await Promise.all([
         apiFetch<any>('/api/transactions/unposted'),
-        apiFetch<any>('/api/purchase-orders/unposted')
+        apiFetch<any>('/api/purchase-orders/unposted'),
+        apiFetch<any>('/api/accommodation/unposted')
       ]);
       setUnpostedTxs(txsRes.data || []);
       setUnpostedPurchases(poRes.data || []);
+      setUnpostedAccommodations(accRes.data || []);
     } catch (e: any) {
       toast.error('Failed to load unposted transactions: ' + e.message);
     } finally {
@@ -279,7 +282,8 @@ export default function Accounting() {
     try {
       const p1 = apiFetch('/api/transactions/push-unposted', { method: 'POST' });
       const p2 = apiFetch('/api/purchase-orders/push-unposted', { method: 'POST' });
-      await Promise.all([p1, p2]);
+      const p3 = apiFetch('/api/accommodation/push-unposted', { method: 'POST' });
+      await Promise.all([p1, p2, p3]);
       toast.success('Successfully posted unposted transactions');
       fetchUnposted();
       fetchJournals();
@@ -307,6 +311,17 @@ export default function Accounting() {
       fetchJournals();
     } catch (e: any) {
       toast.error('Error posting purchase: ' + e.message);
+    }
+  }
+
+  async function postSingleAccommodation(id: number) {
+    try {
+      await apiFetch(`/api/accommodation/${id}/push-unposted`, { method: 'POST' });
+      toast.success('Accommodation posted successfully');
+      fetchUnposted();
+      fetchJournals();
+    } catch (e: any) {
+      toast.error('Error posting accommodation: ' + e.message);
     }
   }
 
@@ -678,6 +693,9 @@ export default function Accounting() {
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input placeholder="Search journals..." className="pl-8 w-48 text-xs h-9" value={journalSearch} onChange={e => setJournalSearch(e.target.value)} />
                   </div>
+                  <Button onClick={fetchJournals} variant="outline" size="sm" className="h-9 text-xs">
+                    <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+                  </Button>
                   <Button onClick={openNewJournal} size="sm" className="h-9 text-xs"><Plus className="w-4 h-4 mr-1" /> Manual Journal</Button>
                 </div>
               </CardHeader>
@@ -748,7 +766,7 @@ export default function Accounting() {
                   <Button onClick={fetchUnposted} variant="outline" size="sm" disabled={loadingUnposted}>
                     <RefreshCw className={`w-4 h-4 mr-1 ${loadingUnposted ? 'animate-spin' : ''}`} /> Refresh
                   </Button>
-                  <Button onClick={postAllUnposted} size="sm" disabled={unpostedTxs.length === 0 && unpostedPurchases.length === 0}>
+                  <Button onClick={postAllUnposted} size="sm" disabled={unpostedTxs.length === 0 && unpostedPurchases.length === 0 && unpostedAccommodations.length === 0}>
                     <Check className="w-4 h-4 mr-1" /> Post All to GL
                   </Button>
                 </div>
@@ -818,6 +836,48 @@ export default function Accounting() {
                           ))}
                           {unpostedPurchases.length === 0 && (
                             <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-4">No unposted purchase orders.</TableCell></TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold mb-2">Accommodation Bookings ({unpostedAccommodations.length})</h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Booking #</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead className="text-right">Discount</TableHead>
+                            <TableHead className="text-right">Tax Amount (16%)</TableHead>
+                            <TableHead className="text-right">Total Amount</TableHead>
+                            <TableHead className="text-center w-24">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {unpostedAccommodations.map(a => {
+                            const rawTotal = a.roomAllocations?.reduce((sum: number, r: any) => sum + (r.nightlyRate || 0), 0) || 0;
+                            const totalAmount = rawTotal - (a.discount || 0);
+                            const baseAmount = rawTotal / 1.16;
+                            const taxAmount = rawTotal - baseAmount;
+                            return (
+                              <TableRow key={a.id}>
+                                <TableCell className="font-mono">{a.transactionNumber}</TableCell>
+                                <TableCell>{new Date(a.checkInDate).toLocaleDateString()}</TableCell>
+                                <TableCell>{a.customerName}</TableCell>
+                                <TableCell className="text-right text-rose-500 font-medium">{fmt(a.discount || 0)}</TableCell>
+                                <TableCell className="text-right text-muted-foreground">{fmt(taxAmount)}</TableCell>
+                                <TableCell className="text-right font-bold text-slate-800 dark:text-slate-200">{fmt(totalAmount)}</TableCell>
+                                <TableCell className="text-center">
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => postSingleAccommodation(a.id)}>
+                                    Post
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                          {unpostedAccommodations.length === 0 && (
+                            <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-4">No unposted accommodation bookings.</TableCell></TableRow>
                           )}
                         </TableBody>
                       </Table>
