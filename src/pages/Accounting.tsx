@@ -288,6 +288,28 @@ export default function Accounting() {
     }
   }
 
+  async function postSingleTransaction(id: number) {
+    try {
+      await apiFetch(`/api/transactions/${id}/push-unposted`, { method: 'POST' });
+      toast.success('Transaction posted successfully');
+      fetchUnposted();
+      fetchJournals();
+    } catch (e: any) {
+      toast.error('Error posting transaction: ' + e.message);
+    }
+  }
+
+  async function postSinglePurchase(id: number) {
+    try {
+      await apiFetch(`/api/purchase-orders/${id}/push-unposted`, { method: 'POST' });
+      toast.success('Purchase posted successfully');
+      fetchUnposted();
+      fetchJournals();
+    } catch (e: any) {
+      toast.error('Error posting purchase: ' + e.message);
+    }
+  }
+
   async function fetchAll() {
     setLoading(true);
     try {
@@ -745,6 +767,7 @@ export default function Accounting() {
                             <TableHead>Date</TableHead>
                             <TableHead>Type</TableHead>
                             <TableHead className="text-right">Total Amount</TableHead>
+                            <TableHead className="text-center w-24">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -754,10 +777,15 @@ export default function Accounting() {
                               <TableCell>{new Date(t.timestamp).toLocaleString()}</TableCell>
                               <TableCell>{t.type}</TableCell>
                               <TableCell className="text-right">{fmt(t.totalAmount || 0)}</TableCell>
+                              <TableCell className="text-center">
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => postSingleTransaction(t.id)}>
+                                  Post
+                                </Button>
+                              </TableCell>
                             </TableRow>
                           ))}
                           {unpostedTxs.length === 0 && (
-                            <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-4">No unposted inventory transactions.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-4">No unposted inventory transactions.</TableCell></TableRow>
                           )}
                         </TableBody>
                       </Table>
@@ -771,6 +799,7 @@ export default function Accounting() {
                             <TableHead>Date</TableHead>
                             <TableHead>Supplier</TableHead>
                             <TableHead className="text-right">Total Amount</TableHead>
+                            <TableHead className="text-center w-24">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -780,10 +809,15 @@ export default function Accounting() {
                               <TableCell>{new Date(p.timestamp || p.dateReceived).toLocaleString()}</TableCell>
                               <TableCell>{p.supplier?.name || '—'}</TableCell>
                               <TableCell className="text-right">{fmt(p.totalAmount || 0)}</TableCell>
+                              <TableCell className="text-center">
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => postSinglePurchase(p.id)}>
+                                  Post
+                                </Button>
+                              </TableCell>
                             </TableRow>
                           ))}
                           {unpostedPurchases.length === 0 && (
-                            <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-4">No unposted purchase orders.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-4">No unposted purchase orders.</TableCell></TableRow>
                           )}
                         </TableBody>
                       </Table>
