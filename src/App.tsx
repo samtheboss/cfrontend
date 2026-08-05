@@ -7,36 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { InventoryProvider } from "@/contexts/InventoryContext";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import SignIn from "./pages/SignIn";
-import Dashboard from "./pages/Dashboard";
-import DashboardMenu from "./pages/DashboardMenu";
-import Products from "./pages/Products";
-import Inventory from "./pages/Inventory";
-import POS from "./pages/POS";
-import StockAdjustment from "./pages/StockAdjustment";
-import StockTake from "./pages/StockTake";
-import StockTransfer from "./pages/StockTransfer";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
-import Users from "./pages/Users";
-import Customers from "./pages/Customers";
-import Locations from "./pages/Locations";
-import InventoryTransactions from "./pages/InventoryTransactions";
-import Slides from "./pages/Slides";
-import Promotions from "./pages/Promotions";
-import OnlineOrders from "./pages/OnlineOrders";
-import Recipes from "./pages/Recipes";
-import Purchasing from "./pages/Purchasing";
-import SupplierAccounts from "./pages/SupplierAccounts";
-import Accommodation from "./pages/Accommodation";
-import AccommodationExpenses from "./pages/AccommodationExpenses";
-import Properties from "./pages/Properties";
-import Leases from "./pages/Leases";
-import RentCollection from "./pages/RentCollection";
-import PmsExpenses from "./pages/PmsExpenses";
-import Maintenance from "./pages/Maintenance";
-import CustomReports from "./pages/CustomReports";
-import Accounting from "./pages/Accounting";
-import NotFound from "./pages/NotFound";
+import { Workspace } from "@/components/layout/Workspace";
 
 const queryClient = new QueryClient();
 
@@ -50,36 +21,7 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/signin" element={<SignIn />} />
-              <Route path="/" element={<ProtectedRoute><DashboardMenu /></ProtectedRoute>} />
-              <Route path="/stats" element={<ProtectedRoute requiredRight="viewDashboard"><Dashboard /></ProtectedRoute>} />
-              <Route path="/products" element={<ProtectedRoute requiredRight="viewProducts"><Products /></ProtectedRoute>} />
-              <Route path="/inventory" element={<ProtectedRoute requiredRight="viewInventory"><Inventory /></ProtectedRoute>} />
-              <Route path="/pos" element={<ProtectedRoute requiredRight="viewOrders"><POS /></ProtectedRoute>} />
-              <Route path="/adjustments" element={<ProtectedRoute requiredRight="stockAdjustment"><StockAdjustment /></ProtectedRoute>} />
-              <Route path="/stock-take" element={<ProtectedRoute requiredRight="stockTake"><StockTake /></ProtectedRoute>} />
-              <Route path="/recipes" element={<ProtectedRoute requiredRight="manageRecipes"><Recipes /></ProtectedRoute>} />
-              <Route path="/purchasing" element={<ProtectedRoute requiredRight="managePurchasing"><Purchasing /></ProtectedRoute>} />
-              <Route path="/supplier-accounts" element={<ProtectedRoute requiredRight="managePurchasing"><SupplierAccounts /></ProtectedRoute>} />
-              <Route path="/accommodation" element={<ProtectedRoute requiredRight="viewAccommodation"><Accommodation /></ProtectedRoute>} />
-              <Route path="/accommodation-expenses" element={<ProtectedRoute requiredRight="viewAccommodation"><AccommodationExpenses /></ProtectedRoute>} />
-              <Route path="/properties" element={<ProtectedRoute requiredRight="viewProperties"><Properties /></ProtectedRoute>} />
-              <Route path="/leases" element={<ProtectedRoute requiredRight="viewProperties"><Leases /></ProtectedRoute>} />
-              <Route path="/rent-collection" element={<ProtectedRoute requiredRight="viewProperties"><RentCollection /></ProtectedRoute>} />
-              <Route path="/pms-expenses" element={<ProtectedRoute requiredRight="viewProperties"><PmsExpenses /></ProtectedRoute>} />
-              <Route path="/maintenance" element={<ProtectedRoute requiredRight="viewProperties"><Maintenance /></ProtectedRoute>} />
-              <Route path="/transfers" element={<ProtectedRoute requiredRight="stockAdjustment"><StockTransfer /></ProtectedRoute>} />
-              <Route path="/reports" element={<ProtectedRoute requiredRight="viewReports"><Reports /></ProtectedRoute>} />
-              <Route path="/custom-reports" element={<ProtectedRoute requiredRight="viewReports"><CustomReports /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute requiredRight="viewSettings"><Settings /></ProtectedRoute>} />
-              <Route path="/accounting" element={<ProtectedRoute requiredRight="viewReports"><Accounting /></ProtectedRoute>} />
-              <Route path="/users" element={<ProtectedRoute requiredRight="viewUsers"><Users /></ProtectedRoute>} />
-              <Route path="/customers" element={<ProtectedRoute requiredRight="viewCustomers"><Customers /></ProtectedRoute>} />
-              <Route path="/locations" element={<ProtectedRoute requiredRight="viewSettings"><Locations /></ProtectedRoute>} />
-              <Route path="/journal" element={<ProtectedRoute requiredRight="viewInventory"><InventoryTransactions /></ProtectedRoute>} />
-              <Route path="/orders" element={<ProtectedRoute requiredRight="viewOrders"><OnlineOrders /></ProtectedRoute>} />
-              <Route path="/slides" element={<ProtectedRoute requiredRight="viewSettings"><Slides /></ProtectedRoute>} />
-              <Route path="/promotions" element={<ProtectedRoute requiredRight="managePromotions"><Promotions /></ProtectedRoute>} />
-              <Route path="*" element={<NotFound />} />
+              <Route path="/*" element={<ProtectedRoute><Workspace /></ProtectedRoute>} />
             </Routes>
           </BrowserRouter>
         </TooltipProvider>

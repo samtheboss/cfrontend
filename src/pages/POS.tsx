@@ -1507,7 +1507,7 @@ export default function POS() {
   };
 
   return (
-    <div className="h-screen w-full bg-background flex flex-col fixed inset-0">
+    <div className="h-[calc(100vh-40px)] w-full bg-background flex flex-col fixed top-10 inset-x-0 bottom-0">
       {/* Mobile View Tabs */}
       <div className="flex md:hidden sticky top-0 z-30 bg-card border-b">
         <button
