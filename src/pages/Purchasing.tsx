@@ -3,6 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { Supplier, PurchaseOrder } from '@/types/inventory';
+import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
 import { Plus, Truck, Trash2, Package, FileText, CheckCircle2, Clock, Search, ArrowLeft, Banknote, CreditCard, Smartphone, ChevronsUpDown, Check, ClipboardList, RotateCcw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -441,19 +442,32 @@ export default function Purchasing() {
     setIsPaymentDetailOpen(true);
   };
 
-  const handleSubmitPO = async (postStatus: 'PENDING' | 'COMPLETED') => {
+  const handleSubmitPO = async (postStatus: 'PENDING' | 'COMPLETED', overrideMethods?: Record<string, any>, overridePaymentStatus?: string) => {
     if (!poSupplierId) { toast.error('Please select a supplier'); return; }
     if (!poLocationId) { toast.error('Please select a receiving location'); return; }
     if (!poItems.length) { toast.error('Please add at least one item'); return; }
 
+    const methodsToUse = overrideMethods || poPaymentMethods;
+    const paymentStatusToUse = overridePaymentStatus || poPaymentStatus;
+
     // Prepare paymentMethod JSON payload
-    const activePayments = Object.entries(poPaymentMethods)
-      .filter(([_, m]) => m.active && (parseFloat(m.amount) || 0) > 0)
-      .map(([method, m]) => ({
-        method: method.toUpperCase(),
-        amount: parseFloat(m.amount) || 0,
-        reference: m.reference || ''
+    let activePayments = [];
+    if (Array.isArray(methodsToUse)) {
+      activePayments = methodsToUse.map((p: any) => ({
+        method: p.method.toUpperCase(),
+        amount: parseFloat(p.amount) || 0,
+        reference: p.reference || '',
+        accountId: p.glAccountId || null
       }));
+    } else {
+      activePayments = Object.entries(methodsToUse)
+        .filter(([_, m]: [string, any]) => m.active && (parseFloat(m.amount) || 0) > 0)
+        .map(([method, m]: [string, any]) => ({
+          method: method.toUpperCase(),
+          amount: parseFloat(m.amount) || 0,
+          reference: m.reference || ''
+        }));
+    }
 
     setIsSubmitting(true);
     try {
@@ -470,7 +484,7 @@ export default function Purchasing() {
         userId: user?.id || null,
         invoiceNumber: poInvoiceNumber || null,
         dateReceived: poDateReceived || null,
-        paymentStatus: poPaymentStatus,
+        paymentStatus: paymentStatusToUse,
         paymentMethod: JSON.stringify(activePayments),
         items: poItems.map(item => ({
           variantId: Number(item.variantId),
@@ -869,101 +883,36 @@ export default function Purchasing() {
           </DialogContent>
         </Dialog>
 
-        {/* Payment Detail Dialog */}
-        <Dialog open={isPaymentDetailOpen} onOpenChange={setIsPaymentDetailOpen}>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Payment Details</DialogTitle>
-              <DialogDescription>Configure payment before posting the purchase order.</DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4 py-2">
-              <div className="flex items-center justify-between border-b pb-2">
-                <div className="flex items-center gap-4 text-xs font-medium">
-                  <div>
-                    <span className="text-muted-foreground">PO Total:</span>{" "}
-                    <span className="font-bold text-sm">{sym}{poTotal.toFixed(2)}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Paid:</span>{" "}
-                    <span className="font-bold text-sm text-green-600">{sym}{totalPaid.toFixed(2)}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Remaining:</span>{" "}
-                    <span className={`font-bold text-sm ${totalPaid >= poTotal ? 'text-blue-600' : 'text-red-600'}`}>
-                      {sym}{Math.abs(poTotal - totalPaid).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-1.5 w-full md:w-1/2">
-                  <Label className="text-xs font-semibold">Payment Status</Label>
-                  <Select value={poPaymentStatus} onValueChange={(val: any) => setPOPaymentStatus(val)}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select payment status" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PENDING">Pending</SelectItem>
-                      <SelectItem value="PAID">Paid</SelectItem>
-                      <SelectItem value="PARTIAL">Partial</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-3">
-                  <Label className="text-xs font-semibold">Select Payment Modes</Label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {(['cash', 'card', 'mobile', 'bank_transfer', 'credit_note'] as const).map((method) => (
-                      <div key={method} className="space-y-2 border rounded p-2.5 bg-muted/20">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`po-pay-popup-${method}`}
-                            checked={poPaymentMethods[method]?.active}
-                            onCheckedChange={(checked) => handlePOPaymentMethodToggle(method, checked === true)}
-                          />
-                          <Label htmlFor={`po-pay-popup-${method}`} className="capitalize flex items-center gap-1.5 cursor-pointer text-xs font-medium">
-                            {method === 'cash' && <Banknote className="h-3.5 w-3.5 text-muted-foreground" />}
-                            {method === 'card' && <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />}
-                            {method === 'mobile' && <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />}
-                            {method === 'bank_transfer' && <FileText className="h-3.5 w-3.5 text-muted-foreground" />}
-                              {method === 'credit_note' && <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />}
-                            {method.replace('_', ' ')}
-                          </Label>
-                        </div>
-
-                        {poPaymentMethods[method]?.active && (
-                          <div className="grid grid-cols-1 gap-2 pt-1 animate-in fade-in slide-in-from-top-1">
-                            <Input
-                              type="number"
-                              placeholder="Amount"
-                              value={poPaymentMethods[method].amount}
-                              onChange={(e) => updatePOPaymentDetail(method, 'amount', e.target.value)}
-                              className="h-9 text-sm"
-                            />
-                            <Input
-                              type="text"
-                              placeholder="Ref # (optional)"
-                              value={poPaymentMethods[method].reference}
-                              onChange={(e) => updatePOPaymentDetail(method, 'reference', e.target.value)}
-                              className="h-9 text-sm"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter className="mt-4 border-t pt-3 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsPaymentDetailOpen(false)}>Cancel</Button>
-              <Button onClick={() => handleSubmitPO('COMPLETED')} disabled={isSubmitting}>
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Post & Receive Stock
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <PaymentDialog
+          module="PURCHASE"
+          open={isPaymentDetailOpen}
+          onOpenChange={setIsPaymentDetailOpen}
+          totalAmount={poTotal}
+          onSubmit={(details: PaymentDetails[]) => {
+            const totalPaidAmount = details.reduce((sum, p) => sum + (parseFloat(p.amount.toString()) || 0), 0);
+            const status = totalPaidAmount >= poTotal ? 'PAID' : 'PARTIAL';
+            handleSubmitPO('COMPLETED', details, status);
+          }}
+          isProcessing={isSubmitting}
+          onCancel={() => setIsPaymentDetailOpen(false)}
+          title="Payment Details"
+          description="Configure payment before posting the purchase order."
+          submitText="Post & Receive Stock"
+          allowPartialPayment={true}
+          extraActions={
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                handleSubmitPO('COMPLETED', { cash: { active: false, amount: '' } }, 'PENDING');
+              }}
+              disabled={isSubmitting}
+            >
+              <Clock className="h-4 w-4 mr-2 text-amber-500" />
+              Post as Invoice
+            </Button>
+          }
+        />
       </AppLayout>
     );
   }

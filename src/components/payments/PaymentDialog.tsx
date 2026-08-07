@@ -253,34 +253,86 @@ export function PaymentDialog({
   }, [open, activeTotalDue, defaultPhone, module]);
 
   const handlePaymentMethodToggle = (method: string, checked: boolean) => {
-    const alreadyEntered = Object.entries(paymentMethods)
-      .filter(([k]) => k !== method)
-      .reduce((s, [, v]) => s + (v.active ? parseFloat(v.amount) || 0 : 0), 0);
+    if (!checked) {
+      setPaymentMethods(prev => ({
+        ...prev,
+        [method]: {
+          ...(prev[method] || { active: false, amount: '', reference: '', accountId: '' }),
+          active: false,
+          amount: ''
+        }
+      }));
+      return;
+    }
 
-    // Add completed mpesa payments if we're not toggling mobile (or even if we are, they shouldn't be lost)
-    const completedTotal = completedMpesaPayments.reduce((sum, p) => sum + p.amount, 0);
+    setPaymentMethods(prev => {
+      let updated = { ...prev };
+      
+      let otherTotal = 0;
+      let fullMethodKey = '';
 
-    // Allow negative remainders for refunds
-    const remainder = activeTotalDue - alreadyEntered - completedTotal;
+      Object.entries(updated).forEach(([k, v]) => {
+        if (k !== method && v.active) {
+          const amt = parseFloat(v.amount) || 0;
+          otherTotal += amt;
+          if (Math.abs(amt - activeTotalDue) < 0.01) {
+            fullMethodKey = k;
+          }
+        }
+      });
 
-    setPaymentMethods(prev => ({
-      ...prev,
-      [method]: {
-        ...(prev[method] || { active: false, amount: '', reference: '', accountId: '' }),
-        active: checked,
-        amount: checked ? (remainder !== 0 ? remainder.toFixed(2) : '') : ''
+      const completedTotal = completedMpesaPayments.reduce((sum, p) => sum + p.amount, 0);
+      let remainder = activeTotalDue - otherTotal - completedTotal;
+
+      // If another single method was taking up the full amount, deactivate it so the new method takes over
+      if (fullMethodKey) {
+        updated[fullMethodKey] = {
+          ...updated[fullMethodKey],
+          active: false,
+          amount: ''
+        };
+        remainder = activeTotalDue - completedTotal;
       }
-    }));
+
+      const targetAmount = Math.max(0, remainder);
+
+      return {
+        ...updated,
+        [method]: {
+          ...(updated[method] || { active: false, amount: '', reference: '', accountId: '' }),
+          active: true,
+          amount: targetAmount > 0 ? targetAmount.toFixed(2) : ''
+        }
+      };
+    });
   };
 
   const updatePaymentDetail = (method: string, field: 'amount' | 'reference' | 'accountId', value: string) => {
-    setPaymentMethods(prev => ({
-      ...prev,
-      [method]: {
-        ...(prev[method] || { active: false, amount: '', reference: '', accountId: '' }),
-        [field]: value
+    setPaymentMethods(prev => {
+      let finalValue = value;
+
+      if (field === 'amount' && method !== 'cash') {
+        const otherTotal = Object.entries(prev)
+          .filter(([k, v]) => k !== method && v.active)
+          .reduce((s, [, v]) => s + (parseFloat(v.amount) || 0), 0);
+        const completedTotal = completedMpesaPayments.reduce((sum, p) => sum + p.amount, 0);
+        const maxAllowed = Math.max(0, activeTotalDue - otherTotal - completedTotal);
+
+        const numVal = parseFloat(value) || 0;
+        if (numVal > maxAllowed + 0.001) {
+          finalValue = maxAllowed > 0 ? maxAllowed.toFixed(2) : '';
+          toast.warning(`Non-cash payment cannot exceed remaining balance of ${sym}${maxAllowed.toFixed(2)}`);
+        }
       }
-    }));
+
+      return {
+        ...prev,
+        [method]: {
+          ...(prev[method] || { active: false, amount: '', reference: '', accountId: '' }),
+          [field]: finalValue
+        }
+      };
+    });
   };
 
   async function pollMpesaStatus(requestId: string, sessionId?: number) {
@@ -407,6 +459,10 @@ export function PaymentDialog({
         return;
       }
     }
+
+    // Calculate net cash (deduct change/overpayment so change is not captured in GL accounts)
+    const overpayment = Math.max(0, totalEntered - activeTotalDue);
+    const netCash = Math.max(0, enteredCash - overpayment);
 
     const finalPayments: PaymentDetails[] = [];
     if (enteredCash > 0) finalPayments.push({ method: 'cash', amount: enteredCash, reference: paymentMethods.cash.reference, glAccountId: paymentMethods.cash.accountId ? parseInt(paymentMethods.cash.accountId) : undefined });
@@ -686,27 +742,32 @@ export function PaymentDialog({
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting || isPollingMpesa}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={
-              isSubmitting ||
-              isPollingMpesa ||
-              (
-                !paymentMethods.cash.active &&
-                !paymentMethods.card.active &&
-                !paymentMethods.mobile.active &&
-                !paymentMethods.bank?.active &&
-                !paymentMethods.complimentary?.active &&
-                completedMpesaPayments.length === 0
-              )
-            }
-          >
-            {isSubmitting ? 'Confirming...' : 'Confirm Payment'}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          <div className="flex-1 flex justify-start">
+            {extraActions}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting || isPollingMpesa}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirm}
+              disabled={
+                isSubmitting ||
+                isPollingMpesa ||
+                (
+                  !paymentMethods.cash.active &&
+                  !paymentMethods.card.active &&
+                  !paymentMethods.mobile.active &&
+                  !paymentMethods.bank?.active &&
+                  !paymentMethods.complimentary?.active &&
+                  completedMpesaPayments.length === 0
+                )
+              }
+            >
+              {isSubmitting ? 'Confirming...' : (submitText || 'Confirm Payment')}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
 
