@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useCurrency } from '@/hooks/useCurrency';
-import { Wallet, Banknote, CreditCard, Smartphone, Check, AlertCircle, RefreshCw, Building, Gift, Search, Database, X } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Wallet, Banknote, CreditCard, Smartphone, Check, AlertCircle, RefreshCw, Building, Gift, Search, Database, X, Lock } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -42,6 +43,7 @@ interface PaymentDialogProps {
   submitText?: string;
   allowPartialPayment?: boolean;
   initialPayments?: Record<string, { active: boolean; amount: string; reference: string }>;
+  module?: string;
 }
 
 export function PaymentDialog({
@@ -60,12 +62,62 @@ export function PaymentDialog({
   extraActions,
   submitText,
   allowPartialPayment = false,
-  initialPayments
+  initialPayments,
+  module
 }: PaymentDialogProps) {
   const { sym } = useCurrency();
   const activeTotalDue = totalDue ?? totalAmount ?? 0;
   const activeSubtitle = subtitle ?? description;
   const activeOnConfirm = onConfirm ?? onSubmit ?? (async () => { });
+
+  const { user, getUserRights } = useAuth();
+  const rights = user ? getUserRights(user) : null;
+  
+  const canChangeAccount = rights?.changePaymentAccount !== 'no';
+  
+  // Resolve module-specific method permissions
+  const getMethodPermission = (methodName: string) => {
+    if (!rights) return true; // Default allow if no rights system
+    if (!module) return true; // Global/fallback allow
+    
+    // Normalize module names
+    const m = module.toUpperCase();
+    const isPOS = m === 'POS';
+    const isProperty = m === 'PROPERTY';
+    const isAccommodation = m === 'ACCOMMODATION';
+    const isExpense = m === 'PMS_EXPENSE' || m === 'ACCOMMODATION_EXPENSE';
+    const isPurchase = m === 'PURCHASE';
+    
+    if (methodName === 'cash') {
+      if (isPOS) return rights.posReceiveCash !== 'no';
+      if (isProperty) return rights.propertyReceiveCash !== 'no';
+      if (isAccommodation) return rights.accommodationReceiveCash !== 'no';
+      if (isExpense) return rights.expenseReceiveCash !== 'no';
+      if (isPurchase) return rights.purchaseReceiveCash !== 'no';
+    }
+    if (methodName === 'bank' || methodName === 'card') {
+      if (isPOS) return rights.posReceiveBank !== 'no';
+      if (isProperty) return rights.propertyReceiveBank !== 'no';
+      if (isAccommodation) return rights.accommodationReceiveBank !== 'no';
+      if (isExpense) return rights.expenseReceiveBank !== 'no';
+      if (isPurchase) return rights.purchaseReceiveBank !== 'no';
+    }
+    if (methodName === 'mobile') {
+      if (isPOS) return rights.posReceiveMobile !== 'no';
+      if (isProperty) return rights.propertyReceiveMobile !== 'no';
+      if (isAccommodation) return rights.accommodationReceiveMobile !== 'no';
+      if (isExpense) return rights.expenseReceiveMobile !== 'no';
+      if (isPurchase) return rights.purchaseReceiveMobile !== 'no';
+    }
+    if (methodName === 'complimentary') {
+      if (isPOS) return rights.posReceiveComplimentary !== 'no';
+      if (isProperty) return rights.propertyReceiveComplimentary !== 'no';
+      if (isAccommodation) return rights.accommodationReceiveComplimentary !== 'no';
+      if (isExpense) return rights.expenseReceiveComplimentary !== 'no';
+      if (isPurchase) return rights.purchaseReceiveComplimentary !== 'no';
+    }
+    return true; // Unknown module/method pair defaults to allow
+  };
 
   const [paymentMethods, setPaymentMethods] = useState<Record<string, { active: boolean; amount: string; reference: string; accountId?: string }>>({
     cash: { active: false, amount: '', reference: '', accountId: '' },
@@ -91,14 +143,7 @@ export function PaymentDialog({
   const [dbSearch, setDbSearch] = useState('');
 
   const [glAccounts, setGlAccounts] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (open) {
-      apiFetch<any[]>('/api/accounting/accounts')
-        .then(res => setGlAccounts(Array.isArray(res) ? res : []))
-        .catch(err => console.error("Failed to load GL accounts for payments", err));
-    }
-  }, [open]);
+  const [moduleDefaults, setModuleDefaults] = useState<any[]>([]);
 
   const fetchDbTransactions = async () => {
     setIsLoadingDb(true);
@@ -166,23 +211,46 @@ export function PaymentDialog({
 
   const pollSessionRef = useRef<number>(0);
 
-  // Reset when opened
+  // Reset and fetch data when opened
   useEffect(() => {
     if (open) {
-      setPaymentMethods({
-        cash: { active: initialPayments?.cash?.active || true, amount: initialPayments?.cash?.amount || activeTotalDue.toFixed(2), reference: initialPayments?.cash?.reference || '', accountId: '' },
-        card: { active: initialPayments?.card?.active || false, amount: initialPayments?.card?.amount || '', reference: initialPayments?.card?.reference || '', accountId: '' },
-        mobile: { active: (initialPayments?.mpesa?.active || initialPayments?.mobile?.active) || false, amount: (initialPayments?.mpesa?.amount || initialPayments?.mobile?.amount) || '', reference: (initialPayments?.mpesa?.reference || initialPayments?.mobile?.reference) || '', accountId: '' },
-        bank: { active: initialPayments?.bank?.active || false, amount: initialPayments?.bank?.amount || '', reference: initialPayments?.bank?.reference || '', accountId: '' },
-        complimentary: { active: initialPayments?.complimentary?.active || false, amount: initialPayments?.complimentary?.amount || '', reference: initialPayments?.complimentary?.reference || '', accountId: '' },
+      Promise.all([
+        apiFetch<any[]>('/api/accounting/accounts').catch(() => []),
+        module ? apiFetch<any[]>(`/api/accounting/accounts/payment-defaults/${module}`).catch(() => []) : Promise.resolve([])
+      ]).then(([accounts, defaults]) => {
+        setGlAccounts(Array.isArray(accounts) ? accounts : []);
+        setModuleDefaults(Array.isArray(defaults) ? defaults : []);
+
+        const getAcct = (method: string) => {
+          const norm = method === 'cash' ? 'CASH' : method === 'card' || method === 'bank' ? 'BANK' : method === 'mobile' ? 'MOBILE_MONEY' : '';
+          const def = (Array.isArray(defaults) ? defaults : []).find(d => d.paymentMethod === norm);
+          return def?.glAccount?.id?.toString() || '';
+        };
+
+        const canCash = getMethodPermission('cash');
+        const canCard = getMethodPermission('card');
+        const canMobile = getMethodPermission('mobile');
+        const canBank = getMethodPermission('bank');
+        const canComplimentary = getMethodPermission('complimentary');
+
+        let defCash = false, defCard = false, defMobile = false, defBank = false, defComplimentary = false;
+
+        setPaymentMethods({
+          cash: { active: initialPayments?.cash?.active ?? defCash, amount: (initialPayments?.cash?.active ?? defCash) ? (initialPayments?.cash?.amount || activeTotalDue.toFixed(2)) : '', reference: initialPayments?.cash?.reference || '', accountId: getAcct('cash') },
+          card: { active: initialPayments?.card?.active || defCard, amount: (initialPayments?.card?.active || defCard) ? (initialPayments?.card?.amount || activeTotalDue.toFixed(2)) : '', reference: initialPayments?.card?.reference || '', accountId: getAcct('card') },
+          mobile: { active: (initialPayments?.mpesa?.active || initialPayments?.mobile?.active) || defMobile, amount: ((initialPayments?.mpesa?.active || initialPayments?.mobile?.active) || defMobile) ? ((initialPayments?.mpesa?.amount || initialPayments?.mobile?.amount) || activeTotalDue.toFixed(2)) : '', reference: (initialPayments?.mpesa?.reference || initialPayments?.mobile?.reference) || '', accountId: getAcct('mobile') },
+          bank: { active: initialPayments?.bank?.active || defBank, amount: (initialPayments?.bank?.active || defBank) ? (initialPayments?.bank?.amount || activeTotalDue.toFixed(2)) : '', reference: initialPayments?.bank?.reference || '', accountId: getAcct('bank') },
+          complimentary: { active: initialPayments?.complimentary?.active || defComplimentary, amount: (initialPayments?.complimentary?.active || defComplimentary) ? (initialPayments?.complimentary?.amount || activeTotalDue.toFixed(2)) : '', reference: initialPayments?.complimentary?.reference || '', accountId: '' },
+        });
       });
+
       setMpesaPhone(defaultPhone || '');
       setMpesaStatus('IDLE');
       setIsPollingMpesa(false);
       setCheckoutRequestId(null);
       setCompletedMpesaPayments([]);
     }
-  }, [open, activeTotalDue, defaultPhone]);
+  }, [open, activeTotalDue, defaultPhone, module]);
 
   const handlePaymentMethodToggle = (method: string, checked: boolean) => {
     const alreadyEntered = Object.entries(paymentMethods)
@@ -441,14 +509,26 @@ export function PaymentDialog({
                   paymentMethods[method]?.active ? "border-amber-500/50 bg-amber-50/30" : "border-border"
                 )}>
                   <div className="flex items-center gap-2">
-                    <Checkbox
-                      checked={paymentMethods[method]?.active || false}
-                      onCheckedChange={(checked) => handlePaymentMethodToggle(method, checked === true)}
-                    />
-                    <Label className="capitalize flex items-center gap-1.5 cursor-pointer text-sm">
-                      {method === 'cash' ? <Banknote className="h-3.5 w-3.5" /> : method === 'card' ? <CreditCard className="h-3.5 w-3.5" /> : method === 'mobile' ? <Smartphone className="h-3.5 w-3.5" /> : method === 'bank' ? <Building className="h-3.5 w-3.5" /> : <Gift className="h-3.5 w-3.5" />}
-                      {method === 'complimentary' ? 'Complimentary' : method === 'bank' ? 'Bank Transfer' : method}
-                    </Label>
+                    {(() => {
+                      const hasPerm = getMethodPermission(method);
+                      return (
+                        <>
+                          <Checkbox
+                            checked={paymentMethods[method]?.active || false}
+                            onCheckedChange={(checked) => handlePaymentMethodToggle(method, checked === true)}
+                            disabled={!hasPerm}
+                          />
+                          <Label className={cn(
+                            "capitalize flex items-center gap-1.5 text-sm",
+                            hasPerm ? "cursor-pointer" : "cursor-not-allowed opacity-50"
+                          )}>
+                            {method === 'cash' ? <Banknote className="h-3.5 w-3.5" /> : method === 'card' ? <CreditCard className="h-3.5 w-3.5" /> : method === 'mobile' ? <Smartphone className="h-3.5 w-3.5" /> : method === 'bank' ? <Building className="h-3.5 w-3.5" /> : <Gift className="h-3.5 w-3.5" />}
+                            {method === 'complimentary' ? 'Complimentary' : method === 'bank' ? 'Bank Transfer' : method}
+                            {!hasPerm && <Lock className="h-3 w-3 ml-1 text-muted-foreground" />}
+                          </Label>
+                        </>
+                      );
+                    })()}
                   </div>
                   <Input
                     type="number"
@@ -496,9 +576,14 @@ export function PaymentDialog({
                     <select
                       value={paymentMethods[method]?.accountId || ''}
                       onChange={(e) => updatePaymentDetail(method, 'accountId', e.target.value)}
-                      className="bg-transparent border border-muted-foreground/20 rounded px-2 py-0.5 text-xs flex-1 max-w-[280px] dark:bg-slate-900"
+                      disabled={!canChangeAccount}
+                      className="bg-transparent border border-muted-foreground/20 rounded px-2 py-0.5 text-xs flex-1 max-w-[280px] dark:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <option value="">Default mapped account</option>
+                      <option value="">
+                        {moduleDefaults.some(d => d.paymentMethod === (method === 'cash' ? 'CASH' : method === 'card' || method === 'bank' ? 'BANK' : method === 'mobile' ? 'MOBILE_MONEY' : ''))
+                          ? 'Global Default (Override)'
+                          : 'Default mapped account'}
+                      </option>
                       {glAccounts
                         .filter((acc: any) => acc.type === 'ASSET' && acc.active)
                         .map((acc: any) => (

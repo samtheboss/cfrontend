@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInventory } from '@/contexts/InventoryContext';
-import { User, UserGroup, UserRights, RightValue, rightLabels, rightCategories, defaultRights } from '@/types/user';
+import { User, UserGroup, UserRights, RightValue, rightLabels, rightCategories, defaultRights, rightDescriptions } from '@/types/user';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,8 @@ import {
   UserPlus,
   FolderPlus,
   MapPin,
-  Key
+  Key,
+  Search
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -72,54 +73,134 @@ function RightBadge({ value }: { value: RightValue }) {
 
 function RightsEditor({
   rights,
-  onChange
+  onChange,
+  onGrantAll,
+  onRevokeAll
 }: {
   rights: UserRights;
   onChange: (right: keyof UserRights, value: RightValue) => void;
+  onGrantAll?: () => void;
+  onRevokeAll?: () => void;
 }) {
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredCategories = Object.entries(rightCategories).map(([category, categoryRights]) => {
+    const filteredRights = categoryRights.filter(right => {
+      const q = searchQuery.toLowerCase();
+      const label = (rightLabels[right] || '').toLowerCase();
+      const desc = (rightDescriptions[right] || '').toLowerCase();
+      return label.includes(q) || desc.includes(q) || category.toLowerCase().includes(q);
+    });
+    return { category, filteredRights };
+  }).filter(({ filteredRights }) => filteredRights.length > 0);
+
   return (
     <div className="space-y-6">
-      {Object.entries(rightCategories).map(([category, categoryRights]) => (
-        <div key={category}>
-          <h4 className="font-medium mb-3">{category}</h4>
-          <div className="space-y-3">
-            {categoryRights.map((right) => (
-              <div key={right} className="flex items-center justify-between">
-                <Label className="text-sm">{rightLabels[right]}</Label>
-                <Select
-                  value={rights[right]}
-                  onValueChange={(value: RightValue) => onChange(right, value)}
-                >
-                  <SelectTrigger className="w-36">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="yes">
-                      <div className="flex items-center gap-2">
-                        <Check className="h-3 w-3 text-emerald-600" />
-                        Yes
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="supervised">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="h-3 w-3 text-amber-600" />
-                        Supervised
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="no">
-                      <div className="flex items-center gap-2">
-                        <X className="h-3 w-3 text-destructive" />
-                        No
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
-          </div>
-          <Separator className="mt-4" />
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input 
+            placeholder="Search permissions..." 
+            className="pl-9 bg-muted/50"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
         </div>
-      ))}
+        {(onGrantAll || onRevokeAll) && (
+          <div className="flex gap-2">
+            {onGrantAll && (
+              <Button type="button" variant="outline" onClick={onGrantAll} className="whitespace-nowrap text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200">
+                <Check className="w-4 h-4 mr-2" /> Grant Full Access
+              </Button>
+            )}
+            {onRevokeAll && (
+              <Button type="button" variant="outline" onClick={onRevokeAll} className="whitespace-nowrap text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20">
+                <X className="w-4 h-4 mr-2" /> Revoke All
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="space-y-8">
+        {filteredCategories.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-sm">
+            No permissions found matching "{searchQuery}"
+          </div>
+        ) : (
+          filteredCategories.map(({ category, filteredRights }) => (
+            <div key={category}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
+                <h4 className="font-semibold text-lg text-slate-800 dark:text-slate-200">{category}</h4>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500 uppercase tracking-wider mr-1 hidden sm:block">Set Category:</span>
+                  <div className="flex gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200"
+                      onClick={() => filteredRights.forEach(right => onChange(right, 'yes'))}
+                    >
+                      <Check className="w-3 h-3 mr-1" /> All Yes
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 border-amber-200"
+                      onClick={() => filteredRights.forEach(right => onChange(right, 'supervised'))}
+                    >
+                      <AlertTriangle className="w-3 h-3 mr-1" /> All Supervised
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
+                      onClick={() => filteredRights.forEach(right => onChange(right, 'no'))}
+                    >
+                      <X className="w-3 h-3 mr-1" /> All No
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {filteredRights.map((right) => (
+                  <div 
+                    key={right} 
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-amber-900/5 bg-[#FAF7F2] dark:bg-slate-900/50 gap-4 transition-colors hover:bg-amber-50/50 dark:hover:bg-slate-800/50"
+                  >
+                    <div>
+                      <div className="font-semibold text-slate-900 dark:text-slate-100">{rightLabels[right]}</div>
+                      <div className="text-sm text-slate-500 mt-0.5">{rightDescriptions[right] || 'No description available.'}</div>
+                    </div>
+                    
+                    <div className="flex bg-[#F3EFE6] dark:bg-slate-800 p-1 rounded-full w-fit">
+                      {(['yes', 'no', 'supervised'] as RightValue[]).map((val) => {
+                        const isActive = rights[right] === val;
+                        return (
+                          <button
+                            key={val}
+                            onClick={() => onChange(right, val)}
+                            className={cn(
+                              "px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-200",
+                              isActive 
+                                ? "bg-[#8B5A2B] text-white shadow-sm" 
+                                : "text-[#8B5A2B] hover:bg-black/5 dark:text-amber-500 dark:hover:bg-white/5"
+                            )}
+                          >
+                            {val.charAt(0).toUpperCase() + val.slice(1)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -128,6 +209,7 @@ export default function Users() {
   const { user: currentUser, allUsers, allGroups, addUser, updateUser, deleteUser, addGroup, updateGroup, deleteGroup, resetPassword, getUserRights, getGroupById } = useAuth();
   const { locations } = useInventory();
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState('users');
 
   const staffUsers = allUsers.filter(u => u.role !== 'CUSTOMER');
 
@@ -147,7 +229,6 @@ export default function Users() {
   });
 
   // Group dialogs
-  const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<UserGroup | null>(null);
   const [editingGroupRights, setEditingGroupRights] = useState<UserRights | null>(null);
   const [newGroup, setNewGroup] = useState({
@@ -229,7 +310,7 @@ export default function Users() {
     addGroup(newGroup);
     toast({ title: 'Group created', description: `${newGroup.name} has been added.` });
     setNewGroup({ name: '', description: '', rights: { ...defaultRights } });
-    setIsAddGroupOpen(false);
+    setActiveTab('groups');
   };
 
   const handleEditGroup = (group: UserGroup) => {
@@ -309,7 +390,7 @@ export default function Users() {
         </Card>
 
         {/* Tabs */}
-        <Tabs defaultValue="users" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="users" className="flex items-center gap-2">
               <UsersIcon className="h-4 w-4" />
@@ -319,6 +400,12 @@ export default function Users() {
               <Shield className="h-4 w-4" />
               Groups ({allGroups.length})
             </TabsTrigger>
+            {canManageGroups && (
+              <TabsTrigger value="add-group" className="flex items-center gap-2">
+                <FolderPlus className="h-4 w-4" />
+                Add Group
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* Users Tab */}
@@ -439,7 +526,7 @@ export default function Users() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-lg">User Groups</CardTitle>
                 {canManageGroups && (
-                  <Button onClick={() => setIsAddGroupOpen(true)}>
+                  <Button onClick={() => setActiveTab('add-group')}>
                     <FolderPlus className="h-4 w-4 mr-2" />
                     Add Group
                   </Button>
@@ -517,6 +604,70 @@ export default function Users() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Add Group Tab */}
+          {canManageGroups && (
+            <TabsContent value="add-group">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Add New Group</CardTitle>
+                  <CardDescription>Create a new user group with defined permissions.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="group-name">Group Name *</Label>
+                      <Input
+                        id="group-name"
+                        placeholder="e.g., Senior Cashier"
+                        value={newGroup.name}
+                        onChange={(e) => setNewGroup(prev => ({ ...prev, name: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="group-desc">Description</Label>
+                      <Input
+                        id="group-desc"
+                        placeholder="Describe the group's purpose..."
+                        value={newGroup.description}
+                        onChange={(e) => setNewGroup(prev => ({ ...prev, description: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <Separator />
+                  <div>
+                    <RightsEditor
+                      rights={newGroup.rights}
+                      onChange={(right, value) =>
+                        setNewGroup(prev => ({
+                          ...prev,
+                          rights: { ...prev.rights, [right]: value }
+                        }))
+                      }
+                      onGrantAll={() => {
+                        const allYes = Object.keys(newGroup.rights).reduce((acc, key) => {
+                          acc[key as keyof UserRights] = 'yes';
+                          return acc;
+                        }, {} as UserRights);
+                        setNewGroup(prev => ({ ...prev, rights: allYes }));
+                      }}
+                      onRevokeAll={() => {
+                        const allNo = Object.keys(newGroup.rights).reduce((acc, key) => {
+                          acc[key as keyof UserRights] = 'no';
+                          return acc;
+                        }, {} as UserRights);
+                        setNewGroup(prev => ({ ...prev, rights: allNo }));
+                      }}
+                    />
+                  </div>
+                  <div className="sticky bottom-0 bg-card p-4 -mx-6 -mb-6 border-t flex justify-end gap-3 z-10 mt-6 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+                    <Button variant="outline" onClick={() => setActiveTab('groups')}>Cancel</Button>
+                    <Button onClick={handleAddGroup}>Create Group</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Add User Dialog */}
@@ -734,52 +885,7 @@ export default function Users() {
           </DialogContent>
         </Dialog>
 
-        {/* Add Group Dialog */}
-        <Dialog open={isAddGroupOpen} onOpenChange={setIsAddGroupOpen}>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Add New Group</DialogTitle>
-              <DialogDescription>Create a new user group with defined permissions.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="group-name">Group Name *</Label>
-                <Input
-                  id="group-name"
-                  placeholder="e.g., Senior Cashier"
-                  value={newGroup.name}
-                  onChange={(e) => setNewGroup(prev => ({ ...prev, name: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="group-desc">Description</Label>
-                <Textarea
-                  id="group-desc"
-                  placeholder="Describe the group's purpose..."
-                  value={newGroup.description}
-                  onChange={(e) => setNewGroup(prev => ({ ...prev, description: e.target.value }))}
-                />
-              </div>
-              <Separator />
-              <div>
-                <h4 className="font-medium mb-4">Group Permissions</h4>
-                <RightsEditor
-                  rights={newGroup.rights}
-                  onChange={(right, value) =>
-                    setNewGroup(prev => ({
-                      ...prev,
-                      rights: { ...prev.rights, [right]: value }
-                    }))
-                  }
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddGroupOpen(false)}>Cancel</Button>
-              <Button onClick={handleAddGroup}>Create Group</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+
 
         {/* Edit Group Dialog */}
         <Dialog open={!!editingGroup} onOpenChange={() => { setEditingGroup(null); setEditingGroupRights(null); }}>
@@ -814,6 +920,20 @@ export default function Users() {
                     onChange={(right, value) =>
                       setEditingGroupRights(prev => prev ? { ...prev, [right]: value } : null)
                     }
+                    onGrantAll={() => {
+                      const allYes = Object.keys(editingGroupRights).reduce((acc, key) => {
+                        acc[key as keyof UserRights] = 'yes';
+                        return acc;
+                      }, {} as UserRights);
+                      setEditingGroupRights(allYes);
+                    }}
+                    onRevokeAll={() => {
+                      const allNo = Object.keys(editingGroupRights).reduce((acc, key) => {
+                        acc[key as keyof UserRights] = 'no';
+                        return acc;
+                      }, {} as UserRights);
+                      setEditingGroupRights(allNo);
+                    }}
                   />
                 </div>
               </div>

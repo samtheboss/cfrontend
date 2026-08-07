@@ -887,6 +887,7 @@ export default function AccommodationExpenses() {
 
       {/* Payment Popup Dialog */}
       <PaymentDialog
+        module="ACCOMMODATION_EXPENSE"
         open={isPaymentDialogOpen}
         onOpenChange={setIsPaymentDialogOpen}
         title="Expense Payment Details"

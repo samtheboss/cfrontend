@@ -2000,74 +2000,84 @@ export default function POS() {
         </button>
 
         {/* Mob Money */}
-        <button
-          id="pos-mob-money-btn"
-          disabled={cart.length === 0}
-          onClick={() => {
-            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
-            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: true, amount: total.toFixed(2), reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
-            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-            setCheckoutOpen(true);
-          }}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-emerald-700 hover:bg-emerald-800 text-white active:brightness-90"
-        >
-          <Smartphone className="h-5 w-5" />
-          Mob Money
-        </button>
+        {(!rights || rights.posReceiveMobile !== 'no') && (
+          <button
+            id="pos-mob-money-btn"
+            disabled={cart.length === 0}
+            onClick={() => {
+              if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+              setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: true, amount: total.toFixed(2), reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
+              setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+              setCheckoutOpen(true);
+            }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-emerald-700 hover:bg-emerald-800 text-white active:brightness-90"
+          >
+            <Smartphone className="h-5 w-5" />
+            Mob Money
+          </button>
+        )}
 
         {/* Bank Transfer */}
-        <button
-          id="pos-bank-btn"
-          disabled={cart.length === 0}
-          onClick={() => {
-            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
-            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: true, amount: total.toFixed(2), reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
-            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-            setCheckoutOpen(true);
-          }}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-600 hover:bg-blue-700 text-white active:brightness-90"
-        >
-          <Building className="h-5 w-5" />
-          Bank
-        </button>
+        {(!rights || rights.posReceiveBank !== 'no') && (
+          <button
+            id="pos-bank-btn"
+            disabled={cart.length === 0}
+            onClick={() => {
+              if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+              setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: true, amount: total.toFixed(2), reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
+              setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+              setCheckoutOpen(true);
+            }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-600 hover:bg-blue-700 text-white active:brightness-90"
+          >
+            <Building className="h-5 w-5" />
+            Bank
+          </button>
+        )}
 
         {/* Complimentary */}
-        <button
-          id="pos-complimentary-btn"
-          disabled={cart.length === 0}
-          onClick={() => {
-            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
-            setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: true, amount: total.toFixed(2), reference: '' } });
-            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-            setCheckoutOpen(true);
-          }}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-purple-600 hover:bg-purple-700 text-white active:brightness-90"
-        >
-          <Gift className="h-5 w-5" />
-          Complimentary
-        </button>
+        {(!rights || rights.posReceiveComplimentary !== 'no') && (
+          <button
+            id="pos-complimentary-btn"
+            disabled={cart.length === 0}
+            onClick={() => {
+              if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+              setPaymentMethods({ cash: { active: false, amount: '', reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: true, amount: total.toFixed(2), reference: '' } });
+              setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+              setCheckoutOpen(true);
+            }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-purple-600 hover:bg-purple-700 text-white active:brightness-90"
+          >
+            <Gift className="h-5 w-5" />
+            Complimentary
+          </button>
+        )}
 
         {/* Pay Cash */}
-        <button
-          id="pos-pay-cash-btn"
-          disabled={cart.length === 0}
-          onClick={() => {
-            if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
-            setPaymentMethods({ cash: { active: true, amount: total.toFixed(2), reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
-            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-            setCheckoutOpen(true);
-          }}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-teal-500 hover:bg-teal-600 text-white active:brightness-90"
-        >
-          <Banknote className="h-5 w-5" />
-          Pay Cash
-        </button>
+        {(!rights || rights.posReceiveCash !== 'no') && (
+          <button
+            id="pos-pay-cash-btn"
+            disabled={cart.length === 0}
+            onClick={() => {
+              if (!selectedCustomer) { toast.error('Please select a customer to proceed'); setCustomerPopoverOpen(true); return; }
+              setPaymentMethods({ cash: { active: true, amount: total.toFixed(2), reference: '' }, card: { active: false, amount: '', reference: '' }, mobile: { active: false, amount: '', reference: '' }, bank: { active: false, amount: '', reference: '' }, complimentary: { active: false, amount: '', reference: '' } });
+              setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+              setCheckoutOpen(true);
+            }}
+            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-teal-500 hover:bg-teal-600 text-white active:brightness-90"
+          >
+            <Banknote className="h-5 w-5" />
+            Pay Cash
+          </button>
+        )}
       </div>
 
       <PaymentDialog
+        module="POS"
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
         totalAmount={total}
+        initialPayments={paymentMethods as any}
         onSubmit={handleCheckout}
         isProcessing={isProcessing}
         onCancel={() => setCheckoutOpen(false)}
@@ -2617,6 +2627,7 @@ export default function POS() {
       </Dialog>
 
       <PaymentDialog
+        module="POS"
         open={!!receivePaymentSale}
         onOpenChange={(open) => {
           if (!open && !isReceivingPayment) {

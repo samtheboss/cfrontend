@@ -3,7 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,7 +28,8 @@ import {
   Search,
   RefreshCw,
   ChevronsUpDown,
-  Check
+  Check,
+  Wallet
 } from 'lucide-react';
 
 // ── Types ──
@@ -50,6 +51,13 @@ interface AccountMapping {
   debitAccount: GlAccount | null;
   creditAccount: GlAccount | null;
   description: string;
+}
+
+interface PaymentAccountDefault {
+  id: number;
+  module: string;
+  paymentMethod: string;
+  glAccount: GlAccount;
 }
 
 interface GlJournal {
@@ -171,8 +179,10 @@ export default function Accounting() {
   // ── Shared state ──
   const [accounts, setAccounts] = useState<GlAccount[]>([]);
   const [mappings, setMappings] = useState<AccountMapping[]>([]);
+  const [paymentDefaults, setPaymentDefaults] = useState<PaymentAccountDefault[]>([]);
   const [journals, setJournals] = useState<GlJournal[]>([]);
   const [loading, setLoading] = useState(false);
+  const [savingDefaults, setSavingDefaults] = useState(false);
   
   // ── Unposted state ──
   const [unpostedTxs, setUnpostedTxs] = useState<any[]>([]);
@@ -328,12 +338,14 @@ export default function Accounting() {
   async function fetchAll() {
     setLoading(true);
     try {
-      const [accts, maps] = await Promise.all([
+      const [accts, maps, pDefs] = await Promise.all([
         apiFetch<GlAccount[]>('/api/accounting/accounts'),
         apiFetch<AccountMapping[]>('/api/accounting/accounts/mappings'),
+        apiFetch<PaymentAccountDefault[]>('/api/accounting/accounts/payment-defaults'),
       ]);
       setAccounts(accts);
       setMappings(maps);
+      setPaymentDefaults(pDefs);
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   }
@@ -414,6 +426,25 @@ export default function Accounting() {
       toast.success('Mapping deleted');
       fetchAll();
     } catch (e: any) { toast.error(e.message); }
+  }
+
+  // ── Payment Defaults CRUD ──
+  async function savePaymentDefault(module: string, method: string, accountId: string) {
+    if (!accountId) return;
+    try {
+      setSavingDefaults(true);
+      await apiFetch('/api/accounting/accounts/payment-defaults', {
+        method: 'POST',
+        body: JSON.stringify({
+          module,
+          paymentMethod: method,
+          glAccount: { id: parseInt(accountId) }
+        })
+      });
+      toast.success('Default updated');
+      fetchAll();
+    } catch (e: any) { toast.error(e.message); }
+    finally { setSavingDefaults(false); }
   }
 
   // ── Manual Journal ──
@@ -555,13 +586,74 @@ export default function Accounting() {
     <AppLayout title="Accounting">
       <div className="space-y-4 py-2 max-w-7xl mx-auto px-4">
         <Tabs defaultValue="accounts" className="w-full" onValueChange={(v) => { if (v === 'unposted') fetchUnposted(); }}>
-          <TabsList className="grid w-full grid-cols-5 mb-4">
+          <TabsList className="grid w-full grid-cols-6 mb-4">
             <TabsTrigger value="accounts" className="flex items-center gap-2"><BookOpen className="w-4 h-4" /> Chart of Accounts</TabsTrigger>
+            <TabsTrigger value="payment-defaults" className="flex items-center gap-2"><Wallet className="w-4 h-4" /> Payment Defaults</TabsTrigger>
             <TabsTrigger value="mappings" className="flex items-center gap-2"><Settings2 className="w-4 h-4" /> Posting Profiles</TabsTrigger>
             <TabsTrigger value="journals" className="flex items-center gap-2"><FileText className="w-4 h-4" /> GL Journals</TabsTrigger>
             <TabsTrigger value="reports" className="flex items-center gap-2"><BarChart3 className="w-4 h-4" /> Financial Reports</TabsTrigger>
             <TabsTrigger value="unposted" className="flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Unposted</TabsTrigger>
           </TabsList>
+
+          {/* ══════════════════════════ PAYMENT DEFAULTS ══════════════════════════ */}
+          <TabsContent value="payment-defaults">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">Module Payment Defaults</CardTitle>
+                <CardDescription>Configure which asset accounts receive funds when a user selects a payment method in different modules.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-50 dark:bg-slate-900">
+                      <TableRow>
+                        <TableHead className="font-semibold text-slate-900 dark:text-slate-100">Module (Window)</TableHead>
+                        <TableHead>Cash Account</TableHead>
+                        <TableHead>Bank Account</TableHead>
+                        <TableHead>M-Pesa Account</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {[
+                        { id: 'POS', label: 'POS (Point of Sale)' },
+                        { id: 'PROPERTY', label: 'Rent Collection' },
+                        { id: 'ACCOMMODATION', label: 'Accommodation' },
+                        { id: 'PURCHASE', label: 'Purchasing / Suppliers' },
+                        { id: 'PMS_EXPENSE', label: 'Property Expenses' },
+                        { id: 'ACCOMMODATION_EXPENSE', label: 'Accommodation Expenses' }
+                      ].map(mod => (
+                        <TableRow key={mod.id}>
+                          <TableCell className="font-medium">{mod.label}</TableCell>
+                          {(['CASH', 'BANK', 'MOBILE_MONEY'] as const).map(method => {
+                            const def = paymentDefaults.find(d => d.module === mod.id && d.paymentMethod === method);
+                            return (
+                              <TableCell key={method}>
+                                <Select
+                                  disabled={savingDefaults}
+                                  value={def?.glAccount?.id?.toString() || ''}
+                                  onValueChange={(val) => savePaymentDefault(mod.id, method, val)}
+                                >
+                                  <SelectTrigger className="h-8 text-xs w-[200px]">
+                                    <SelectValue placeholder="Global Default" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="clear" className="text-muted-foreground italic">-- Use Global Default --</SelectItem>
+                                    {accounts.filter(a => a.type === 'ASSET' && a.active).map(a => (
+                                      <SelectItem key={a.id} value={a.id.toString()}>{a.code} - {a.name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* ══════════════════════════ CHART OF ACCOUNTS ══════════════════════════ */}
           <TabsContent value="accounts">

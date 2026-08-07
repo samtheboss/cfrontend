@@ -604,6 +604,7 @@ export default function PmsExpenses() {
 
         {/* Payment Popup Dialog */}
         <PaymentDialog
+          module="PMS_EXPENSE"
           open={isPaymentDialogOpen}
           onOpenChange={setIsPaymentDialogOpen}
           title="Expense Payment Details"

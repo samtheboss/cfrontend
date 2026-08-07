@@ -680,16 +680,20 @@ export default function RentCollection() {
                 
                 let totalInvoiced = 0;
                 let totalPaid = 0;
+                let totalCreditNotes = 0;
                 
                 activeTenantInvoices.forEach(inv => {
                   if (inv.invoiceType === 'CREDIT_NOTE') {
-                    totalInvoiced -= inv.amountDue;
+                    // Credit notes are excluded from Invoiced total
+                    // Track them separately to reduce balance
+                    totalCreditNotes += inv.amountDue;
                     // When a credit note is applied, the target invoice's amountPaid goes up via a dummy payment.
                     // This dummy payment is included in the target invoice's amountPaid sum below.
                     // By subtracting the credit note's amountPaid here, we perfectly offset that dummy payment, 
                     // ensuring we don't double count the credit in the overall ledger balance.
                     totalPaid -= inv.amountPaid; 
                   } else {
+                    // Only INVOICE, DEBIT_NOTE, and OPENING_BALANCE contribute to Invoiced total
                     totalInvoiced += inv.amountDue;
                     totalPaid += inv.amountPaid;
                   }
@@ -699,7 +703,7 @@ export default function RentCollection() {
                 // because the applied portion is already accounted for in the target invoices' amountPaid.
                 const totalPrepayments = tenantPrepayments.reduce((sum, pay) => sum + (pay.amount - (pay.amountApplied || 0)), 0);
                 totalPaid += totalPrepayments;
-                const balance = totalInvoiced - totalPaid;
+                const balance = totalInvoiced - totalCreditNotes - totalPaid;
                 
                 const unpaidInvoices = activeTenantInvoices.filter(inv => inv.status !== 'PAID' && inv.invoiceType !== 'CREDIT_NOTE');
 
@@ -1136,6 +1140,7 @@ export default function RentCollection() {
         {/* Record Payment Dialog */}
         {selectedInvoice && (
           <PaymentDialog
+            module="PROPERTY"
             open={isRecordPaymentOpen}
             onOpenChange={setIsRecordPaymentOpen}
             title={`Record Payment for ${selectedInvoice.invoiceNumber}`}

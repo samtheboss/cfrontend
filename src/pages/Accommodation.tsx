@@ -3295,6 +3295,7 @@ export default function Accommodation() {
 
       {/* ==================== MODAL: ADD PAYMENT ==================== */}
         <PaymentDialog
+          module="ACCOMMODATION"
           open={isAddPaymentDialogOpen}
           onOpenChange={setIsAddPaymentDialogOpen}
           totalAmount={bookingSummary.outstandingBalance || 0}
@@ -3308,6 +3309,7 @@ export default function Accommodation() {
 
       {/* ==================== MODAL: COMPLETE CHECKOUT SPLIT PAYMENT ==================== */}
       <PaymentDialog
+        module="ACCOMMODATION"
         open={isCheckoutPaymentDialogOpen}
         onOpenChange={setIsCheckoutPaymentDialogOpen}
         totalAmount={checkoutOutstanding}
