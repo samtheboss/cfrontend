@@ -347,8 +347,51 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          {/* Notifications */}
-          <Card>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                    <Database className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle>Database Management</CardTitle>
+                    <CardDescription>Backup and restore your system data</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-sm">System Backup</h4>
+                    <p className="text-sm text-muted-foreground">Create a manual backup of the entire database.</p>
+                  </div>
+                  <Button 
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const loadingToast = toast.loading('Creating backup...');
+                        const res = await fetch(getBaseUrl() + '/api/system-settings/backup', { method: 'POST' });
+                        const data = await res.json();
+                        toast.dismiss(loadingToast);
+                        if (res.ok) {
+                          toast.success(data.message || 'Backup created successfully');
+                        } else {
+                          toast.error(data.message || 'Backup failed');
+                        }
+                      } catch (err: any) {
+                        toast.dismiss();
+                        toast.error('Network error during backup: ' + err.message);
+                      }
+                    }}
+                  >
+                    <Database className="w-4 h-4 mr-2" /> Initiate Backup
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Notification Settings */}
+            <Card>
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">

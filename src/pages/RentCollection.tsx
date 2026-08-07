@@ -73,6 +73,32 @@ export default function RentCollection() {
   const [selectedInvoice, setSelectedInvoice] = useState<PropertyRentInvoice | null>(null);
   const [receiptToPrint, setReceiptToPrint] = useState<any>(null);
 
+  const [isGenerateInvoiceOpen, setIsGenerateInvoiceOpen] = useState(false);
+  const [generateInvoiceDate, setGenerateInvoiceDate] = useState('');
+  const [generateInvoiceLeaseId, setGenerateInvoiceLeaseId] = useState<number | null>(null);
+
+  const [isManualInvoiceOpen, setIsManualInvoiceOpen] = useState(false);
+  const [manualInvoiceType, setManualInvoiceType] = useState('DEBIT_NOTE');
+  const [manualInvoiceForm, setManualInvoiceForm] = useState({
+    amount: '',
+    date: '',
+    notes: ''
+  });
+
+  const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [applyTarget, setApplyTarget] = useState<{ id: number, type: 'CREDIT_NOTE' | 'PREPAYMENT', available: number } | null>(null);
+  const [applyForm, setApplyForm] = useState({
+    targetInvoiceId: '',
+    amount: ''
+  });
+
+  const [isPrepaymentModalOpen, setIsPrepaymentModalOpen] = useState(false);
+  const [prepaymentForm, setPrepaymentForm] = useState({
+    amount: '',
+    date: '',
+    notes: ''
+  });
+
   // Statement states
   const [activeTab, setActiveTab] = useState<'collections' | 'statements'>('collections');
   const [statementTenantId, setStatementTenantId] = useState<string>('');
@@ -91,6 +117,11 @@ export default function RentCollection() {
     paymentMethod: 'CASH',
     referenceNumber: '',
   });
+
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelTargetInvoice, setCancelTargetInvoice] = useState<PropertyRentInvoice | null>(null);
+  const [cancelAction, setCancelAction] = useState('KEEP_AS_PREPAYMENT');
+  const [cancelRefundMethod, setCancelRefundMethod] = useState('BANK');
 
   // Fetch data
   const fetchData = async () => {
@@ -220,6 +251,138 @@ export default function RentCollection() {
     }
   };
 
+  const handleGenerateInvoice = async () => {
+    if (!generateInvoiceLeaseId) return;
+    try {
+      const url = `/api/pms/leases/${generateInvoiceLeaseId}/generate-invoice${generateInvoiceDate ? `?invoiceDate=${generateInvoiceDate}` : ''}`;
+      await apiFetch(url, { method: 'POST' });
+      toast.success('Invoice generated successfully!');
+      setIsGenerateInvoiceOpen(false);
+      setGenerateInvoiceDate('');
+      fetchData();
+    } catch (err: any) {
+      toast.error('Failed to generate invoice: ' + err.message);
+    }
+  };
+
+  const handleManualInvoiceSubmit = async () => {
+    if (!manualInvoiceForm.amount || !manualInvoiceForm.date || !statementTenantId) {
+      toast.error('Please fill in required fields');
+      return;
+    }
+    const tenantLeases = leases.filter(l => l.tenantId.toString() === statementTenantId || l.tenantId === parseInt(statementTenantId));
+    const activeLease = tenantLeases.find(l => l.status === 'ACTIVE') || tenantLeases[0];
+    if (!activeLease) {
+      toast.error('No lease found for tenant');
+      return;
+    }
+
+    try {
+      const payload = {
+        leaseId: activeLease.id,
+        dueDate: manualInvoiceForm.date,
+        amountDue: parseFloat(manualInvoiceForm.amount),
+        amountPaid: 0,
+        billingPeriod: manualInvoiceForm.notes || (manualInvoiceType === 'DEBIT_NOTE' ? 'Debit Note' : manualInvoiceType === 'CREDIT_NOTE' ? 'Credit Note' : 'Opening Balance'),
+        invoiceType: manualInvoiceType
+      };
+      await apiFetch('/api/pms/invoices', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      toast.success(`${manualInvoiceType === 'DEBIT_NOTE' ? 'Debit Note' : manualInvoiceType === 'CREDIT_NOTE' ? 'Credit Note' : 'Opening Balance'} created successfully!`);
+      setIsManualInvoiceOpen(false);
+      setManualInvoiceForm({ amount: '', date: '', notes: '' });
+      fetchData();
+    } catch (err: any) {
+      toast.error('Failed to create record: ' + err.message);
+    }
+  };
+
+  const handleCancelInvoice = (invoice: PropertyRentInvoice) => {
+    if (invoice.amountPaid > 0) {
+      setCancelTargetInvoice(invoice);
+      setCancelAction('KEEP_AS_PREPAYMENT');
+      setIsCancelModalOpen(true);
+    } else {
+      if (!confirm('Are you sure you want to cancel this invoice? This will reverse its GL posting.')) return;
+      submitCancelInvoice(invoice.id!);
+    }
+  };
+
+  const submitCancelInvoice = async (id: number, action?: string, refundMethod?: string) => {
+    try {
+      let url = `/api/pms/invoices/${id}/cancel`;
+      if (action) {
+        url += `?action=${action}`;
+        if (action === 'REFUND' && refundMethod) {
+          url += `&refundMethod=${refundMethod}`;
+        }
+      }
+      await apiFetch(url, { method: 'PUT' });
+      toast.success('Invoice cancelled successfully');
+      setIsCancelModalOpen(false);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Failed to cancel invoice: ' + err.message);
+    }
+  };
+
+  const handlePrepaymentSubmit = async () => {
+    if (!prepaymentForm.amount || !prepaymentForm.date || !statementTenantId) {
+      toast.error('Please fill in required fields');
+      return;
+    }
+    const tenantLeases = leases.filter(l => l.tenantId.toString() === statementTenantId || l.tenantId === parseInt(statementTenantId));
+    const activeLease = tenantLeases.find(l => l.status === 'ACTIVE') || tenantLeases[0];
+    if (!activeLease) return;
+
+    try {
+      const payload = {
+        leaseId: activeLease.id,
+        amount: parseFloat(prepaymentForm.amount),
+        paymentDate: prepaymentForm.date,
+        notes: prepaymentForm.notes || 'Prepayment',
+        paymentMethod: 'CASH'
+      };
+      await apiFetch('/api/pms/payments', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      toast.success('Prepayment recorded successfully!');
+      setIsPrepaymentModalOpen(false);
+      setPrepaymentForm({ amount: '', date: '', notes: '' });
+      fetchData();
+    } catch (err: any) {
+      toast.error('Failed to record prepayment: ' + err.message);
+    }
+  };
+
+  const handleApplySubmit = async () => {
+    if (!applyTarget || !applyForm.targetInvoiceId || !applyForm.amount) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+    const amt = parseFloat(applyForm.amount);
+    if (amt > applyTarget.available) {
+      toast.error('Amount exceeds available balance');
+      return;
+    }
+    
+    try {
+      await apiFetch(`/api/pms/payments/apply?sourceId=${applyTarget.id}&sourceType=${applyTarget.type}&targetInvoiceId=${applyForm.targetInvoiceId}&amountToApply=${amt}`, {
+        method: 'POST'
+      });
+      toast.success('Applied successfully!');
+      setIsApplyModalOpen(false);
+      setApplyForm({ targetInvoiceId: '', amount: '' });
+      fetchData();
+    } catch (err: any) {
+      toast.error('Failed to apply: ' + err.message);
+    }
+  };
+
+
   // Helpers
   const getLease = (leaseId: number) => {
     return leases.find((l) => l.id === leaseId);
@@ -255,6 +418,8 @@ export default function RentCollection() {
         return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Partial</Badge>;
       case 'UNPAID':
         return <Badge variant="destructive">Unpaid</Badge>;
+      case 'CANCELLED':
+        return <Badge variant="secondary">Cancelled</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
@@ -403,7 +568,7 @@ export default function RentCollection() {
                           <TableCell>{getInvoiceStatusBadge(inv.status)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              {inv.status !== 'PAID' && (
+                              {inv.invoiceType !== 'CREDIT_NOTE' && inv.status !== 'PAID' && inv.status !== 'CANCELLED' && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -509,10 +674,34 @@ export default function RentCollection() {
                 const tenantInvoices = invoices.filter(inv => tenantLeaseIds.includes(inv.leaseId));
                 const tenantPayments = payments.filter(pay => tenantInvoices.map(inv => inv.id).includes(pay.invoiceId));
 
-                const totalInvoiced = tenantInvoices.reduce((sum, inv) => sum + inv.amountDue, 0);
-                const totalPaid = totalInvoiced ? tenantInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0) : 0;
+                const activeTenantInvoices = tenantInvoices.filter(inv => inv.status !== 'CANCELLED');
+                
+                const tenantPrepayments = payments.filter(pay => tenantLeaseIds.includes(pay.leaseId!) && !pay.invoiceId);
+                
+                let totalInvoiced = 0;
+                let totalPaid = 0;
+                
+                activeTenantInvoices.forEach(inv => {
+                  if (inv.invoiceType === 'CREDIT_NOTE') {
+                    totalInvoiced -= inv.amountDue;
+                    // When a credit note is applied, the target invoice's amountPaid goes up via a dummy payment.
+                    // This dummy payment is included in the target invoice's amountPaid sum below.
+                    // By subtracting the credit note's amountPaid here, we perfectly offset that dummy payment, 
+                    // ensuring we don't double count the credit in the overall ledger balance.
+                    totalPaid -= inv.amountPaid; 
+                  } else {
+                    totalInvoiced += inv.amountDue;
+                    totalPaid += inv.amountPaid;
+                  }
+                });
+                
+                // Only add the UNAPPLIED portion of prepayments to totalPaid, 
+                // because the applied portion is already accounted for in the target invoices' amountPaid.
+                const totalPrepayments = tenantPrepayments.reduce((sum, pay) => sum + (pay.amount - (pay.amountApplied || 0)), 0);
+                totalPaid += totalPrepayments;
                 const balance = totalInvoiced - totalPaid;
-                const unpaidInvoices = tenantInvoices.filter(inv => inv.status !== 'PAID');
+                
+                const unpaidInvoices = activeTenantInvoices.filter(inv => inv.status !== 'PAID' && inv.invoiceType !== 'CREDIT_NOTE');
 
                 return (
                   <div className="space-y-6">
@@ -582,27 +771,58 @@ export default function RentCollection() {
                           <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300">
                             Invoice Log ({tenantInvoices.length})
                           </h4>
-                          {tenantLeases.filter(l => l.status === 'ACTIVE').length > 0 && (
+                          <div className="flex gap-2">
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-7 px-2 text-xs"
-                              onClick={async () => {
-                                const activeLease = tenantLeases.find(l => l.status === 'ACTIVE');
-                                if (!activeLease) return;
-                                try {
-                                  await apiFetch(`/api/pms/leases/${activeLease.id}/generate-invoice`, { method: 'POST' });
-                                  toast.success('Invoice generated successfully!');
-                                  fetchData();
-                                } catch (err: any) {
-                                  toast.error('Failed to generate invoice: ' + err.message);
-                                }
+                              className="h-7 px-2 text-xs text-orange-600 border-orange-200"
+                              onClick={() => {
+                                setManualInvoiceType('OPENING_BALANCE');
+                                setIsManualInvoiceOpen(true);
                               }}
                             >
-                              <Plus className="h-3.5 w-3.5 mr-1" />
-                              Create Invoice
+                              Opening Balance
                             </Button>
-                          )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-red-600 border-red-200"
+                              onClick={() => {
+                                setManualInvoiceType('DEBIT_NOTE');
+                                setIsManualInvoiceOpen(true);
+                              }}
+                            >
+                              Debit Note
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-emerald-600 border-emerald-200"
+                              onClick={() => {
+                                setManualInvoiceType('CREDIT_NOTE');
+                                setIsManualInvoiceOpen(true);
+                              }}
+                            >
+                              Credit Note
+                            </Button>
+                            {tenantLeases.filter(l => l.status === 'ACTIVE').length > 0 && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  const activeLease = tenantLeases.find(l => l.status === 'ACTIVE');
+                                  if (!activeLease) return;
+                                  setGenerateInvoiceLeaseId(activeLease.id);
+                                  setGenerateInvoiceDate('');
+                                  setIsGenerateInvoiceOpen(true);
+                                }}
+                              >
+                                <Plus className="h-3.5 w-3.5 mr-1" />
+                                Create Invoice
+                              </Button>
+                            )}
+                          </div>
                         </div>
                         <div className="border rounded-lg overflow-hidden bg-white dark:bg-slate-900">
                           <Table>
@@ -627,29 +847,64 @@ export default function RentCollection() {
                               ) : (
                                 tenantInvoices.map(inv => (
                                   <TableRow key={inv.id}>
-                                    <TableCell className="font-mono text-xs py-2">{inv.invoiceNumber}</TableCell>
+                                    <TableCell className="font-mono text-xs py-2">
+                                      {inv.invoiceNumber}
+                                      {inv.invoiceType && inv.invoiceType !== 'INVOICE' && (
+                                        <Badge variant="outline" className={`ml-2 text-[10px] h-4 ${inv.invoiceType === 'DEBIT_NOTE' ? 'text-red-600 border-red-200' : inv.invoiceType === 'CREDIT_NOTE' ? 'text-emerald-600 border-emerald-200' : 'text-orange-600 border-orange-200'}`}>
+                                          {inv.invoiceType === 'DEBIT_NOTE' ? 'Debit Note' : inv.invoiceType === 'CREDIT_NOTE' ? 'Credit Note' : 'Opening Bal'}
+                                        </Badge>
+                                      )}
+                                    </TableCell>
                                     <TableCell className="text-xs py-2">{inv.billingPeriod}</TableCell>
                                     <TableCell className="text-xs text-right py-2 font-semibold">KES {inv.amountDue.toLocaleString()}</TableCell>
                                     <TableCell className="text-xs text-right py-2 text-emerald-600 font-semibold">KES {inv.amountPaid.toLocaleString()}</TableCell>
-                                    <TableCell className={`text-xs text-right py-2 font-semibold ${inv.amountDue - inv.amountPaid > 0 ? 'text-destructive' : 'text-emerald-600'}`}>
+                                    <TableCell className={`text-xs text-right py-2 font-semibold ${inv.amountDue - inv.amountPaid > 0 ? (inv.invoiceType === 'CREDIT_NOTE' ? 'text-emerald-600' : 'text-destructive') : 'text-emerald-600'}`}>
                                       KES {(inv.amountDue - inv.amountPaid).toLocaleString()}
                                     </TableCell>
                                     <TableCell className="text-right py-2">{getInvoiceStatusBadge(inv.status)}</TableCell>
                                     <TableCell className="text-right py-2">
-                                      {inv.status !== 'PAID' && (
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-7 w-7 p-0 text-indigo-650 hover:text-indigo-700"
-                                          onClick={() => {
-                                            setSelectedInvoice(inv);
-                                            setIsRecordPaymentOpen(true);
-                                          }}
-                                          title="Record Payment"
-                                        >
-                                          <CreditCard className="h-4 w-4" />
-                                        </Button>
-                                      )}
+                                      <div className="flex justify-end gap-1">
+                                        {inv.invoiceType === 'CREDIT_NOTE' && inv.amountDue - inv.amountPaid > 0 && inv.status !== 'CANCELLED' && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 px-2 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200"
+                                            onClick={() => {
+                                              setApplyTarget({ id: inv.id!, type: 'CREDIT_NOTE', available: inv.amountDue - inv.amountPaid });
+                                              setIsApplyModalOpen(true);
+                                            }}
+                                          >
+                                            Apply Credit
+                                          </Button>
+                                        )}
+                                        {inv.invoiceType !== 'CREDIT_NOTE' && inv.status !== 'PAID' && inv.status !== 'CANCELLED' && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 w-7 p-0 text-indigo-650 hover:text-indigo-700"
+                                            onClick={() => {
+                                              setSelectedInvoice(inv);
+                                              setIsRecordPaymentOpen(true);
+                                            }}
+                                            title="Record Payment"
+                                          >
+                                            <CreditCard className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                        {inv.invoiceType !== 'CREDIT_NOTE' && inv.status !== 'CANCELLED' && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={() => {
+                                              handleCancelInvoice(inv);
+                                            }}
+                                            title="Cancel Invoice"
+                                          >
+                                            <AlertCircle className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                      </div>
                                     </TableCell>
                                   </TableRow>
                                 ))
@@ -661,36 +916,73 @@ export default function RentCollection() {
 
                       {/* Payments List */}
                       <div className="space-y-3">
-                        <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 border-b pb-2 flex justify-between">
-                          <span>Payment Records ({tenantPayments.length})</span>
-                          <span className="text-xs font-normal text-muted-foreground">Total Paid: KES {totalPaid.toLocaleString()}</span>
-                        </h4>
+                        <div className="flex items-center justify-between border-b pb-2">
+                          <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300">
+                            Payment Records ({tenantPayments.length + tenantPrepayments.length})
+                          </h4>
+                          <div className="flex gap-4 items-center">
+                            <span className="text-xs font-normal text-muted-foreground">Total Paid: KES {totalPaid.toLocaleString()}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-blue-600 border-blue-200"
+                              onClick={() => setIsPrepaymentModalOpen(true)}
+                            >
+                              Add Prepayment
+                            </Button>
+                          </div>
+                        </div>
                         <div className="max-h-[480px] overflow-y-auto border rounded-lg">
                           <Table>
                             <TableHeader>
                               <TableRow>
                                 <TableHead className="py-2 text-xs">Receipt #</TableHead>
                                 <TableHead className="py-2 text-xs">Method</TableHead>
-                                <TableHead className="py-2 text-xs">Reference</TableHead>
-                                <TableHead className="py-2 text-xs text-right">Amount Paid</TableHead>
+                                <TableHead className="py-2 text-xs text-right">Amount</TableHead>
+                                <TableHead className="py-2 text-xs text-right">Applied</TableHead>
+                                <TableHead className="py-2 text-xs text-right">Actions</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {tenantPayments.length === 0 ? (
+                              {[...tenantPayments, ...tenantPrepayments].length === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={4} className="text-center py-4 text-xs text-muted-foreground">
+                                  <TableCell colSpan={5} className="text-center py-4 text-xs text-muted-foreground">
                                     No payments recorded.
                                   </TableCell>
                                 </TableRow>
                               ) : (
-                                tenantPayments.map(p => (
-                                  <TableRow key={p.id}>
-                                    <TableCell className="font-mono text-xs py-2">{p.receiptNumber}</TableCell>
-                                    <TableCell className="text-xs py-2 capitalize">{p.paymentMethod.replace('_', ' ').toLowerCase()}</TableCell>
-                                    <TableCell className="text-xs py-2 font-mono">{p.referenceNumber || '—'}</TableCell>
-                                    <TableCell className="text-xs text-right py-2 font-bold text-emerald-600">KES {p.amount.toLocaleString()}</TableCell>
-                                  </TableRow>
-                                ))
+                                [...tenantPayments, ...tenantPrepayments].sort((a,b) => (b.id||0)-(a.id||0)).map(p => {
+                                  const isPrepayment = !p.invoiceId;
+                                  const available = p.amount - (p.amountApplied || 0);
+                                  return (
+                                    <TableRow key={p.id}>
+                                      <TableCell className="font-mono text-xs py-2">
+                                        {p.receiptNumber}
+                                        {isPrepayment && <Badge variant="outline" className="ml-2 text-[10px] h-4 text-blue-600 border-blue-200">Prepayment</Badge>}
+                                      </TableCell>
+                                      <TableCell className="text-xs py-2 capitalize">{p.paymentMethod.replace('_', ' ').toLowerCase()}</TableCell>
+                                      <TableCell className="text-xs text-right py-2 font-bold text-emerald-600">KES {p.amount.toLocaleString()}</TableCell>
+                                      <TableCell className="text-xs text-right py-2 font-semibold">
+                                        {isPrepayment ? `KES ${(p.amountApplied || 0).toLocaleString()}` : '—'}
+                                      </TableCell>
+                                      <TableCell className="text-right py-2">
+                                        {isPrepayment && available > 0 && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 px-2 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200 ml-auto block"
+                                            onClick={() => {
+                                              setApplyTarget({ id: p.id!, type: 'PREPAYMENT', available });
+                                              setIsApplyModalOpen(true);
+                                            }}
+                                          >
+                                            Apply
+                                          </Button>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })
                               )}
                             </TableBody>
                           </Table>
@@ -930,6 +1222,226 @@ export default function RentCollection() {
             )}
           </DialogContent>
         </Dialog>
+        <Dialog open={isGenerateInvoiceOpen} onOpenChange={setIsGenerateInvoiceOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Generate Invoice</DialogTitle>
+              <DialogDescription>
+                Set the invoicing date. Leave empty to use the default start date.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Invoicing Date (Optional)</Label>
+                <Input
+                  type="date"
+                  value={generateInvoiceDate}
+                  onChange={(e) => setGenerateInvoiceDate(e.target.value)}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsGenerateInvoiceOpen(false)}>Cancel</Button>
+              <Button onClick={handleGenerateInvoice}>Generate</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isManualInvoiceOpen} onOpenChange={setIsManualInvoiceOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Add {manualInvoiceType === 'DEBIT_NOTE' ? 'Debit Note' : 'Opening Balance'}</DialogTitle>
+              <DialogDescription>
+                Record a manual entry to the tenant's ledger.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Amount Due (KES) *</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={manualInvoiceForm.amount}
+                  onChange={(e) => setManualInvoiceForm({ ...manualInvoiceForm, amount: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Date *</Label>
+                <Input
+                  type="date"
+                  value={manualInvoiceForm.date}
+                  onChange={(e) => setManualInvoiceForm({ ...manualInvoiceForm, date: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Notes / Billing Period</Label>
+                <Input
+                  placeholder="e.g. Broken window repair"
+                  value={manualInvoiceForm.notes}
+                  onChange={(e) => setManualInvoiceForm({ ...manualInvoiceForm, notes: e.target.value })}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsManualInvoiceOpen(false)}>Cancel</Button>
+              <Button onClick={handleManualInvoiceSubmit}>Save Record</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+      {/* Record Prepayment Dialog */}
+        <Dialog open={isPrepaymentModalOpen} onOpenChange={setIsPrepaymentModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Record Prepayment</DialogTitle>
+              <DialogDescription>
+                Record cash received from the tenant without linking it to a specific invoice.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Amount (KES) *</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={prepaymentForm.amount}
+                  onChange={(e) => setPrepaymentForm({ ...prepaymentForm, amount: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Date *</Label>
+                <Input
+                  type="date"
+                  value={prepaymentForm.date}
+                  onChange={(e) => setPrepaymentForm({ ...prepaymentForm, date: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Input
+                  placeholder="e.g. Advance payment for next year"
+                  value={prepaymentForm.notes}
+                  onChange={(e) => setPrepaymentForm({ ...prepaymentForm, notes: e.target.value })}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsPrepaymentModalOpen(false)}>Cancel</Button>
+              <Button onClick={handlePrepaymentSubmit}>Save Prepayment</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Apply Credit/Prepayment Dialog */}
+        <Dialog open={isApplyModalOpen} onOpenChange={setIsApplyModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Apply {applyTarget?.type === 'CREDIT_NOTE' ? 'Credit Note' : 'Prepayment'}</DialogTitle>
+              <DialogDescription>
+                Apply available balance (KES {applyTarget?.available.toLocaleString()}) to an unpaid invoice.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Target Invoice *</Label>
+                <Select
+                  value={applyForm.targetInvoiceId}
+                  onValueChange={(val) => setApplyForm({ ...applyForm, targetInvoiceId: val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an unpaid invoice" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {invoices
+                      .filter(inv => leases.filter(l => l.tenantId.toString() === statementTenantId).map(l => l.id).includes(inv.leaseId) && inv.status !== 'PAID' && inv.status !== 'CANCELLED' && inv.invoiceType !== 'CREDIT_NOTE')
+                      .map(inv => (
+                        <SelectItem key={inv.id} value={inv.id!.toString()}>
+                          {inv.invoiceNumber} - Due: KES {(inv.amountDue - inv.amountPaid).toLocaleString()}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Amount to Apply (KES) *</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={applyForm.amount}
+                  onChange={(e) => setApplyForm({ ...applyForm, amount: e.target.value })}
+                  max={applyTarget?.available}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsApplyModalOpen(false)}>Cancel</Button>
+              <Button onClick={handleApplySubmit}>Apply</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Cancel Invoice Dialog */}
+        <Dialog open={isCancelModalOpen} onOpenChange={setIsCancelModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancel Paid Invoice</DialogTitle>
+              <DialogDescription>
+                This invoice has already been paid (KES {cancelTargetInvoice?.amountPaid.toLocaleString()}).
+                Cancelling it will reverse the revenue from the ledger. What would you like to do with the paid amount?
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Action</Label>
+                <Select
+                  value={cancelAction}
+                  onValueChange={setCancelAction}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an action" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="KEEP_AS_PREPAYMENT">Keep as Prepayment (Recommended)</SelectItem>
+                    <SelectItem value="REFUND">Refund Cash/Bank</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {cancelAction === 'REFUND' && (
+                <div className="space-y-2">
+                  <Label>Refund Payment Method</Label>
+                  <Select
+                    value={cancelRefundMethod}
+                    onValueChange={setCancelRefundMethod}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select refund method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CASH">Cash</SelectItem>
+                      <SelectItem value="BANK">Bank Transfer</SelectItem>
+                      <SelectItem value="MOBILE_MONEY">Mobile Money</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCancelModalOpen(false)}>Abort</Button>
+              <Button 
+                variant="destructive"
+                onClick={() => {
+                  if (cancelTargetInvoice) {
+                    submitCancelInvoice(cancelTargetInvoice.id!, cancelAction, cancelRefundMethod);
+                  }
+                }}
+              >
+                Confirm Cancellation
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
       </div>
     </AppLayout>
   );

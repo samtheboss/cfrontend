@@ -76,6 +76,7 @@ export default function Leases() {
     unitId: '',
     startDate: '',
     endDate: '',
+    nextInvoiceDate: '',
     rentAmount: 0,
     depositAmount: 0,
     billingFrequency: 'MONTHLY',
@@ -167,6 +168,7 @@ export default function Leases() {
         unitId: '',
         startDate: '',
         endDate: '',
+        nextInvoiceDate: '',
         rentAmount: 0,
         depositAmount: 0,
         billingFrequency: 'MONTHLY',
@@ -558,7 +560,7 @@ export default function Leases() {
                 </Popover>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="leaseStart">Start Date *</Label>
                   <Input
@@ -575,6 +577,15 @@ export default function Leases() {
                     type="date"
                     value={newLease.endDate}
                     onChange={(e) => setNewLease((prev) => ({ ...prev, endDate: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="nextInvoiceDate">Invoicing Start Date</Label>
+                  <Input
+                    id="nextInvoiceDate"
+                    type="date"
+                    value={newLease.nextInvoiceDate}
+                    onChange={(e) => setNewLease((prev) => ({ ...prev, nextInvoiceDate: e.target.value }))}
                   />
                 </div>
               </div>

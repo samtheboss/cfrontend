@@ -311,18 +311,21 @@ export interface PropertyRentInvoice {
   dueDate: string;
   amountDue: number;
   amountPaid: number;
-  status: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+  status: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'CANCELLED';
   billingPeriod: string;
+  invoiceType?: string; // INVOICE, DEBIT_NOTE, OPENING_BALANCE
   createdAt?: string;
   createdBy?: string;
 }
 
 export interface PropertyRentPayment {
   id?: number;
-  invoiceId: number;
+  invoiceId?: number;
+  leaseId?: number;
   paymentDate?: string;
   amount: number;
-  paymentMethod: 'CASH' | 'BANK' | 'MOBILE_MONEY' | 'CARD';
+  amountApplied?: number;
+  paymentMethod: 'CASH' | 'BANK' | 'MOBILE_MONEY' | 'CARD' | 'CREDIT_NOTE_APPLY' | 'PREPAYMENT_APPLY';
   referenceNumber?: string;
   receiptNumber?: string;
   notes?: string;
