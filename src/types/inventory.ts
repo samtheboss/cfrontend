@@ -106,6 +106,8 @@ export interface StockTakeItem {
   systemStock: number;
   countedStock: number;
   variance: number;
+  cost?: number;
+  price?: number;
   unit?: string;
   attributes?: Record<string, string>;
 }

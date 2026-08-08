@@ -110,6 +110,8 @@ export default function StockTake() {
                             systemStock: stock,
                             countedStock: 0,
                             variance: 0,
+                            cost: variant.cost,
+                            price: variant.price,
                             unit: product.unit || 'PCS',
                             attributes: variant.attributes
                         };
@@ -288,7 +290,8 @@ export default function StockTake() {
                     productName: item.productName,
                     quantityBefore: item.systemStock,
                     quantityAfter: item.countedStock,
-                    adjustment: item.variance
+                    adjustment: item.variance,
+                    price: item.cost || item.price || 0
                 }))
             };
 

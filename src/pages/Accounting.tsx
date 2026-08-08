@@ -98,9 +98,31 @@ const PAYMENT_METHODS = ['CASH', 'BANK', 'MOBILE_MONEY'];
 const TRANSACTION_TYPES = [
   'SALE', 'SALE_CASH', 'PURCHASE', 'CUSTOMER_RECEIPT', 'SUPPLIER_PAYMENT',
   'RENTAL_INVOICE', 'RENTAL_PAYMENT', 'ACCOMMODATION_INVOICE', 'ACCOMMODATION_PAYMENT',
-  'ACCOMMODATION_EXPENSE', 'STOCK_ADJUSTMENT', 'SALE_RETURN', 'COST_OF_SALES',
-  'VAT_OUTPUT', 'VAT_INPUT'
+  'ACCOMMODATION_EXPENSE', 'STOCK_ADJUSTMENT', 'STOCK_TAKE', 'SALE_RETURN', 'PURCHASE_RETURN',
+  'COST_OF_SALES', 'COST_OF_SALES_RETURN', 'VAT_OUTPUT', 'VAT_INPUT', 'DISCOUNT_EXPENSE'
 ];
+
+const TX_TYPE_LABELS: Record<string, string> = {
+  SALE: 'Sale (Invoice)',
+  SALE_CASH: 'Sale (Cash)',
+  PURCHASE: 'Purchase Order',
+  CUSTOMER_RECEIPT: 'Customer Receipt',
+  SUPPLIER_PAYMENT: 'Supplier Payment',
+  RENTAL_INVOICE: 'Rental Invoice',
+  RENTAL_PAYMENT: 'Rental Payment',
+  ACCOMMODATION_INVOICE: 'Accommodation Invoice',
+  ACCOMMODATION_PAYMENT: 'Accommodation Payment',
+  ACCOMMODATION_EXPENSE: 'Accommodation Expense',
+  STOCK_ADJUSTMENT: 'Stock Adjustment',
+  STOCK_TAKE: 'Stock Take',
+  SALE_RETURN: 'Sale Return',
+  PURCHASE_RETURN: 'Purchase Return',
+  COST_OF_SALES: 'Cost of Sales (COGS)',
+  COST_OF_SALES_RETURN: 'Cost of Sales Return',
+  VAT_OUTPUT: 'VAT Output (Collected)',
+  VAT_INPUT: 'VAT Input (Paid)',
+  DISCOUNT_EXPENSE: 'Discount Expense',
+};
 
 const fmt = (n: number) => new Intl.NumberFormat('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
@@ -207,7 +229,7 @@ export default function Accounting() {
   const [journals, setJournals] = useState<GlJournal[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingDefaults, setSavingDefaults] = useState(false);
-  
+
   // ── Unposted state ──
   const [unpostedTxs, setUnpostedTxs] = useState<any[]>([]);
   const [unpostedPurchases, setUnpostedPurchases] = useState<any[]>([]);
@@ -264,7 +286,7 @@ export default function Accounting() {
     try {
       const isoStart = reportStart ? `${reportStart}T00:00:00` : '2026-01-01T00:00:00';
       const isoEnd = reportEnd ? `${reportEnd}T23:59:59` : '2026-12-31T23:59:59';
-      
+
       const res = await apiFetch<any>(`/api/accounting/reports/general-ledger/${accountId}?start=${isoStart}&end=${isoEnd}`);
       setLedgerEntries(res?.entries || []);
     } catch (err: any) {
@@ -373,7 +395,7 @@ export default function Accounting() {
     description: '',
     confirmText: 'Confirm',
     variant: 'default',
-    onConfirm: () => {}
+    onConfirm: () => { }
   });
 
   function handleUnpostAllClick() {
@@ -421,6 +443,19 @@ export default function Accounting() {
       fetchJournals();
     } catch (e: any) {
       toast.error('Error reposting orders: ' + e.message);
+    } finally {
+      setLoadingUnposted(false);
+    }
+  }
+
+  async function recalculateTotals() {
+    try {
+      setLoadingUnposted(true);
+      const res = await apiFetch<any>('/api/transactions/recalculate-totals', { method: 'POST' });
+      toast.success(res.message || 'Stock take totals recalculated from items');
+      fetchUnposted();
+    } catch (e: any) {
+      toast.error('Error recalculating totals: ' + e.message);
     } finally {
       setLoadingUnposted(false);
     }
@@ -778,13 +813,12 @@ export default function Accounting() {
                         <TableCell className="font-mono font-medium">{a.code}</TableCell>
                         <TableCell>{a.name}</TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            a.type === 'ASSET' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
-                            a.type === 'LIABILITY' ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300' :
-                            a.type === 'EQUITY' ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
-                            a.type === 'INCOME' ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' :
-                            'bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300'
-                          }`}>{a.type}</span>
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${a.type === 'ASSET' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
+                              a.type === 'LIABILITY' ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300' :
+                                a.type === 'EQUITY' ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
+                                  a.type === 'INCOME' ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' :
+                                    'bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300'
+                            }`}>{a.type}</span>
                         </TableCell>
                         <TableCell>{a.paymentMethod || '—'}</TableCell>
                         <TableCell>{a.isDefault ? '✓' : ''}</TableCell>
@@ -827,7 +861,7 @@ export default function Accounting() {
                   <TableBody>
                     {mappings.map(m => (
                       <TableRow key={m.id}>
-                        <TableCell className="font-mono font-medium">{m.transactionType}</TableCell>
+                        <TableCell className="font-mono font-medium">{TX_TYPE_LABELS[m.transactionType] || m.transactionType}</TableCell>
                         <TableCell>{m.debitAccount ? `${m.debitAccount.code} - ${m.debitAccount.name}` : '—'}</TableCell>
                         <TableCell>{m.creditAccount ? `${m.creditAccount.code} - ${m.creditAccount.name}` : '—'}</TableCell>
                         <TableCell className="text-muted-foreground">{m.description || '—'}</TableCell>
@@ -914,9 +948,8 @@ export default function Accounting() {
                           <TableCell className="text-right font-mono">{fmt(totals.dr)}</TableCell>
                           <TableCell className="text-right font-mono">{fmt(totals.cr)}</TableCell>
                           <TableCell>
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              j.status === 'POSTED' ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' : 'bg-red-50 text-red-700'
-                            }`}>{j.status}</span>
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${j.status === 'POSTED' ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' : 'bg-red-50 text-red-700'
+                              }`}>{j.status}</span>
                           </TableCell>
                           <TableCell className="text-center">
                             <Button
@@ -954,6 +987,9 @@ export default function Accounting() {
                   </Button>
                   {isAdminOrSuper && (
                     <>
+                      <Button onClick={recalculateTotals} variant="outline" size="sm" className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950" disabled={loadingUnposted}>
+                        <RotateCcw className="w-4 h-4 mr-1" /> Recalculate Totals
+                      </Button>
                       <Button onClick={handleUnpostAllClick} variant="outline" size="sm" className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950" disabled={loadingUnposted}>
                         <RotateCcw className="w-4 h-4 mr-1" /> Unpost All Orders
                       </Button>
@@ -1106,7 +1142,7 @@ export default function Accounting() {
                     <TabsTrigger value="balance-sheet">Balance Sheet</TabsTrigger>
                   </TabsList>
 
-                   {/* ── Trial Balance ── */}
+                  {/* ── Trial Balance ── */}
                   <TabsContent value="trial-balance">
                     <Table>
                       <TableHeader>
@@ -1326,7 +1362,7 @@ export default function Accounting() {
                 <Select value={mappingForm.transactionType} onValueChange={v => setMappingForm(f => ({ ...f, transactionType: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                   <SelectContent>
-                    {TRANSACTION_TYPES.map(t => <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>)}
+                    {TRANSACTION_TYPES.map(t => <SelectItem key={t} value={t}>{TX_TYPE_LABELS[t] || t.replace(/_/g, ' ')}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -1572,12 +1608,11 @@ export default function Accounting() {
           <DialogContent className="sm:max-w-[440px]">
             <DialogHeader>
               <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-full ${
-                  confirmDialog.variant === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/80 dark:text-amber-400' :
-                  confirmDialog.variant === 'purple' ? 'bg-purple-100 text-purple-600 dark:bg-purple-950/80 dark:text-purple-400' :
-                  confirmDialog.variant === 'destructive' ? 'bg-red-100 text-red-600 dark:bg-red-950/80 dark:text-red-400' :
-                  'bg-blue-100 text-blue-600 dark:bg-blue-950/80 dark:text-blue-400'
-                }`}>
+                <div className={`p-2.5 rounded-full ${confirmDialog.variant === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/80 dark:text-amber-400' :
+                    confirmDialog.variant === 'purple' ? 'bg-purple-100 text-purple-600 dark:bg-purple-950/80 dark:text-purple-400' :
+                      confirmDialog.variant === 'destructive' ? 'bg-red-100 text-red-600 dark:bg-red-950/80 dark:text-red-400' :
+                        'bg-blue-100 text-blue-600 dark:bg-blue-950/80 dark:text-blue-400'
+                  }`}>
                   <RotateCcw className="w-5 h-5" />
                 </div>
                 <DialogTitle className="text-base font-semibold">{confirmDialog.title}</DialogTitle>
@@ -1593,9 +1628,9 @@ export default function Accounting() {
               <Button
                 className={
                   confirmDialog.variant === 'warning' ? 'bg-amber-600 hover:bg-amber-700 text-white' :
-                  confirmDialog.variant === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' :
-                  confirmDialog.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700 text-white' :
-                  ''
+                    confirmDialog.variant === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' :
+                      confirmDialog.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700 text-white' :
+                        ''
                 }
                 onClick={() => {
                   setConfirmDialog(prev => ({ ...prev, open: false }));
