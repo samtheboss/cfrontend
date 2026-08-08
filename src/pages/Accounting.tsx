@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -9,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -29,7 +30,8 @@ import {
   RefreshCw,
   ChevronsUpDown,
   Check,
-  Wallet
+  Wallet,
+  RotateCcw
 } from 'lucide-react';
 
 // ── Types ──
@@ -176,6 +178,28 @@ function SearchableAccountSelect({
 }
 
 export default function Accounting() {
+  const { user, getGroupById } = useAuth();
+
+  const isAdminOrSuper = useMemo(() => {
+    if (!user) return false;
+    const roleLower = (user.role || '').toLowerCase();
+    const usernameLower = (user.username || '').toLowerCase();
+    const group = user.groupId ? getGroupById(user.groupId) : null;
+    const groupNameLower = (group?.name || '').toLowerCase();
+
+    return (
+      roleLower.includes('admin') ||
+      roleLower.includes('super') ||
+      usernameLower.includes('admin') ||
+      usernameLower.includes('super') ||
+      groupNameLower.includes('admin') ||
+      groupNameLower.includes('super') ||
+      user.groupId === 'group-admin' ||
+      user.groupId === 'admin' ||
+      user.groupId === 'super'
+    );
+  }, [user, getGroupById]);
+
   // ── Shared state ──
   const [accounts, setAccounts] = useState<GlAccount[]>([]);
   const [mappings, setMappings] = useState<AccountMapping[]>([]);
@@ -332,6 +356,73 @@ export default function Accounting() {
       fetchJournals();
     } catch (e: any) {
       toast.error('Error posting accommodation: ' + e.message);
+    }
+  }
+
+  // ── Confirmation Modal State ──
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    confirmText: string;
+    variant: 'destructive' | 'warning' | 'purple' | 'default';
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    confirmText: 'Confirm',
+    variant: 'default',
+    onConfirm: () => {}
+  });
+
+  function handleUnpostAllClick() {
+    setConfirmDialog({
+      open: true,
+      title: 'Unpost All System Orders',
+      description: 'Are you sure you want to unpost ALL posted orders? This will remove system GL journals and return all orders to Unposted state.',
+      confirmText: 'Unpost All Orders',
+      variant: 'warning',
+      onConfirm: executeUnpostAll
+    });
+  }
+
+  async function executeUnpostAll() {
+    try {
+      setLoadingUnposted(true);
+      const res = await apiFetch<any>('/api/accounting/journals/unpost-all', { method: 'POST' });
+      toast.success(res.message || 'All system orders unposted successfully');
+      fetchUnposted();
+      fetchJournals();
+    } catch (e: any) {
+      toast.error('Error unposting orders: ' + e.message);
+    } finally {
+      setLoadingUnposted(false);
+    }
+  }
+
+  function handleRepostAllClick() {
+    setConfirmDialog({
+      open: true,
+      title: 'Unpost & Repost All Orders',
+      description: 'Are you sure you want to unpost all orders and repost them all fresh into GL using current payment defaults?',
+      confirmText: 'Repost All Orders',
+      variant: 'purple',
+      onConfirm: executeRepostAll
+    });
+  }
+
+  async function executeRepostAll() {
+    try {
+      setLoadingUnposted(true);
+      const res = await apiFetch<any>('/api/accounting/journals/repost-all', { method: 'POST' });
+      toast.success('Successfully unposted and reposted all orders into GL!');
+      fetchUnposted();
+      fetchJournals();
+    } catch (e: any) {
+      toast.error('Error reposting orders: ' + e.message);
+    } finally {
+      setLoadingUnposted(false);
     }
   }
 
@@ -854,13 +945,23 @@ export default function Accounting() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-lg">Unposted Transactions</CardTitle>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button onClick={fetchUnposted} variant="outline" size="sm" disabled={loadingUnposted}>
                     <RefreshCw className={`w-4 h-4 mr-1 ${loadingUnposted ? 'animate-spin' : ''}`} /> Refresh
                   </Button>
                   <Button onClick={postAllUnposted} size="sm" disabled={unpostedTxs.length === 0 && unpostedPurchases.length === 0 && unpostedAccommodations.length === 0}>
                     <Check className="w-4 h-4 mr-1" /> Post All to GL
                   </Button>
+                  {isAdminOrSuper && (
+                    <>
+                      <Button onClick={handleUnpostAllClick} variant="outline" size="sm" className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950" disabled={loadingUnposted}>
+                        <RotateCcw className="w-4 h-4 mr-1" /> Unpost All Orders
+                      </Button>
+                      <Button onClick={handleRepostAllClick} variant="secondary" size="sm" className="bg-purple-600 text-white hover:bg-purple-700" disabled={loadingUnposted}>
+                        <RotateCcw className="w-4 h-4 mr-1" /> Repost All Orders
+                      </Button>
+                    </>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -1462,6 +1563,47 @@ export default function Accounting() {
             </div>
             <DialogFooter className="pt-2 border-t mt-auto">
               <Button onClick={() => setSelectedJournalDetails(null)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ══════════════════════════ CUSTOM CONFIRMATION DIALOG ══════════════════════════ */}
+        <Dialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}>
+          <DialogContent className="sm:max-w-[440px]">
+            <DialogHeader>
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-full ${
+                  confirmDialog.variant === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/80 dark:text-amber-400' :
+                  confirmDialog.variant === 'purple' ? 'bg-purple-100 text-purple-600 dark:bg-purple-950/80 dark:text-purple-400' :
+                  confirmDialog.variant === 'destructive' ? 'bg-red-100 text-red-600 dark:bg-red-950/80 dark:text-red-400' :
+                  'bg-blue-100 text-blue-600 dark:bg-blue-950/80 dark:text-blue-400'
+                }`}>
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <DialogTitle className="text-base font-semibold">{confirmDialog.title}</DialogTitle>
+              </div>
+              <DialogDescription className="pt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                {confirmDialog.description}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="mt-4 flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}>
+                Cancel
+              </Button>
+              <Button
+                className={
+                  confirmDialog.variant === 'warning' ? 'bg-amber-600 hover:bg-amber-700 text-white' :
+                  confirmDialog.variant === 'purple' ? 'bg-purple-600 hover:bg-purple-700 text-white' :
+                  confirmDialog.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700 text-white' :
+                  ''
+                }
+                onClick={() => {
+                  setConfirmDialog(prev => ({ ...prev, open: false }));
+                  confirmDialog.onConfirm();
+                }}
+              >
+                {confirmDialog.confirmText}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

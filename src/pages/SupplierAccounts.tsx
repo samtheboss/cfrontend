@@ -1067,7 +1067,7 @@ export default function SupplierAccounts() {
             )}
           </div>
 
-          <DialogFooter className="mt-2 border-t pt-3 flex justify-end gap-2">
+          <DialogFooter className="shrink-0 mt-2 border-t pt-3 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSubmitPayment} disabled={isSubmittingPayment || selectedInvoiceIds.length === 0}>
               {isSubmittingPayment ? 'Recording...' : 'Confirm Payment'}

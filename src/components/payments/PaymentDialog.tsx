@@ -72,14 +72,14 @@ export function PaymentDialog({
 
   const { user, getUserRights } = useAuth();
   const rights = user ? getUserRights(user) : null;
-  
+
   const canChangeAccount = rights?.changePaymentAccount !== 'no';
-  
+
   // Resolve module-specific method permissions
   const getMethodPermission = (methodName: string) => {
     if (!rights) return true; // Default allow if no rights system
     if (!module) return true; // Global/fallback allow
-    
+
     // Normalize module names
     const m = module.toUpperCase();
     const isPOS = m === 'POS';
@@ -87,7 +87,7 @@ export function PaymentDialog({
     const isAccommodation = m === 'ACCOMMODATION';
     const isExpense = m === 'PMS_EXPENSE' || m === 'ACCOMMODATION_EXPENSE';
     const isPurchase = m === 'PURCHASE';
-    
+
     if (methodName === 'cash') {
       if (isPOS) return rights.posReceiveCash !== 'no';
       if (isProperty) return rights.propertyReceiveCash !== 'no';
@@ -267,7 +267,7 @@ export function PaymentDialog({
 
     setPaymentMethods(prev => {
       let updated = { ...prev };
-      
+
       let otherTotal = 0;
       let fullMethodKey = '';
 
@@ -518,53 +518,51 @@ export function PaymentDialog({
       }
       onOpenChange(openVal);
     }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col p-4 sm:p-6 overflow-hidden">
+        <DialogHeader className="shrink-0 pb-2 border-b border-border/40">
           <DialogTitle className="flex items-center gap-2">
-            <Wallet className="h-5 w-5 text-amber-500" />
-            <DialogTitle>{title}</DialogTitle>
+            <Wallet className="h-5 w-5 text-amber-500 shrink-0" />
+            <span>{title}</span>
           </DialogTitle>
-          <DialogDescription>
-            {activeSubtitle && <span className="block font-medium text-foreground mb-1">{activeSubtitle}</span>}
+          <DialogDescription className="text-xs sm:text-sm">
+            {activeSubtitle && <span className="block font-medium text-foreground mb-0.5">{activeSubtitle}</span>}
             {allowPartialPayment ? 'Outstanding Balance: ' : 'Total due: '}
-            <span className="font-semibold text-amber-600">{sym}{activeTotalDue.toFixed(2)}</span>
+            <span className="font-semibold text-amber-600 dark:text-amber-400">{sym}{activeTotalDue.toFixed(2)}</span>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="mt-4 pt-4 border-t">
-            {/* Payment summary */}
-            <div className="grid grid-cols-3 gap-2 text-center p-3 bg-muted/50 rounded-lg">
-              <div>
-                <div className="text-xs text-muted-foreground">{allowPartialPayment ? 'Outstanding Balance' : 'Total Due'}</div>
-                <div className="font-semibold text-amber-600">{sym}{activeTotalDue.toFixed(2)}</div>
+        <div className="flex-1 overflow-y-auto space-y-3 py-2 pr-1 my-1 scrollbar-thin">
+          {/* Payment summary */}
+          <div className="grid grid-cols-3 gap-2 text-center p-2.5 bg-muted/40 rounded-lg border border-border/50">
+            <div>
+              <div className="text-[11px] sm:text-xs text-muted-foreground">{allowPartialPayment ? 'Outstanding' : 'Total Due'}</div>
+              <div className="font-semibold text-xs sm:text-sm text-amber-600 dark:text-amber-400">{sym}{activeTotalDue.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="text-[11px] sm:text-xs text-muted-foreground">Entered</div>
+              <div className={`font-semibold text-xs sm:text-sm ${allowPartialPayment ? (totalEnteredAmount > 0 && totalEnteredAmount <= activeTotalDue + 0.01 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400') : (totalEnteredAmount >= activeTotalDue - 0.01 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400')}`}>
+                {sym}{totalEnteredAmount.toFixed(2)}
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Entered</div>
-                <div className={`font-semibold ${allowPartialPayment ? (totalEnteredAmount > 0 && totalEnteredAmount <= activeTotalDue + 0.01 ? 'text-green-600' : 'text-amber-600') : (totalEnteredAmount >= activeTotalDue - 0.01 ? 'text-green-600' : 'text-amber-600')}`}>
-                  {sym}{totalEnteredAmount.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">{totalEnteredAmount > activeTotalDue ? 'Change' : 'Balance'}</div>
-                <div className={`font-semibold ${totalEnteredAmount >= activeTotalDue - 0.01 ? 'text-slate-400' : 'text-red-500'}`}>
-                  {sym}{Math.abs(activeTotalDue - totalEnteredAmount).toFixed(2)}
-                </div>
+            </div>
+            <div>
+              <div className="text-[11px] sm:text-xs text-muted-foreground">{totalEnteredAmount > activeTotalDue ? 'Change' : 'Balance'}</div>
+              <div className={`font-semibold text-xs sm:text-sm ${totalEnteredAmount >= activeTotalDue - 0.01 ? 'text-slate-400' : 'text-red-500'}`}>
+                {sym}{Math.abs(activeTotalDue - totalEnteredAmount).toFixed(2)}
               </div>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm font-semibold">Payment Methods</Label>
+            <Label className="text-xs sm:text-sm font-semibold">Payment Methods</Label>
 
             {/* Payment Method Rows */}
             {(['cash', 'card', 'mobile', 'bank', 'complimentary'] as const).map((method) => (
-              <div key={method} className="space-y-2">
+              <div key={method} className="space-y-1.5">
                 <div className={cn(
-                  "grid grid-cols-[160px_120px_1fr] gap-2 items-center p-2 rounded border",
-                  paymentMethods[method]?.active ? "border-amber-500/50 bg-amber-50/30" : "border-border"
+                  "grid grid-cols-1 sm:grid-cols-[140px_110px_1fr] gap-2 items-center p-2 sm:p-2.5 rounded-lg border transition-all",
+                  paymentMethods[method]?.active ? "border-amber-500/50 bg-amber-50/40 dark:bg-amber-950/20" : "border-border/60 hover:border-border"
                 )}>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     {(() => {
                       const hasPerm = getMethodPermission(method);
                       return (
@@ -573,67 +571,76 @@ export function PaymentDialog({
                             checked={paymentMethods[method]?.active || false}
                             onCheckedChange={(checked) => handlePaymentMethodToggle(method, checked === true)}
                             disabled={!hasPerm}
+                            id={`chk-${method}`}
                           />
-                          <Label className={cn(
-                            "capitalize flex items-center gap-1.5 text-sm",
+                          <Label htmlFor={`chk-${method}`} className={cn(
+                            "capitalize flex items-center gap-1.5 text-xs sm:text-sm font-medium select-none truncate",
                             hasPerm ? "cursor-pointer" : "cursor-not-allowed opacity-50"
                           )}>
-                            {method === 'cash' ? <Banknote className="h-3.5 w-3.5" /> : method === 'card' ? <CreditCard className="h-3.5 w-3.5" /> : method === 'mobile' ? <Smartphone className="h-3.5 w-3.5" /> : method === 'bank' ? <Building className="h-3.5 w-3.5" /> : <Gift className="h-3.5 w-3.5" />}
-                            {method === 'complimentary' ? 'Complimentary' : method === 'bank' ? 'Bank Transfer' : method}
-                            {!hasPerm && <Lock className="h-3 w-3 ml-1 text-muted-foreground" />}
+                            {method === 'cash' ? <Banknote className="h-4 w-4 shrink-0 text-amber-600" /> :
+                             method === 'card' ? <CreditCard className="h-4 w-4 shrink-0 text-blue-600" /> :
+                             method === 'mobile' ? <Smartphone className="h-4 w-4 shrink-0 text-green-600" /> :
+                             method === 'bank' ? <Building className="h-4 w-4 shrink-0 text-purple-600" /> :
+                             <Gift className="h-4 w-4 shrink-0 text-pink-600" />}
+                            <span>{method === 'complimentary' ? 'Complimentary' : method === 'bank' ? 'Bank Transfer' : method}</span>
+                            {!hasPerm && <Lock className="h-3 w-3 ml-1 text-muted-foreground shrink-0" />}
                           </Label>
                         </>
                       );
                     })()}
                   </div>
-                  <Input
-                    type="number"
-                    value={paymentMethods[method]?.amount || ''}
-                    onChange={(e) => updatePaymentDetail(method, 'amount', e.target.value)}
-                    placeholder="Amount"
-                    className="h-8 text-sm"
-                    disabled={!paymentMethods[method]?.active || (isPollingMpesa && method === 'mobile')}
-                  />
-                  {/* Reference / Phone */}
-                  {method === 'mobile' && paymentMethods[method]?.active && useStkPush ? (
-                    <div className="flex gap-1.5">
-                      <Input
-                        type="text"
-                        id="mpesa-phone"
-                        value={mpesaPhone}
-                        onChange={(e) => setMpesaPhone(e.target.value)}
-                        placeholder="07..."
-                        className="h-8 flex-1 text-sm"
-                        disabled={isPollingMpesa}
-                      />
-                      <Button
-                        size="sm"
-                        className="h-8 px-2 bg-green-600 hover:bg-green-700 text-white"
-                        onClick={handleMpesaPush}
-                        disabled={isPollingMpesa}
-                      >
-                        {isPollingMpesa ? '...' : 'Push'}
-                      </Button>
-                    </div>
-                  ) : (
+
+                  <div className="grid grid-cols-2 sm:contents gap-2 w-full">
                     <Input
-                      value={paymentMethods[method]?.reference || ''}
-                      onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
-                      placeholder={method === 'mobile' ? 'Ref Code' : 'Ref (optional)'}
-                      className="h-8 text-sm"
-                      disabled={!paymentMethods[method]?.active}
+                      type="number"
+                      value={paymentMethods[method]?.amount || ''}
+                      onChange={(e) => updatePaymentDetail(method, 'amount', e.target.value)}
+                      placeholder="Amount"
+                      className="h-8 text-xs sm:text-sm"
+                      disabled={!paymentMethods[method]?.active || (isPollingMpesa && method === 'mobile')}
                     />
-                  )}
+                    {/* Reference / Phone */}
+                    {method === 'mobile' && paymentMethods[method]?.active && useStkPush ? (
+                      <div className="flex gap-1 min-w-0">
+                        <Input
+                          type="text"
+                          id="mpesa-phone"
+                          value={mpesaPhone}
+                          onChange={(e) => setMpesaPhone(e.target.value)}
+                          placeholder="07..."
+                          className="h-8 flex-1 text-xs sm:text-sm min-w-0"
+                          disabled={isPollingMpesa}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 px-2 text-xs bg-green-600 hover:bg-green-700 text-white shrink-0"
+                          onClick={handleMpesaPush}
+                          disabled={isPollingMpesa}
+                        >
+                          {isPollingMpesa ? '...' : 'Push'}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Input
+                        value={paymentMethods[method]?.reference || ''}
+                        onChange={(e) => updatePaymentDetail(method, 'reference', e.target.value)}
+                        placeholder={method === 'mobile' ? 'Ref Code' : 'Ref (optional)'}
+                        className="h-8 text-xs sm:text-sm"
+                        disabled={!paymentMethods[method]?.active}
+                      />
+                    )}
+                  </div>
                 </div>
 
                 {paymentMethods[method]?.active && (
-                  <div className="pl-7 pr-2 py-1 flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">Deposit Account:</span>
+                  <div className="pl-2 sm:pl-7 pr-2 py-1 flex flex-wrap sm:flex-nowrap items-center gap-1.5 text-xs">
+                    <span className="text-muted-foreground whitespace-nowrap text-[11px] sm:text-xs">Deposit Account:</span>
                     <select
                       value={paymentMethods[method]?.accountId || ''}
                       onChange={(e) => updatePaymentDetail(method, 'accountId', e.target.value)}
                       disabled={!canChangeAccount}
-                      className="bg-transparent border border-muted-foreground/20 rounded px-2 py-0.5 text-xs flex-1 max-w-[280px] dark:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="bg-background border border-muted-foreground/20 rounded px-2 py-1 text-xs w-full sm:w-auto flex-1 max-w-full sm:max-w-[280px] dark:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <option value="">
                         {moduleDefaults.some(d => d.paymentMethod === (method === 'cash' ? 'CASH' : method === 'card' || method === 'bank' ? 'BANK' : method === 'mobile' ? 'MOBILE_MONEY' : ''))
@@ -653,9 +660,9 @@ export function PaymentDialog({
 
                 {/* Mobile Extra Options */}
                 {method === 'mobile' && paymentMethods[method]?.active && (
-                  <div className="flex flex-col gap-2 pl-7 pr-1 py-1.5 bg-muted/40 rounded text-xs">
+                  <div className="flex flex-col gap-1.5 pl-2 sm:pl-7 pr-2 py-1.5 bg-muted/40 rounded-lg text-xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Use M-Pesa STK Push</span>
+                      <span className="text-muted-foreground text-[11px] sm:text-xs">Use M-Pesa STK Push</span>
                       <Switch
                         checked={useStkPush}
                         onCheckedChange={setUseStkPush}
@@ -663,7 +670,7 @@ export function PaymentDialog({
                       />
                     </div>
                     <div className="flex items-center justify-between pt-1 border-t border-border/50">
-                      <span className="text-muted-foreground">Already in database?</span>
+                      <span className="text-muted-foreground text-[11px] sm:text-xs">Already in database?</span>
                       <Button
                         type="button"
                         variant="outline"
@@ -681,7 +688,7 @@ export function PaymentDialog({
 
                 {/* M-Pesa Polling UI */}
                 {method === 'mobile' && (isPollingMpesa || mpesaStatus !== 'IDLE') && (
-                  <div className="col-span-2 space-y-2 py-2">
+                  <div className="space-y-2 py-2">
                     <div className={`flex items-center justify-center gap-2 text-xs font-medium ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
                       mpesaStatus === 'SUCCESS' ? 'text-green-600' :
                         mpesaStatus === 'CANCELLED' ? 'text-amber-600' :
@@ -717,10 +724,10 @@ export function PaymentDialog({
 
           {/* Completed MPESA transactions */}
           {completedMpesaPayments.length > 0 && (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-lg space-y-2">
-              <div className="text-xs font-semibold text-green-800">Received M-Pesa Payments:</div>
+            <div className="p-2.5 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg space-y-1.5">
+              <div className="text-xs font-semibold text-green-800 dark:text-green-300">Received M-Pesa Payments:</div>
               {completedMpesaPayments.map((p, i) => (
-                <div key={i} className="flex justify-between items-center text-sm text-green-700 bg-green-100/50 px-2 py-1 rounded">
+                <div key={i} className="flex justify-between items-center text-xs text-green-700 dark:text-green-400 bg-green-100/50 dark:bg-green-900/30 px-2 py-1 rounded">
                   <span className="font-mono font-bold">{p.reference}</span>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">{sym}{p.amount.toFixed(2)}</span>
@@ -742,12 +749,12 @@ export function PaymentDialog({
           )}
         </div>
 
-        <DialogFooter className="sm:justify-between">
-          <div className="flex-1 flex justify-start">
+        <DialogFooter className="shrink-0 pt-3 border-t flex flex-col-reverse sm:flex-row sm:justify-between gap-2 w-full">
+          <div className="w-full sm:w-auto flex justify-start">
             {extraActions}
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting || isPollingMpesa}>
+          <div className="flex items-center justify-end gap-2 w-full sm:w-auto">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting || isPollingMpesa} className="flex-1 sm:flex-none">
               Cancel
             </Button>
             <Button
@@ -764,6 +771,7 @@ export function PaymentDialog({
                   completedMpesaPayments.length === 0
                 )
               }
+              className="flex-1 sm:flex-none bg-amber-600 hover:bg-amber-700 text-white font-medium"
             >
               {isSubmitting ? 'Confirming...' : (submitText || 'Confirm Payment')}
             </Button>
