@@ -667,12 +667,13 @@ export default function Reports() {
       reference: string;
       runningBalance: number;
       variantInfo?: string; // To distinguish in full product view
+      locationName: string;
     }[] = [];
 
     // 1. Sales (Out)
     sales.forEach(sale => {
       // @ts-ignore - Assuming sale has locationId or we filter generically if 'all'
-      const isRelevantLocation = selectedLocationId === 'all' || (sale as any).locationId === selectedLocationId;
+      const isRelevantLocation = selectedLocationId === 'all' || String((sale as any).locationId) === String(selectedLocationId);
       if (!isRelevantLocation) return;
 
       sale.items.forEach(item => {
@@ -680,10 +681,11 @@ export default function Reports() {
           movements.push({
             date: new Date(sale.timestamp),
             type: 'sale',
-            quantity: -item.adjustment,
+            quantity: -Math.abs(item.adjustment),
             reference: `Sale #${sale.journalNumber}`,
             runningBalance: 0,
-            variantInfo: Object.values(item.attributes || {}).join('/')
+            variantInfo: Object.values(item.attributes || {}).join('/'),
+            locationName: locations.find(l => String(l.id) === String((sale as any).locationId))?.name || 'Unknown'
           });
         }
       });
@@ -697,7 +699,7 @@ export default function Reports() {
         if (!targetVariantIds.includes(item.variantId)) return;
 
         if (t.type === 'ADJUSTMENT') {
-          const isRelevant = selectedLocationId === 'all' || (t as any).locationId === selectedLocationId;
+          const isRelevant = selectedLocationId === 'all' || String((t as any).locationId) === String(selectedLocationId);
           if (isRelevant) {
             movements.push({
               date: new Date(t.timestamp),
@@ -705,37 +707,40 @@ export default function Reports() {
               quantity: item.adjustment,
               reference: `Adj: ${t.notes || 'No reason'}`,
               runningBalance: 0,
-              variantInfo: item.sku
+              variantInfo: item.sku,
+              locationName: locations.find(l => String(l.id) === String((t as any).locationId))?.name || 'Unknown'
             });
           }
         }
         else if (t.type === 'TRANSFER') {
           const transfer = t as any;
           // Outflow from source
-          if (selectedLocationId === 'all' || transfer.fromLocationId === selectedLocationId) {
+          if (selectedLocationId === 'all' || String(transfer.fromLocationId) === String(selectedLocationId)) {
             movements.push({
               date: new Date(t.timestamp),
               type: 'transfer',
-              quantity: -item.adjustment,
-              reference: `Trf Out: ${locations.find(l => l.id === transfer.toLocationId)?.name || 'Other'}`,
+              quantity: -Math.abs(item.adjustment),
+              reference: `Trf Out: ${locations.find(l => String(l.id) === String(transfer.toLocationId))?.name || 'Other'}`,
               runningBalance: 0,
-              variantInfo: item.sku
+              variantInfo: item.sku,
+              locationName: locations.find(l => String(l.id) === String(transfer.fromLocationId))?.name || 'Unknown'
             });
           }
           // Inflow to destination
-          if (selectedLocationId === 'all' || transfer.toLocationId === selectedLocationId) {
+          if (selectedLocationId === 'all' || String(transfer.toLocationId) === String(selectedLocationId)) {
             movements.push({
               date: new Date(t.timestamp),
               type: 'transfer',
-              quantity: item.adjustment,
-              reference: `Trf In: ${locations.find(l => l.id === transfer.fromLocationId)?.name || 'Other'}`,
+              quantity: Math.abs(item.adjustment),
+              reference: `Trf In: ${locations.find(l => String(l.id) === String(transfer.fromLocationId))?.name || 'Other'}`,
               runningBalance: 0,
-              variantInfo: item.sku
+              variantInfo: item.sku,
+              locationName: locations.find(l => String(l.id) === String(transfer.toLocationId))?.name || 'Unknown'
             });
           }
         }
         else if (t.type === 'STOCK_TAKE') {
-          const isRelevant = selectedLocationId === 'all' || (t as any).locationId === selectedLocationId;
+          const isRelevant = selectedLocationId === 'all' || String((t as any).locationId) === String(selectedLocationId);
           if (isRelevant) {
             movements.push({
               date: new Date(t.timestamp),
@@ -743,7 +748,22 @@ export default function Reports() {
               quantity: item.adjustment,
               reference: `Audit: ${t.notes || 'Stock Take'}`,
               runningBalance: 0,
-              variantInfo: item.sku
+              variantInfo: item.sku,
+              locationName: locations.find(l => String(l.id) === String((t as any).locationId))?.name || 'Unknown'
+            });
+          }
+        }
+        else if (t.type === 'RECEIVED') {
+          const isRelevant = selectedLocationId === 'all' || String((t as any).locationId) === String(selectedLocationId);
+          if (isRelevant) {
+            movements.push({
+              date: new Date(t.timestamp),
+              type: 'adjustment', // You can use adjustment or create a new 'purchase' type if the UI supports it
+              quantity: Math.abs(item.adjustment),
+              reference: `Purchase #${t.journalNumber}`,
+              runningBalance: 0,
+              variantInfo: item.sku,
+              locationName: locations.find(l => String(l.id) === String((t as any).locationId))?.name || 'Unknown'
             });
           }
         }
@@ -2226,6 +2246,7 @@ export default function Reports() {
                           <th className="py-3.5 px-6">Date</th>
                           <th className="py-3.5 px-4">Type</th>
                           <th className="py-3.5 px-4">Variant (Info)</th>
+                          <th className="py-3.5 px-4">Location</th>
                           <th className="py-3.5 px-4">Reference</th>
                           <th className="py-3.5 px-4 text-right">In/Out</th>
                           <th className="py-3.5 px-6 text-right">Running Balance</th>
@@ -2238,6 +2259,7 @@ export default function Reports() {
                               <td className="py-4 px-6 whitespace-nowrap font-semibold">{format(move.date, 'MMM d, yyyy HH:mm')}</td>
                               <td className="py-4 px-4 capitalize"><span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-muted text-foreground">{move.type}</span></td>
                               <td className="py-4 px-4 text-xs text-muted-foreground">{move.variantInfo || '-'}</td>
+                              <td className="py-4 px-4 text-xs font-semibold text-foreground">{move.locationName}</td>
                               <td className="py-4 px-4 text-xs font-mono font-medium text-foreground">{move.reference}</td>
                               <td className={`py-4 px-4 text-right font-serif font-bold text-base ${move.quantity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                 {move.quantity > 0 ? '+' : ''}{move.quantity}
@@ -2246,13 +2268,13 @@ export default function Reports() {
                             </tr>
                           ))
                         ) : (
-                          <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No movements found in this period.</td></tr>
+                          <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No movements found in this period.</td></tr>
                         )}
                       </tbody>
                       {movements.length > 0 && (
                         <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                           <tr>
-                            <td className="py-3.5 px-6" colSpan={4}>NET CHANGE</td>
+                            <td className="py-3.5 px-6" colSpan={5}>NET CHANGE</td>
                             <td className={`py-3.5 px-4 text-right font-serif font-bold text-base ${movements.reduce((sum, m) => sum + m.quantity, 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                               {movements.reduce((sum, m) => sum + m.quantity, 0) > 0 ? '+' : ''}{movements.reduce((sum, m) => sum + m.quantity, 0)}
                             </td>

@@ -47,6 +47,7 @@ import {
   ChevronsUpDown,
   Check,
   RefreshCw,
+  Pencil,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -69,6 +70,7 @@ export default function Leases() {
   const [invoiceConfirmLease, setInvoiceConfirmLease] = useState<PropertyLease | null>(null);
   const [isUnitPopoverOpen, setIsUnitPopoverOpen] = useState(false);
   const [isTenantPopoverOpen, setIsTenantPopoverOpen] = useState(false);
+  const [editingLease, setEditingLease] = useState<PropertyLease | null>(null);
 
   // Form states
   const [newLease, setNewLease] = useState({
@@ -80,6 +82,7 @@ export default function Leases() {
     rentAmount: 0,
     depositAmount: 0,
     billingFrequency: 'MONTHLY',
+    status: 'ACTIVE',
   });
 
   const [newTenant, setNewTenant] = useState({
@@ -89,6 +92,40 @@ export default function Leases() {
     idNumber: '',
     customerType: 'TENANT',
   });
+
+  // Open Create Dialog
+  const handleOpenCreateLease = () => {
+    setEditingLease(null);
+    setNewLease({
+      tenantId: '',
+      unitId: '',
+      startDate: '',
+      endDate: '',
+      nextInvoiceDate: '',
+      rentAmount: 0,
+      depositAmount: 0,
+      billingFrequency: 'MONTHLY',
+      status: 'ACTIVE',
+    });
+    setIsAddLeaseOpen(true);
+  };
+
+  // Open Edit Dialog
+  const handleOpenEditLease = (lease: PropertyLease) => {
+    setEditingLease(lease);
+    setNewLease({
+      tenantId: lease.tenantId ? lease.tenantId.toString() : '',
+      unitId: lease.unitId ? lease.unitId.toString() : '',
+      startDate: lease.startDate || '',
+      endDate: lease.endDate || '',
+      nextInvoiceDate: lease.nextInvoiceDate || '',
+      rentAmount: lease.rentAmount || 0,
+      depositAmount: lease.depositAmount || 0,
+      billingFrequency: lease.billingFrequency || 'MONTHLY',
+      status: lease.status || 'ACTIVE',
+    });
+    setIsAddLeaseOpen(true);
+  };
 
   // Fetch data
   const fetchData = async () => {
@@ -139,16 +176,48 @@ export default function Leases() {
     }
   };
 
-  // Handle Save Lease
+  const normalizeDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const parts = dateStr.trim().split('-');
+    if (parts.length === 3) {
+      let year = parts[0];
+      if (year.length > 4) {
+        year = year.slice(0, 4);
+      }
+      return `${year}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    }
+    return dateStr;
+  };
+
+  // Handle Save Lease (Create or Update)
   const handleSaveLease = async () => {
     if (!newLease.tenantId || !newLease.unitId || !newLease.startDate || !newLease.endDate) {
       toast.error('Please fill in all required fields');
       return;
     }
 
+    const cleanStartDate = normalizeDate(newLease.startDate);
+    const cleanEndDate = normalizeDate(newLease.endDate);
+    const cleanNextInvoiceDate = newLease.nextInvoiceDate ? normalizeDate(newLease.nextInvoiceDate) : '';
+
+    const startYear = parseInt(cleanStartDate.split('-')[0], 10);
+    const endYear = parseInt(cleanEndDate.split('-')[0], 10);
+
+    if (isNaN(startYear) || startYear < 2000 || startYear > 2099) {
+      toast.error('Invalid Start Date. Please select a valid date with a 4-digit year.');
+      return;
+    }
+    if (isNaN(endYear) || endYear < 2000 || endYear > 2099) {
+      toast.error('Invalid End Date. Please select a valid date with a 4-digit year.');
+      return;
+    }
+
     try {
-      const payload = {
+      const payload: any = {
         ...newLease,
+        startDate: cleanStartDate,
+        endDate: cleanEndDate,
+        nextInvoiceDate: cleanNextInvoiceDate || cleanStartDate,
         tenantId: parseInt(newLease.tenantId),
         unitId: parseInt(newLease.unitId),
         rentAmount: parseFloat(newLease.rentAmount as any),
@@ -156,13 +225,26 @@ export default function Leases() {
         createdBy: user?.name || user?.username || 'System',
       };
 
-      await apiFetch('/api/pms/leases', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      if (editingLease && editingLease.id) {
+        payload.id = editingLease.id;
+        if (editingLease.leaseNumber) {
+          payload.leaseNumber = editingLease.leaseNumber;
+        }
+        await apiFetch(`/api/pms/leases/${editingLease.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        toast.success('Lease agreement updated successfully');
+      } else {
+        await apiFetch('/api/pms/leases', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        toast.success('Lease agreement created successfully');
+      }
 
-      toast.success('Lease agreement created successfully');
       setIsAddLeaseOpen(false);
+      setEditingLease(null);
       setNewLease({
         tenantId: '',
         unitId: '',
@@ -172,10 +254,11 @@ export default function Leases() {
         rentAmount: 0,
         depositAmount: 0,
         billingFrequency: 'MONTHLY',
+        status: 'ACTIVE',
       });
       fetchData();
     } catch (err: any) {
-      toast.error('Failed to create lease: ' + err.message);
+      toast.error(`Failed to ${editingLease ? 'update' : 'create'} lease: ` + err.message);
     }
   };
 
@@ -290,7 +373,7 @@ export default function Leases() {
               <UserPlus className="h-4 w-4 mr-2" />
               Quick Add Tenant
             </Button>
-            <Button onClick={() => setIsAddLeaseOpen(true)} disabled={vacantUnits.length === 0}>
+            <Button onClick={handleOpenCreateLease} disabled={vacantUnits.length === 0}>
               <Plus className="h-4 w-4 mr-2" />
               Create Lease
             </Button>
@@ -351,26 +434,37 @@ export default function Leases() {
                     </TableCell>
                     <TableCell>{getLeaseStatusBadge(lease.status)}</TableCell>
                     <TableCell className="text-right">
-                      {lease.status === 'ACTIVE' && (
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleGenerateInvoice(lease)}
-                            className="text-indigo-600 hover:bg-indigo-50 hover:text-indigo-750"
-                          >
-                            Generate Invoice
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => lease.id && handleTerminateLease(lease.id)}
-                            className="text-destructive hover:bg-destructive/10"
-                          >
-                            Terminate
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenEditLease(lease)}
+                          className="text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          <Pencil className="h-3.5 w-3.5 mr-1" />
+                          Edit
+                        </Button>
+                        {lease.status === 'ACTIVE' && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleGenerateInvoice(lease)}
+                              className="text-indigo-600 hover:bg-indigo-50 hover:text-indigo-750"
+                            >
+                              Generate Invoice
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => lease.id && handleTerminateLease(lease.id)}
+                              className="text-destructive hover:bg-destructive/10"
+                            >
+                              Terminate
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -443,13 +537,15 @@ export default function Leases() {
           </DialogContent>
         </Dialog>
 
-        {/* Create Lease Dialog */}
+        {/* Create/Edit Lease Dialog */}
         <Dialog open={isAddLeaseOpen} onOpenChange={setIsAddLeaseOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Lease Agreement</DialogTitle>
+              <DialogTitle>{editingLease ? 'Edit Lease Agreement' : 'Create Lease Agreement'}</DialogTitle>
               <DialogDescription>
-                Link a tenant from the shared directory to a vacant unit.
+                {editingLease
+                  ? 'Modify details of the existing lease agreement.'
+                  : 'Link a tenant from the shared directory to a vacant unit.'}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
@@ -505,7 +601,7 @@ export default function Leases() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="leaseUnit">Select Vacant Unit *</Label>
+                <Label htmlFor="leaseUnit">Select Unit *</Label>
                 <Popover open={isUnitPopoverOpen} onOpenChange={setIsUnitPopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -517,7 +613,7 @@ export default function Leases() {
                     >
                       {newLease.unitId
                         ? (() => {
-                            const u = vacantUnits.find(unit => unit.id?.toString() === newLease.unitId);
+                            const u = units.find(unit => unit.id?.toString() === newLease.unitId);
                             return u
                               ? `${getUnitName(u.id!)} (Rent: KES ${u.monthlyRent.toLocaleString()})`
                               : 'Select Unit...';
@@ -528,11 +624,14 @@ export default function Leases() {
                   </PopoverTrigger>
                   <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                     <Command>
-                      <CommandInput placeholder="Search vacant units..." />
+                      <CommandInput placeholder="Search units..." />
                       <CommandList>
-                        <CommandEmpty>No vacant units found.</CommandEmpty>
+                        <CommandEmpty>No units found.</CommandEmpty>
                         <CommandGroup>
-                          {vacantUnits.map((u) => {
+                          {(editingLease
+                            ? units.filter((u) => u.status === 'VACANT' || u.id === editingLease.unitId)
+                            : vacantUnits
+                          ).map((u) => {
                             const displayName = `${getUnitName(u.id!)} (Rent: KES ${u.monthlyRent.toLocaleString()})`;
                             return (
                               <CommandItem
@@ -566,6 +665,8 @@ export default function Leases() {
                   <Input
                     id="leaseStart"
                     type="date"
+                    min="2000-01-01"
+                    max="2099-12-31"
                     value={newLease.startDate}
                     onChange={(e) => setNewLease((prev) => ({ ...prev, startDate: e.target.value }))}
                   />
@@ -575,6 +676,8 @@ export default function Leases() {
                   <Input
                     id="leaseEnd"
                     type="date"
+                    min="2000-01-01"
+                    max="2099-12-31"
                     value={newLease.endDate}
                     onChange={(e) => setNewLease((prev) => ({ ...prev, endDate: e.target.value }))}
                   />
@@ -584,6 +687,8 @@ export default function Leases() {
                   <Input
                     id="nextInvoiceDate"
                     type="date"
+                    min="2000-01-01"
+                    max="2099-12-31"
                     value={newLease.nextInvoiceDate}
                     onChange={(e) => setNewLease((prev) => ({ ...prev, nextInvoiceDate: e.target.value }))}
                   />
@@ -611,28 +716,51 @@ export default function Leases() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="leaseFreq">Billing Frequency</Label>
-                <Select
-                  value={newLease.billingFrequency}
-                  onValueChange={(val) => setNewLease((prev) => ({ ...prev, billingFrequency: val }))}
-                >
-                  <SelectTrigger id="leaseFreq">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MONTHLY">Monthly</SelectItem>
-                    <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-                    <SelectItem value="ANNUALLY">Annually</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="leaseFreq">Billing Frequency</Label>
+                  <Select
+                    value={newLease.billingFrequency}
+                    onValueChange={(val) => setNewLease((prev) => ({ ...prev, billingFrequency: val }))}
+                  >
+                    <SelectTrigger id="leaseFreq">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="MONTHLY">Monthly</SelectItem>
+                      <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                      <SelectItem value="ANNUALLY">Annually</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {editingLease && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="leaseStatus">Lease Status</Label>
+                    <Select
+                      value={newLease.status}
+                      onValueChange={(val) => setNewLease((prev) => ({ ...prev, status: val }))}
+                    >
+                      <SelectTrigger id="leaseStatus">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ACTIVE">Active</SelectItem>
+                        <SelectItem value="EXPIRED">Expired</SelectItem>
+                        <SelectItem value="TERMINATED">Terminated</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddLeaseOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleLeaseSaveAndCheck}>Create Agreement</Button>
+              <Button onClick={handleLeaseSaveAndCheck}>
+                {editingLease ? 'Save Changes' : 'Create Agreement'}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
