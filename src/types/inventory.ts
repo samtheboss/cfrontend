@@ -17,6 +17,8 @@ export interface Category {
   id: number;
   name: string;
   image?: string;
+  /** null/undefined = main category; set = sub-category of this parent category id */
+  parentId?: number | null;
 }
 
 export interface ProductAttribute {
@@ -68,6 +70,7 @@ export interface Product {
     type: 'RAW_MATERIAL' | 'FINISHED_GOOD';
     description: string;
   category: string;
+  subcategory?: string;
   attributes: ProductAttribute[];
   variants: ProductVariant[];
   images: string[];

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
@@ -11,15 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import {
   DropdownMenu,
@@ -61,6 +52,7 @@ export default function Products() {
     addCategory,
     updateCategory,
     deleteCategory,
+    refreshData,
     addProduct: contextAddProduct,
     updateProduct: contextUpdateProduct,
     deleteProduct: contextDeleteProduct,
@@ -75,11 +67,14 @@ export default function Products() {
   const [products, setProducts] = useState<Product[]>(contextProducts);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
-  const [activeView, setActiveView] = useState<'list' | 'form'>('list');
-  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [activeView, setActiveView] = useState<'list' | 'form' | 'categories'>('list');
+  const [categorySearch, setCategorySearch] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryImage, setNewCategoryImage] = useState('');
+  const [newCategoryParentId, setNewCategoryParentId] = useState<number | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [importingCategories, setImportingCategories] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -100,6 +95,7 @@ export default function Products() {
     name: string;
     description: string;
     category: string;
+    subcategory: string;
     barcode: string;
     attributes: { name: string; values: string }[];
     variants: ProductVariant[];
@@ -120,6 +116,7 @@ export default function Products() {
     name: '',
     description: '',
     category: '',
+    subcategory: '',
     barcode: '',
     attributes: [{ name: '', values: '' }],
     variants: [],
@@ -144,7 +141,8 @@ export default function Products() {
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchQuery.toLowerCase());
+      p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.subcategory || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = showDisabled || p.isActive !== false;
     return matchesSearch && matchesStatus;
   });
@@ -459,6 +457,7 @@ export default function Products() {
       name: '',
       description: '',
       category: '',
+      subcategory: '',
       barcode: '',
       attributes: [{ name: '', values: '' }],
       variants: [],
@@ -486,6 +485,7 @@ export default function Products() {
       name: product.name,
       description: product.description,
       category: product.category,
+      subcategory: product.subcategory || '',
       barcode: product.variants[0]?.barcode || '',
       attributes: product.attributes.map(attr => ({
         name: attr.name,
@@ -562,6 +562,7 @@ export default function Products() {
         name: newProduct.name,
         description: newProduct.description,
         category: newProduct.category,
+        subcategory: newProduct.subcategory || null,
         type: newProduct.type,
         attributes: parsedAttributes,
         variants,
@@ -632,6 +633,7 @@ export default function Products() {
   const handleCategoryParamsReset = () => {
     setNewCategoryName('');
     setNewCategoryImage('');
+    setNewCategoryParentId(null);
     setEditingCategoryId(null);
   }
 
@@ -658,12 +660,56 @@ export default function Products() {
     }
   };
 
+  const handleImportCategories = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+
+    setImportingCategories(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await apiFetch<{ data?: { mainsCreated?: number; subsCreated?: number; skipped?: number } }>(
+        '/api/categories/import',
+        { method: 'POST', body: formData }
+      );
+      const d = res?.data || {};
+      toast({
+        title: "Categories Imported",
+        description: `${d.mainsCreated ?? 0} categories and ${d.subsCreated ?? 0} sub-categories added` +
+          (d.skipped ? `, ${d.skipped} already existed` : '') + '.',
+      });
+      await refreshData();
+    } catch (error: any) {
+      toast({
+        title: "Import Failed",
+        description: error?.message || "Could not import categories.",
+        variant: "destructive",
+      });
+    } finally {
+      setImportingCategories(false);
+    }
+  };
+
+  const downloadCategoryTemplate = () => {
+    const csv = 'Category,SubCategory\nKITCHEN,BEEF CORNER\nKITCHEN,CHICKEN CORNER\nDISPENSER,COLD BEVERAGES\nSHOP,\n';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'category_import_template.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   return (
     <AppLayout title="Products">
-      <Tabs value={activeView} onValueChange={(v) => { setActiveView(v as 'list' | 'form'); if (v === 'list') resetForm(); }}>
+      <Tabs value={activeView} onValueChange={(v) => { setActiveView(v as 'list' | 'form' | 'categories'); if (v === 'list') resetForm(); if (v !== 'categories') handleCategoryParamsReset(); }}>
         <TabsList className="mb-4">
           <TabsTrigger value="list">Products</TabsTrigger>
           <TabsTrigger value="form">{editingId ? 'Edit Product' : 'Add Product'}</TabsTrigger>
+          <TabsTrigger value="categories">Categories</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="mt-0">
@@ -688,7 +734,7 @@ export default function Products() {
             />
           </div>
           <ImportProductsDialog />
-          <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
+          <Button variant="outline" onClick={() => setActiveView('categories')}>
             <Tag className="h-4 w-4 mr-2" />
             Categories
           </Button>
@@ -724,13 +770,13 @@ export default function Products() {
                     <Label htmlFor="category">Category</Label>
                     <Select
                       value={newProduct.category}
-                      onValueChange={(value) => setNewProduct(prev => ({ ...prev, category: value }))}
+                      onValueChange={(value) => setNewProduct(prev => ({ ...prev, category: value, subcategory: '' }))}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select a category" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map((category) => (
+                        {categories.filter(c => !c.parentId).map((category) => (
                           <SelectItem key={category.id} value={category.name}>
                             {category.name}
                           </SelectItem>
@@ -738,6 +784,32 @@ export default function Products() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {(() => {
+                    const parentCat = categories.find(c => c.name === newProduct.category && !c.parentId);
+                    const subs = parentCat ? categories.filter(c => c.parentId === parentCat.id) : [];
+                    return (
+                      <div className="grid gap-2">
+                        <Label htmlFor="subcategory">Sub-category</Label>
+                        <Select
+                          value={newProduct.subcategory}
+                          onValueChange={(value) => setNewProduct(prev => ({ ...prev, subcategory: value === '__none__' ? '' : value }))}
+                          disabled={subs.length === 0}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={parentCat ? (subs.length ? 'Select a sub-category' : 'No sub-categories') : 'Select a category first'} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">None</SelectItem>
+                            {subs.map((sub) => (
+                              <SelectItem key={sub.id} value={sub.name}>
+                                {sub.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="description">Description</Label>
@@ -1408,7 +1480,7 @@ export default function Products() {
                 </div>
               </div>
             </CardContent>
-            <CardFooter className="flex justify-end gap-2">
+            <CardFooter className="sticky bottom-0 z-20 flex justify-end gap-2 border-t bg-background/95 backdrop-blur py-4 shadow-[0_-4px_12px_-6px_rgba(0,0,0,0.15)] rounded-b-lg">
               <Button variant="outline" onClick={() => { resetForm(); setActiveView('list'); }}>Cancel</Button>
               <Button onClick={handleCreateProduct} disabled={!newProduct.name || isSubmitting}>
                 {isSubmitting ? (editingId ? 'Updating...' : 'Creating...') : (editingId ? 'Update Product' : 'Create Product')}
@@ -1417,16 +1489,40 @@ export default function Products() {
           </Card>
         </TabsContent>
 
-      <Dialog open={isCategoryDialogOpen} onOpenChange={(open) => {
-        setIsCategoryDialogOpen(open);
-        if (!open) handleCategoryParamsReset();
-      }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingCategoryId ? 'Edit Category' : 'Manage Categories'}</DialogTitle>
-            <DialogDescription>Add, update or remove product categories.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
+      <TabsContent value="categories" className="mt-0">
+        <Card className="max-w-2xl">
+          <CardHeader>
+            <CardTitle>{editingCategoryId ? 'Edit Category' : 'Manage Categories'}</CardTitle>
+            <CardDescription>Add, update or remove product categories and sub-categories.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!editingCategoryId && (
+              <div className="flex items-center justify-between gap-2 border p-3 rounded-md bg-muted/20">
+                <div className="text-xs text-muted-foreground">
+                  Bulk import from a file with <span className="font-medium">Category</span> and{' '}
+                  <span className="font-medium">SubCategory</span> columns (.xlsx or .csv).
+                </div>
+                <div className="flex gap-1 flex-shrink-0">
+                  <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={downloadCategoryTemplate}>
+                    Template
+                  </Button>
+                  <Button asChild variant="outline" size="sm" className="h-8" disabled={importingCategories}>
+                    <label htmlFor="category-import-file" className="cursor-pointer">
+                      <Upload className="h-3.5 w-3.5 mr-1" />
+                      {importingCategories ? 'Importing...' : 'Import'}
+                    </label>
+                  </Button>
+                  <Input
+                    id="category-import-file"
+                    type="file"
+                    className="hidden"
+                    accept=".xlsx,.xls,.csv"
+                    disabled={importingCategories}
+                    onChange={handleImportCategories}
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex flex-col gap-3 border p-4 rounded-md bg-muted/20">
               <Label className="text-sm font-medium">
                 {editingCategoryId ? 'Update Category' : 'New Category'}
@@ -1462,76 +1558,159 @@ export default function Products() {
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   className="flex-1"
                 />
-                <Button onClick={async () => {
-                  if (newCategoryName.trim()) {
-                    if (editingCategoryId) {
-                      await updateCategory(editingCategoryId, newCategoryName.trim(), newCategoryImage);
-                      toast({ title: "Updated", description: "Category updated successfully." });
-                    } else {
-                      await addCategory(newCategoryName.trim(), newCategoryImage);
-                      toast({ title: "Added", description: "Category added successfully." });
-                    }
-                    handleCategoryParamsReset();
-                  }
-                }}>{editingCategoryId ? 'Save' : 'Add'}</Button>
+                {(() => {
+                  const trimmedName = newCategoryName.trim();
+                  const isDuplicate = categories.some(
+                    c => c.id !== editingCategoryId
+                      && (c.parentId ?? null) === (newCategoryParentId ?? null)
+                      && c.name.trim().toLowerCase() === trimmedName.toLowerCase()
+                  );
+                  return (
+                    <Button
+                      disabled={savingCategory || !trimmedName || isDuplicate}
+                      title={isDuplicate ? 'A category with this name already exists under this parent' : undefined}
+                      onClick={async () => {
+                        if (!trimmedName || savingCategory || isDuplicate) return;
+                        setSavingCategory(true);
+                        try {
+                          if (editingCategoryId) {
+                            await updateCategory(editingCategoryId, trimmedName, newCategoryImage, newCategoryParentId);
+                            toast({ title: "Updated", description: "Category updated successfully." });
+                          } else {
+                            await addCategory(trimmedName, newCategoryImage, newCategoryParentId);
+                            toast({ title: "Added", description: "Category added successfully." });
+                          }
+                          handleCategoryParamsReset();
+                        } finally {
+                          setSavingCategory(false);
+                        }
+                      }}
+                    >
+                      {savingCategory ? 'Saving...' : editingCategoryId ? 'Save' : 'Add'}
+                    </Button>
+                  );
+                })()}
                 {editingCategoryId && (
                   <Button variant="ghost" size="icon" onClick={handleCategoryParamsReset}>
                     <X className="h-4 w-4" />
                   </Button>
                 )}
               </div>
+              <div className="grid gap-1">
+                <Label className="text-xs text-muted-foreground">Parent category (leave as "None" for a main category)</Label>
+                <Select
+                  value={newCategoryParentId != null ? String(newCategoryParentId) : '__none__'}
+                  onValueChange={(value) => setNewCategoryParentId(value === '__none__' ? null : Number(value))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="None (main category)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None (main category)</SelectItem>
+                    {categories
+                      .filter(c => !c.parentId && c.id !== editingCategoryId)
+                      .map(c => (
+                        <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="grid gap-2 max-h-60 overflow-y-auto pr-1">
-              {categories.map(cat => (
-                <div key={cat.id} className="p-2 flex items-center justify-between bg-card border rounded-md group hover:border-primary/50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded overflow-hidden bg-muted flex-shrink-0">
-                      {cat.image ? (
-                        <img
-                          src={cat.image.startsWith('http') ? cat.image : `${getBaseUrl()}${cat.image}`}
-                          alt={cat.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <Tag className="h-4 w-4 text-muted-foreground/50" />
-                        </div>
-                      )}
-                    </div>
-                    <span className="font-medium text-sm">{cat.name}</span>
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => {
-                        setNewCategoryName(cat.name);
-                        setNewCategoryImage(cat.image || '');
-                        setEditingCategoryId(cat.id);
-                      }}
-                    >
-                      <Edit className="h-4 w-4 text-muted-foreground" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => deleteCategory(cat.name)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search categories..."
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+                className="pl-9"
+              />
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCategoryDialogOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
+            <div className="grid gap-2 max-h-[420px] overflow-y-auto pr-1">
+              {(() => {
+                const renderCatRow = (cat: typeof categories[number], isSub: boolean) => (
+                  <div key={cat.id} className={`p-2 flex items-center justify-between bg-card border rounded-md group hover:border-primary/50 transition-colors ${isSub ? 'ml-6' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded overflow-hidden bg-muted flex-shrink-0">
+                        {cat.image ? (
+                          <img
+                            src={cat.image.startsWith('http') ? cat.image : `${getBaseUrl()}${cat.image}`}
+                            alt={cat.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center">
+                            <Tag className="h-4 w-4 text-muted-foreground/50" />
+                          </div>
+                        )}
+                      </div>
+                      <span className={`text-sm ${isSub ? 'text-muted-foreground' : 'font-medium'}`}>{cat.name}</span>
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setNewCategoryName(cat.name);
+                          setNewCategoryImage(cat.image || '');
+                          setNewCategoryParentId(cat.parentId ?? null);
+                          setEditingCategoryId(cat.id);
+                        }}
+                      >
+                        <Edit className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => deleteCategory(cat.name)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+                const q = categorySearch.trim().toLowerCase();
+                const nameMatch = (c: typeof categories[number]) => c.name.toLowerCase().includes(q);
+                const mains = categories.filter(c => !c.parentId);
+                const mainIds = new Set(mains.map(c => c.id));
+                const subsOf = (id: number) => categories.filter(c => c.parentId === id);
+
+                const visibleMains = mains.filter(m => !q || nameMatch(m) || subsOf(m.id).some(nameMatch));
+                const orphanSubs = categories.filter(
+                  c => c.parentId && !mainIds.has(c.parentId) && (!q || nameMatch(c))
+                );
+
+                if (visibleMains.length === 0 && orphanSubs.length === 0) {
+                  return (
+                    <p className="text-sm text-muted-foreground text-center py-6">
+                      {q ? 'No categories match your search.' : 'No categories yet.'}
+                    </p>
+                  );
+                }
+
+                return (
+                  <>
+                    {visibleMains.map(main => {
+                      const subs = subsOf(main.id).filter(s => !q || nameMatch(main) || nameMatch(s));
+                      return (
+                        <Fragment key={main.id}>
+                          {renderCatRow(main, false)}
+                          {subs.map(sub => renderCatRow(sub, true))}
+                        </Fragment>
+                      );
+                    })}
+                    {/* Sub-categories whose parent no longer exists */}
+                    {orphanSubs.map(sub => renderCatRow(sub, true))}
+                  </>
+                );
+              })()}
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
 
       <TabsContent value="list" className="mt-0">
       <div className="space-y-4">
@@ -1597,7 +1776,7 @@ export default function Products() {
                 <div>
                   <h3 className="font-medium text-sm md:text-base line-clamp-1">{product.name}</h3>
                   <p className="text-xs text-muted-foreground">
-                    {product.category} • {(product.variants || []).filter(v => showDisabled || v.isActive !== false).length} variants
+                    {product.category}{product.subcategory ? ` / ${product.subcategory}` : ''} • {(product.variants || []).filter(v => showDisabled || v.isActive !== false).length} variants
                   </p>
                 </div>
               </div>

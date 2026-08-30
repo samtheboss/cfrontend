@@ -30,8 +30,8 @@ interface InventoryContextType {
     updateTransaction: (id: string, transaction: Partial<InventoryTransaction>) => Promise<void>;
 
     // Categories
-    addCategory: (name: string, image?: string) => Promise<void>;
-    updateCategory: (id: number, name: string, image?: string) => Promise<void>;
+    addCategory: (name: string, image?: string, parentId?: number | null) => Promise<void>;
+    updateCategory: (id: number, name: string, image?: string, parentId?: number | null) => Promise<void>;
     deleteCategory: (category: string) => Promise<void>;
 
     // Locations
@@ -324,11 +324,11 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         (window as any).updateTransaction = updateTransaction;
     }, [updateTransaction]);
 
-    const addCategory = async (name: string, image?: string) => {
+    const addCategory = async (name: string, image?: string, parentId?: number | null) => {
         try {
             await apiFetch('/api/categories', {
                 method: 'POST',
-                body: JSON.stringify({ name, image }),
+                body: JSON.stringify({ name, image, parentId: parentId ?? null }),
             });
             await fetchInventoryData();
             toast.success('Category added');
@@ -337,11 +337,11 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const updateCategory = async (id: number, name: string, image?: string) => {
+    const updateCategory = async (id: number, name: string, image?: string, parentId?: number | null) => {
         try {
             await apiFetch(`/api/categories/${id}`, {
                 method: 'PUT',
-                body: JSON.stringify({ name, image }),
+                body: JSON.stringify({ name, image, parentId: parentId ?? null }),
             });
             await fetchInventoryData();
             toast.success('Category updated successfully');
@@ -354,9 +354,15 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         const category = categories.find(c => c.name === categoryName);
         if (!category) return;
 
-        const inUse = products.some(p => p.category === categoryName);
+        const inUse = products.some(p => p.category === categoryName || p.subcategory === categoryName);
         if (inUse) {
             toast.error('Cannot delete: Category is in use by products');
+            return;
+        }
+
+        const hasChildren = categories.some(c => c.parentId === category.id);
+        if (hasChildren) {
+            toast.error('Cannot delete: Category has sub-categories');
             return;
         }
 

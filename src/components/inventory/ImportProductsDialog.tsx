@@ -75,7 +75,7 @@ export function ImportProductsDialog() {
 
     const downloadTemplate = () => {
         // Basic CSV template as a fallback or instructions test
-        const headers = "Product Name,Category,Description,SKU,Barcode,Price,Cost,Stock,Attributes,Low Stock Threshold";
+        const headers = "Product Name,Category,SubCategory,Description,SKU,Barcode,Price,Cost,Stock,Attributes,Low Stock Threshold";
         const blob = new Blob([headers], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -144,6 +144,7 @@ export function ImportProductsDialog() {
                         <ul className="list-disc list-inside grid grid-cols-2 gap-x-4 gap-y-1 opacity-80">
                             <li>Product Name</li>
                             <li>Category</li>
+                            <li>SubCategory (optional)</li>
                             <li>Description</li>
                             <li>SKU</li>
                             <li>Barcode</li>

@@ -155,6 +155,7 @@ export default function POS() {
     return [];
   });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [variantDialogOpen, setVariantDialogOpen] = useState(false);
@@ -307,8 +308,22 @@ export default function POS() {
         }))
     );
 
-  // Get unique categories (Active only)
-  const categories = Array.from(new Set(products.filter(p => p.isActive !== false).map(p => p.category)));
+  // Get unique categories (Active only). Prefer the managed categories table (which
+  // carries the main/sub-category hierarchy) and union in any legacy category names
+  // that only exist on products.
+  const productCategoryNames = Array.from(
+    new Set(products.filter(p => p.isActive !== false).map(p => p.category).filter(Boolean))
+  );
+  const mainCategories: { id: number | null; name: string }[] = [
+    ...dbCategories.filter(c => !c.parentId).map(c => ({ id: c.id, name: c.name })),
+    ...productCategoryNames
+      .filter(name => !dbCategories.some(c => c.name === name))
+      .map(name => ({ id: null, name })),
+  ];
+  const selectedMainId = dbCategories.find(c => c.name === selectedCategory && !c.parentId)?.id ?? null;
+  const subCategories = selectedMainId != null
+    ? dbCategories.filter(c => c.parentId === selectedMainId)
+    : [];
 
   async function pollMpesaStatus(requestId: string, sessionId?: number) {
     // If we've been told to stop, or this is a ghost session, just exit
@@ -435,9 +450,14 @@ export default function POS() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Reset page when category changes
+  // Reset page when category / sub-category changes
   useEffect(() => {
     setCurrentPage(1);
+  }, [selectedCategory, selectedSubcategory]);
+
+  // Clear the sub-category selection whenever the main category changes
+  useEffect(() => {
+    setSelectedSubcategory(null);
   }, [selectedCategory]);
 
   // Filter products (Active only)
@@ -454,8 +474,9 @@ export default function POS() {
           );
 
       const matchesCategory = !selectedCategory || product.category === selectedCategory;
+      const matchesSubcategory = !selectedSubcategory || product.subcategory === selectedSubcategory;
 
-      return matchesSearch && matchesCategory;
+      return matchesSearch && matchesCategory && matchesSubcategory;
     });
 
   // Pagination
@@ -1623,17 +1644,40 @@ export default function POS() {
             >
               All
             </Button>
-            {categories.map(category => (
+            {mainCategories.map(category => (
               <Button
-                key={category}
-                variant={selectedCategory === category ? 'default' : 'outline'}
+                key={category.name}
+                variant={selectedCategory === category.name ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setSelectedCategory(category)}
+                onClick={() => setSelectedCategory(category.name)}
               >
-                {category}
+                {category.name}
               </Button>
             ))}
           </div>
+
+          {/* Sub-categories (only when the selected main category has some) */}
+          {subCategories.length > 0 && (
+            <div className="flex gap-2 px-3 py-2 border-b bg-muted/60 backdrop-blur overflow-x-auto">
+              <Button
+                variant={selectedSubcategory === null ? 'secondary' : 'outline'}
+                size="sm"
+                onClick={() => setSelectedSubcategory(null)}
+              >
+                All {selectedCategory}
+              </Button>
+              {subCategories.map(sub => (
+                <Button
+                  key={sub.id}
+                  variant={selectedSubcategory === sub.name ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setSelectedSubcategory(sub.name)}
+                >
+                  {sub.name}
+                </Button>
+              ))}
+            </div>
+          )}
 
           {/* Products Grid */}
           <div className="flex-1 p-2 overflow-y-auto">
