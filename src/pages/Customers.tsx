@@ -53,6 +53,7 @@ export default function Customers() {
         phone: '',
         idNumber: '',
         customerType: 'BOTH',
+        creditLimit: '',
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -72,9 +73,10 @@ export default function Customers() {
                 phone: newCustomer.phone,
                 idNumber: newCustomer.idNumber,
                 customerType: newCustomer.customerType,
+                creditLimit: newCustomer.creditLimit ? Number(newCustomer.creditLimit) : undefined,
             });
 
-            setNewCustomer({ name: '', email: '', phone: '', idNumber: '', customerType: 'BOTH' });
+            setNewCustomer({ name: '', email: '', phone: '', idNumber: '', customerType: 'BOTH', creditLimit: '' });
             setIsAddDialogOpen(false);
         } finally {
             setIsSubmitting(false);
@@ -262,6 +264,19 @@ export default function Customers() {
                                     </SelectContent>
                                 </Select>
                             </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="creditLimit">Credit Limit</Label>
+                                <Input
+                                    id="creditLimit"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={newCustomer.creditLimit}
+                                    onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
+                                    placeholder="0.00"
+                                />
+                                <p className="text-xs text-muted-foreground">Maximum outstanding balance allowed on credit sales. Leave blank for no limit.</p>
+                            </div>
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
@@ -330,6 +345,19 @@ export default function Customers() {
                                             <SelectItem value="BOTH">Both</SelectItem>
                                         </SelectContent>
                                     </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="edit-creditLimit">Credit Limit</Label>
+                                    <Input
+                                        id="edit-creditLimit"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={editingCustomer.creditLimit ?? ''}
+                                        onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, creditLimit: e.target.value ? Number(e.target.value) : undefined } : null)}
+                                        placeholder="0.00"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Maximum outstanding balance allowed on credit sales. Leave blank for no limit.</p>
                                 </div>
                             </div>
                         )}

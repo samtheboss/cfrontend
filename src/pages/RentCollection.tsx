@@ -50,10 +50,12 @@ import {
   Check,
   RefreshCw,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getBaseUrl } from '@/lib/api';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePdfPreview } from '@/hooks/usePdfPreview';
+import { PdfPreviewDialog } from '@/components/receipts/PdfPreviewDialog';
 
 export default function RentCollection() {
   const { customers } = useInventory();
@@ -104,6 +106,13 @@ export default function RentCollection() {
   const [statementTenantId, setStatementTenantId] = useState<string>('');
   const [isTenantPopoverOpen, setIsTenantPopoverOpen] = useState(false);
   const [selectedTenantId, setSelectedTenantId] = useState<string>('all');
+
+  // Print statement dialog
+  const pdfPreview = usePdfPreview();
+  const [isStatementDialogOpen, setIsStatementDialogOpen] = useState(false);
+  const [statementStartDate, setStatementStartDate] = useState('');
+  const [statementEndDate, setStatementEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [isPrintingStatement, setIsPrintingStatement] = useState(false);
 
   // Form states
   const [billingForm, setBillingForm] = useState({
@@ -410,6 +419,31 @@ export default function RentCollection() {
     return p ? `${p.name} - Unit ${u.unitNumber}` : `Unit ${u.unitNumber}`;
   };
 
+  const openStatementDialog = () => {
+    setStatementStartDate('');
+    setStatementEndDate(format(new Date(), 'yyyy-MM-dd'));
+    setIsStatementDialogOpen(true);
+  };
+
+  const printStatement = async (tenantName: string) => {
+    if (!statementTenantId) return;
+    setIsPrintingStatement(true);
+    try {
+      const params = new URLSearchParams();
+      if (statementStartDate) params.set('startDate', statementStartDate);
+      if (statementEndDate) params.set('endDate', statementEndDate);
+      const url = `${getBaseUrl()}/api/pms/tenants/${statementTenantId}/statement/pdf?${params.toString()}`;
+      // auto: false - a statement should always be reviewed in the popup first, never silently
+      // sent straight to the receipt printer even if autoPrintReceipts is on.
+      await pdfPreview.showPdf(url, { title: `Statement - ${tenantName}`, auto: false });
+      setIsStatementDialogOpen(false);
+    } catch (err) {
+      toast.error('Failed to generate statement');
+    } finally {
+      setIsPrintingStatement(false);
+    }
+  };
+
   const getInvoiceStatusBadge = (status: string) => {
     switch (status) {
       case 'PAID':
@@ -709,6 +743,12 @@ export default function RentCollection() {
 
                 return (
                   <div className="space-y-6">
+                    <div className="flex justify-end">
+                      <Button variant="outline" size="sm" onClick={openStatementDialog} className="gap-1.5">
+                        <Printer className="h-3.5 w-3.5" /> Print Statement
+                      </Button>
+                    </div>
+
                     {/* Tenant Profile Mini-card */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border">
                       <div>
@@ -1083,6 +1123,42 @@ export default function RentCollection() {
                         </div>
                       </div>
                     )}
+
+                    {/* Print Statement Dialog */}
+                    <Dialog open={isStatementDialogOpen} onOpenChange={setIsStatementDialogOpen}>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle className="flex items-center gap-2">
+                            <Printer className="h-5 w-5" /> Print Statement
+                          </DialogTitle>
+                          <DialogDescription>
+                            Generate a statement for <span className="font-semibold text-foreground">{tenant.name}</span> — the balance
+                            before the start date is carried forward as the opening balance.
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4 py-2">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-2">
+                              <Label className="text-xs font-semibold">Start Date</Label>
+                              <Input type="date" value={statementStartDate} onChange={e => setStatementStartDate(e.target.value)} className="h-9 text-sm" />
+                              <p className="text-[10px] text-muted-foreground">Leave blank to start from account opening</p>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label className="text-xs font-semibold">End Date</Label>
+                              <Input type="date" value={statementEndDate} onChange={e => setStatementEndDate(e.target.value)} className="h-9 text-sm" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <DialogFooter className="mt-2 border-t pt-3 flex justify-end gap-2">
+                          <Button variant="outline" onClick={() => setIsStatementDialogOpen(false)}>Cancel</Button>
+                          <Button onClick={() => printStatement(tenant.name)} disabled={isPrintingStatement} className="gap-1.5">
+                            <Printer className="h-4 w-4" /> {isPrintingStatement ? 'Generating...' : 'Print Statement'}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 );
               })() : (
@@ -1151,6 +1227,16 @@ export default function RentCollection() {
             allowPartialPayment={true}
           />
         )}
+
+        {/* Shared PDF preview/print popup - used for the tenant statement */}
+        <PdfPreviewDialog
+          open={pdfPreview.open}
+          onOpenChange={pdfPreview.setOpen}
+          url={pdfPreview.url}
+          title={pdfPreview.title}
+          iframeRef={pdfPreview.iframeRef}
+          onPrint={pdfPreview.handlePrint}
+        />
 
         {/* Print Receipt Dialog */}
         <Dialog open={receiptToPrint !== null} onOpenChange={() => setReceiptToPrint(null)}>

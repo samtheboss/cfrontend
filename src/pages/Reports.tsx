@@ -133,6 +133,25 @@ export default function Reports() {
   const filteredSales = useMemo(() => {
     const start = buildStartDate();
     const end = buildEndDate();
+
+    // ── Sales Report Query Log ──────────────────────────────────────────
+    console.group('%c[Sales Report Query]', 'color: #d97706; font-weight: bold; font-size: 13px;');
+    console.log('%cBackend API Endpoint:', 'font-weight: bold;', 'GET /api/transactions');
+    console.log('%cBackend JPA Query:', 'font-weight: bold;', 'SELECT t FROM InventoryTransaction t  (findAll — no server-side date filter applied)');
+    console.log('%cFrontend Type Filter:', 'font-weight: bold;', "transactions.filter(t => t.type === 'SALE')");
+    console.log('%cFrontend Date Range:', 'font-weight: bold;', {
+      startDate: `${startDate} ${startTime}`,
+      endDate: `${endDate} ${endTime}`,
+      startISO: start.toISOString(),
+      endISO: end.toISOString(),
+    });
+    console.log('%cFrontend Location Filter:', 'font-weight: bold;', reportLocationId === 'all' ? 'All Locations' : `Location ID: ${reportLocationId}`);
+    console.log('%cFrontend User Filter:', 'font-weight: bold;', reportUserId === 'all' ? 'All Users' : `User ID: ${reportUserId}`);
+    console.log('%cTotal transactions (all types):', 'font-weight: bold;', transactions.length);
+    console.log('%cSales before date filter:', 'font-weight: bold;', sales.length);
+    console.groupEnd();
+    // ─────────────────────────────────────────────────────────────────────
+
     console.log('[filteredSales] start:', start.toString(), '| ISO:', start.toISOString());
     console.log('[filteredSales] end:', end.toString(), '| ISO:', end.toISOString());
     console.log('[filteredSales] Total sales before filter:', sales.length);

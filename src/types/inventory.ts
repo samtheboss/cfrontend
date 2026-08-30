@@ -1,6 +1,7 @@
 export interface Location {
   id: string;
   name: string;
+  code?: string;
   address?: string;
   isMain: boolean;
 }
@@ -33,6 +34,9 @@ export interface ProductVariant {
   price: number;
   cost: number;
   wasPrice?: number;
+  wholesalePrice?: number;
+  specialPrice?: number;
+  tradePrice?: number;
   stock: number; // Decimal support (e.g. 5.5 kg)
   locationStock: Record<string, number>; // locationId -> quantity (decimal)
   lowStockThreshold: number;
@@ -170,6 +174,7 @@ export interface Customer {
   phone?: string;
   idNumber?: string;
   customerType?: string;
+  creditLimit?: number;
   createdAt: Date;
 }
 
@@ -220,6 +225,7 @@ export interface Sale extends InventoryTransaction {
   salePayments: { method: string; amount: number; reference?: string }[];
   amountPaid: number;
   changeAmount: number;
+  discountAmount?: number;
   customerPhone?: string;
   customerEmail?: string;
   shippingLocation?: string;
@@ -230,6 +236,40 @@ export interface Sale extends InventoryTransaction {
   deliveryStatus?: 'PENDING' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'RETURNED';
   trackingNumber?: string;
   courierName?: string;
+}
+
+export type DocumentType = 'CASH_SALE' | 'SALE_INVOICE';
+
+export interface Invoice {
+  id?: number;
+  invoiceNumber: string;
+  documentType: DocumentType;
+  saleId: number;
+  locationCode?: string;
+  orderDate?: string;
+  dueDate?: string;
+  salesPerson?: string;
+  reference?: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
+export interface InvoiceListItem {
+  invoiceNumber: string;
+  documentType: DocumentType;
+  saleId: number;
+  journalNumber: string;
+  customerId?: number;
+  orderDate?: string;
+  dueDate?: string;
+  salesPerson?: string;
+  reference?: string;
+  status: TransactionStatus;
+  totalAmount: number;
+  amountPaid: number;
+  balance: number;
+  createdBy?: string;
+  createdAt?: string;
 }
 
 export interface CartItem {

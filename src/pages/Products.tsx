@@ -9,7 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useCurrency } from '@/hooks/useCurrency';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -74,7 +75,7 @@ export default function Products() {
   const [products, setProducts] = useState<Product[]>(contextProducts);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [activeView, setActiveView] = useState<'list' | 'form'>('list');
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryImage, setNewCategoryImage] = useState('');
@@ -105,6 +106,9 @@ export default function Products() {
     images: string[];
     basePrice: string;
     baseCost: string;
+    baseWholesalePrice: string;
+    baseSpecialPrice: string;
+    baseTradePrice: string;
     type: 'RAW_MATERIAL' | 'FINISHED_GOOD';
     availableOnline: boolean;
     isActive: boolean;
@@ -122,6 +126,9 @@ export default function Products() {
     images: [],
     basePrice: '',
     baseCost: '',
+    baseWholesalePrice: '',
+    baseSpecialPrice: '',
+    baseTradePrice: '',
     type: 'FINISHED_GOOD',
     availableOnline: false,
     isActive: true,
@@ -179,7 +186,17 @@ export default function Products() {
     handleAttributeChange(newAttributes);
   };
 
-  const generateVariants = (attributes: ProductAttribute[], basePrice: number, baseCost: number, productId: string, productName: string, manualBarcode?: string): ProductVariant[] => {
+  const generateVariants = (
+    attributes: ProductAttribute[],
+    basePrice: number,
+    baseCost: number,
+    productId: string,
+    productName: string,
+    manualBarcode?: string,
+    baseWholesalePrice?: number,
+    baseSpecialPrice?: number,
+    baseTradePrice?: number
+  ): ProductVariant[] => {
     if (attributes.length === 0) {
       // Create a single default variant with the base price/cost
       return [{
@@ -190,6 +207,9 @@ export default function Products() {
         attributes: {},
         price: basePrice,
         cost: baseCost,
+        wholesalePrice: baseWholesalePrice,
+        specialPrice: baseSpecialPrice,
+        tradePrice: baseTradePrice,
         stock: 0,
         locationStock: {},
         lowStockThreshold: 10,
@@ -220,6 +240,9 @@ export default function Products() {
       attributes: combo,
       price: basePrice,
       cost: baseCost,
+      wholesalePrice: baseWholesalePrice,
+      specialPrice: baseSpecialPrice,
+      tradePrice: baseTradePrice,
       stock: 0,
       locationStock: {},
       lowStockThreshold: 10,
@@ -231,7 +254,10 @@ export default function Products() {
     currentAttributes: { name: string; values: string }[],
     currentBasePrice: string,
     currentBaseCost: string,
-    currentVariants: ProductVariant[]
+    currentVariants: ProductVariant[],
+    currentBaseWholesalePrice?: string,
+    currentBaseSpecialPrice?: string,
+    currentBaseTradePrice?: string
   ) => {
     const parsedAttributes = currentAttributes
       .filter(a => a.name && a.values)
@@ -248,7 +274,11 @@ export default function Products() {
       parseFloat(currentBasePrice) || 0,
       parseFloat(currentBaseCost) || 0,
       'temp-id',
-      newProduct.name || 'Product'
+      newProduct.name || 'Product',
+      undefined,
+      currentBaseWholesalePrice ? parseFloat(currentBaseWholesalePrice) || undefined : undefined,
+      currentBaseSpecialPrice ? parseFloat(currentBaseSpecialPrice) || undefined : undefined,
+      currentBaseTradePrice ? parseFloat(currentBaseTradePrice) || undefined : undefined
     );
 
     // Check if all attributes in 'subset' exist in 'superset' with same values
@@ -290,6 +320,9 @@ export default function Products() {
           price: (nv.price === 0 && existing.price > 0) ? existing.price : nv.price,
           cost: (nv.cost === 0 && existing.cost > 0) ? existing.cost : nv.cost,
           wasPrice: existing.wasPrice,
+          wholesalePrice: existing.wholesalePrice,
+          specialPrice: existing.specialPrice,
+          tradePrice: existing.tradePrice,
           stock: existing.stock,
           locationStock: existing.locationStock,
           lowStockThreshold: existing.lowStockThreshold || nv.lowStockThreshold,
@@ -304,16 +337,24 @@ export default function Products() {
     setNewProduct(prev => ({
       ...prev,
       attributes: newAttributes,
-      variants: updateVariantsFromAttributes(newAttributes, prev.basePrice, prev.baseCost, prev.variants)
+      variants: updateVariantsFromAttributes(newAttributes, prev.basePrice, prev.baseCost, prev.variants, prev.baseWholesalePrice, prev.baseSpecialPrice, prev.baseTradePrice)
     }));
   };
 
-  const handleBasePriceChange = (field: 'basePrice' | 'baseCost', value: string) => {
+  const handleBasePriceChange = (field: 'basePrice' | 'baseCost' | 'baseWholesalePrice' | 'baseSpecialPrice' | 'baseTradePrice', value: string) => {
     setNewProduct(prev => {
       const newState = { ...prev, [field]: value };
       return {
         ...newState,
-        variants: updateVariantsFromAttributes(newState.attributes, newState.basePrice, newState.baseCost, [])
+        variants: updateVariantsFromAttributes(
+          newState.attributes,
+          newState.basePrice,
+          newState.baseCost,
+          [],
+          newState.baseWholesalePrice,
+          newState.baseSpecialPrice,
+          newState.baseTradePrice
+        )
       };
     });
   };
@@ -424,11 +465,16 @@ export default function Products() {
       images: [],
       basePrice: '',
       baseCost: '',
+      baseWholesalePrice: '',
+      baseSpecialPrice: '',
+      baseTradePrice: '',
       type: 'FINISHED_GOOD',
       availableOnline: false,
       isActive: true,
       isFeatured: false,
       unit: 'PCS',
+      taxType: 'A',
+      taxRate: 16.0,
     });
     setEditingId(null);
     setVariantRecipes({});
@@ -449,6 +495,9 @@ export default function Products() {
       images: (product.images || []).map(img => img.replace(getBaseUrl(), '')),
       basePrice: product.variants[0]?.price.toString() || '',
       baseCost: product.variants[0]?.cost.toString() || '',
+      baseWholesalePrice: product.variants[0]?.wholesalePrice?.toString() || '',
+      baseSpecialPrice: product.variants[0]?.specialPrice?.toString() || '',
+      baseTradePrice: product.variants[0]?.tradePrice?.toString() || '',
       type: product.type || 'FINISHED_GOOD',
       availableOnline: product.availableOnline,
       isActive: product.isActive !== undefined ? product.isActive : true,
@@ -468,7 +517,7 @@ export default function Products() {
     });
     setVariantRecipes(recipesMap);
 
-    setIsAddDialogOpen(true);
+    setActiveView('form');
   };
 
   const handleCreateProduct = async () => {
@@ -502,7 +551,10 @@ export default function Products() {
         parseFloat(newProduct.baseCost) || 0,
         productId,
         newProduct.name,
-        newProduct.barcode || undefined
+        newProduct.barcode || undefined,
+        newProduct.baseWholesalePrice ? parseFloat(newProduct.baseWholesalePrice) || undefined : undefined,
+        newProduct.baseSpecialPrice ? parseFloat(newProduct.baseSpecialPrice) || undefined : undefined,
+        newProduct.baseTradePrice ? parseFloat(newProduct.baseTradePrice) || undefined : undefined
       ).map(v => ({ ...v, id: undefined, productId: sanitizeId(editingId) }));
 
       const productData: any = {
@@ -548,7 +600,7 @@ export default function Products() {
       }
 
       resetForm();
-      setIsAddDialogOpen(false);
+      setActiveView('list');
     } catch (error) {
       console.error('Error creating/updating product:', error);
     } finally {
@@ -608,6 +660,13 @@ export default function Products() {
 
   return (
     <AppLayout title="Products">
+      <Tabs value={activeView} onValueChange={(v) => { setActiveView(v as 'list' | 'form'); if (v === 'list') resetForm(); }}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="list">Products</TabsTrigger>
+          <TabsTrigger value="form">{editingId ? 'Edit Product' : 'Add Product'}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="list" className="mt-0">
       <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:w-80">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -633,32 +692,52 @@ export default function Products() {
             <Tag className="h-4 w-4 mr-2" />
             Categories
           </Button>
-          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
-            setIsAddDialogOpen(open);
-            if (!open) resetForm();
-          }}>
-            <DialogTrigger asChild>
-              <Button onClick={resetForm}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Product
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="w-[90vw] max-w-[90vw] md:max-w-2xl max-h-[85vh] flex flex-col">
-              <DialogHeader className="flex-shrink-0">
-                <DialogTitle>{editingId ? 'Edit Product' : 'Create New Product'}</DialogTitle>
-                <DialogDescription>
-                  {editingId ? 'Update product details and attributes.' : 'Add a new product with attributes. Variants will be auto-generated based on attributes.'}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4 overflow-y-auto flex-1">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Product Name</Label>
-                  <Input
-                    id="name"
-                    value={newProduct.name}
-                    onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="e.g., Classic Cotton T-Shirt"
-                  />
+          <Button onClick={() => { resetForm(); setActiveView('form'); }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Product
+          </Button>
+        </div>
+      </div>
+        </TabsContent>
+
+        <TabsContent value="form" className="mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>{editingId ? 'Edit Product' : 'Create New Product'}</CardTitle>
+              <CardDescription>
+                {editingId ? 'Update product details and attributes.' : 'Add a new product with attributes. Variants will be auto-generated based on attributes.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 max-w-5xl">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid gap-2 md:col-span-2">
+                    <Label htmlFor="name">Product Name</Label>
+                    <Input
+                      id="name"
+                      value={newProduct.name}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="e.g., Classic Cotton T-Shirt"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="category">Category</Label>
+                    <Select
+                      value={newProduct.category}
+                      onValueChange={(value) => setNewProduct(prev => ({ ...prev, category: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map((category) => (
+                          <SelectItem key={category.id} value={category.name}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="description">Description</Label>
@@ -669,106 +748,123 @@ export default function Products() {
                     placeholder="Product description..."
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={newProduct.category}
-                    onValueChange={(value) => setNewProduct(prev => ({ ...prev, category: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category.id} value={category.name}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="taxType">Tax Class</Label>
-                  <Select
-                    value={newProduct.taxType}
-                    onValueChange={(value) => {
-                      let rate = 0;
-                      if (value === 'A') rate = 16.0;
-                      if (value === 'B') rate = 8.0;
-                      if (value === 'E') rate = 2.0;
-                      setNewProduct({ ...newProduct, taxType: value, taxRate: rate });
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Tax Class" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="A">16% (Standard)</SelectItem>
-                      <SelectItem value="B">8% (Reduced)</SelectItem>
-                      <SelectItem value="C">0% (Zero Rated)</SelectItem>
-                      <SelectItem value="D">0% (Exempt)</SelectItem>
-                      <SelectItem value="E">2% (Special)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="type">Product Type</Label>
-                  <Select
-                    value={newProduct.type}
-                    onValueChange={(value) => setNewProduct(prev => ({ ...prev, type: value as any }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="FINISHED_GOOD">Output (Finished Good)</SelectItem>
-                      <SelectItem value="RAW_MATERIAL">Raw Material (Ingredient)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="unit">Measurement Unit</Label>
-                  <Select
-                    value={newProduct.unit}
-                    onValueChange={(value) => setNewProduct(prev => ({ ...prev, unit: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PCS">Pieces (PCS)</SelectItem>
-                      <SelectItem value="KG">Kilograms (KG)</SelectItem>
-                      <SelectItem value="G">Grams (G)</SelectItem>
-                      <SelectItem value="L">Liters (L)</SelectItem>
-                      <SelectItem value="ML">Milliliters (ML)</SelectItem>
-                      <SelectItem value="PACK">Pack</SelectItem>
-                      <SelectItem value="BOX">Box</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="price">Sell Price</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      value={newProduct.basePrice}
-                      onChange={(e) => handleBasePriceChange('basePrice', e.target.value)}
-                      placeholder="29.99"
-                    />
+                    <Label htmlFor="taxType">Tax Class</Label>
+                    <Select
+                      value={newProduct.taxType}
+                      onValueChange={(value) => {
+                        let rate = 0;
+                        if (value === 'A') rate = 16.0;
+                        if (value === 'B') rate = 8.0;
+                        if (value === 'E') rate = 2.0;
+                        setNewProduct({ ...newProduct, taxType: value, taxRate: rate });
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Tax Class" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="A">16% (Standard)</SelectItem>
+                        <SelectItem value="B">8% (Reduced)</SelectItem>
+                        <SelectItem value="C">0% (Zero Rated)</SelectItem>
+                        <SelectItem value="D">0% (Exempt)</SelectItem>
+                        <SelectItem value="E">2% (Special)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="cost">Buy Price</Label>
-                    <Input
-                      id="cost"
-                      type="number"
-                      value={newProduct.baseCost}
-                      onChange={(e) => handleBasePriceChange('baseCost', e.target.value)}
-                      placeholder="12.00"
-                    />
+                    <Label htmlFor="type">Product Type</Label>
+                    <Select
+                      value={newProduct.type}
+                      onValueChange={(value) => setNewProduct(prev => ({ ...prev, type: value as any }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="FINISHED_GOOD">Output (Finished Good)</SelectItem>
+                        <SelectItem value="RAW_MATERIAL">Raw Material (Ingredient)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="unit">Measurement Unit</Label>
+                    <Select
+                      value={newProduct.unit}
+                      onValueChange={(value) => setNewProduct(prev => ({ ...prev, unit: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PCS">Pieces (PCS)</SelectItem>
+                        <SelectItem value="KG">Kilograms (KG)</SelectItem>
+                        <SelectItem value="G">Grams (G)</SelectItem>
+                        <SelectItem value="L">Liters (L)</SelectItem>
+                        <SelectItem value="ML">Milliliters (ML)</SelectItem>
+                        <SelectItem value="PACK">Pack</SelectItem>
+                        <SelectItem value="BOX">Box</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-                <div className="grid gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Pricing</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="price" className="text-xs">Sell Price</Label>
+                      <Input
+                        id="price"
+                        type="number"
+                        value={newProduct.basePrice}
+                        onChange={(e) => handleBasePriceChange('basePrice', e.target.value)}
+                        placeholder="29.99"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="cost" className="text-xs">Buy Price</Label>
+                      <Input
+                        id="cost"
+                        type="number"
+                        value={newProduct.baseCost}
+                        onChange={(e) => handleBasePriceChange('baseCost', e.target.value)}
+                        placeholder="12.00"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="wholesalePrice" className="text-xs">Wholesale</Label>
+                      <Input
+                        id="wholesalePrice"
+                        type="number"
+                        value={newProduct.baseWholesalePrice}
+                        onChange={(e) => handleBasePriceChange('baseWholesalePrice', e.target.value)}
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="specialPrice" className="text-xs">Special</Label>
+                      <Input
+                        id="specialPrice"
+                        type="number"
+                        value={newProduct.baseSpecialPrice}
+                        onChange={(e) => handleBasePriceChange('baseSpecialPrice', e.target.value)}
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="tradePrice" className="text-xs">Trade</Label>
+                      <Input
+                        id="tradePrice"
+                        type="number"
+                        value={newProduct.baseTradePrice}
+                        onChange={(e) => handleBasePriceChange('baseTradePrice', e.target.value)}
+                        placeholder="Optional"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-2 md:max-w-sm">
                   <Label htmlFor="barcode">Barcode</Label>
                   <div className="flex gap-2">
                     <Input
@@ -888,7 +984,7 @@ export default function Products() {
                           </div>
                           <div className="grid grid-cols-3 gap-2">
                             <div>
-                              <Label className="text-xs text-muted-foreground">Price</Label>
+                              <Label className="text-xs text-muted-foreground">Retail Price</Label>
                               <Input
                                 type="number"
                                 className="h-8"
@@ -933,17 +1029,70 @@ export default function Products() {
                               />
                             </div>
                           </div>
+                          <div className="grid grid-cols-3 gap-2 mt-2">
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Wholesale Price</Label>
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.wholesalePrice ?? ''}
+                                placeholder="—"
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, wholesalePrice: val } : v)
+                                  }));
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Special Price</Label>
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.specialPrice ?? ''}
+                                placeholder="—"
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, specialPrice: val } : v)
+                                  }));
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Trade Price</Label>
+                              <Input
+                                type="number"
+                                className="h-8"
+                                value={variant.tradePrice ?? ''}
+                                placeholder="—"
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                  setNewProduct(prev => ({
+                                    ...prev,
+                                    variants: prev.variants.map((v, i) => i === index ? { ...v, tradePrice: val } : v)
+                                  }));
+                                }}
+                              />
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
 
                     {/* Desktop Table Layout */}
-                    <div className="hidden md:block border rounded-md overflow-hidden">
+                    <div className="hidden md:block border rounded-md overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-muted">
                           <tr>
                             <th className="p-2 text-left">Variant</th>
-                            <th className="p-2 w-24">Price</th>
+                            <th className="p-2 w-24">Retail</th>
+                            <th className="p-2 w-24">Wholesale</th>
+                            <th className="p-2 w-24">Special</th>
+                            <th className="p-2 w-24">Trade</th>
                             <th className="p-2 w-24">Cost</th>
                             <th className="p-2 w-24">Stock</th>
                             <th className="p-2 w-16">Recipe</th>
@@ -968,6 +1117,51 @@ export default function Products() {
                                     setNewProduct(prev => ({
                                       ...prev,
                                       variants: prev.variants.map((v, i) => i === index ? { ...v, price: val } : v)
+                                    }));
+                                  }}
+                                />
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  className="h-8"
+                                  placeholder="—"
+                                  value={variant.wholesalePrice ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                    setNewProduct(prev => ({
+                                      ...prev,
+                                      variants: prev.variants.map((v, i) => i === index ? { ...v, wholesalePrice: val } : v)
+                                    }));
+                                  }}
+                                />
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  className="h-8"
+                                  placeholder="—"
+                                  value={variant.specialPrice ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                    setNewProduct(prev => ({
+                                      ...prev,
+                                      variants: prev.variants.map((v, i) => i === index ? { ...v, specialPrice: val } : v)
+                                    }));
+                                  }}
+                                />
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  className="h-8"
+                                  placeholder="—"
+                                  value={variant.tradePrice ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                    setNewProduct(prev => ({
+                                      ...prev,
+                                      variants: prev.variants.map((v, i) => i === index ? { ...v, tradePrice: val } : v)
                                     }));
                                   }}
                                 />
@@ -1173,54 +1367,38 @@ export default function Products() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between rounded-lg border p-4">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="availableOnline" className="flex items-center gap-2">
-                      <Globe className="h-4 w-4 text-primary" />
-                      Available for E-commerce
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="flex items-center justify-between rounded-lg border p-3 gap-2">
+                    <Label htmlFor="availableOnline" className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Globe className="h-4 w-4 text-primary shrink-0" />
+                      E-commerce
                     </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Enable this product for online sales and future e-commerce integration.
-                    </p>
+                    <Switch
+                      id="availableOnline"
+                      checked={newProduct.availableOnline}
+                      onCheckedChange={(checked) => setNewProduct(prev => ({ ...prev, availableOnline: checked }))}
+                    />
                   </div>
-                  <Switch
-                    id="availableOnline"
-                    checked={newProduct.availableOnline}
-                    onCheckedChange={(checked) => setNewProduct(prev => ({ ...prev, availableOnline: checked }))}
-                  />
-                </div>
 
-                <div className="flex items-center justify-between rounded-lg border p-4">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="isFeatured" className="flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-yellow-500" />
-                      Featured Product
+                  <div className="flex items-center justify-between rounded-lg border p-3 gap-2">
+                    <Label htmlFor="isFeatured" className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Settings className="h-4 w-4 text-yellow-500 shrink-0" />
+                      Featured
                     </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Highlight this product in the home page slider or featured section.
-                    </p>
+                    <Switch
+                      id="isFeatured"
+                      checked={newProduct.isFeatured}
+                      onCheckedChange={(checked) => setNewProduct(prev => ({ ...prev, isFeatured: checked }))}
+                    />
                   </div>
-                  <Switch
-                    id="isFeatured"
-                    checked={newProduct.isFeatured}
-                    onCheckedChange={(checked) => setNewProduct(prev => ({ ...prev, isFeatured: checked }))}
-                  />
-                </div>
 
-                <div className="flex items-center justify-between rounded-lg border p-4">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="isActive" className="flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-primary" />
-                      Product Status
+                  <div className="flex items-center justify-between rounded-lg border p-3 gap-2">
+                    <Label htmlFor="isActive" className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Settings className="h-4 w-4 text-primary shrink-0" />
+                      <span className={cn(newProduct.isActive ? "text-success" : "text-destructive")}>
+                        {newProduct.isActive ? "Active" : "Disabled"}
+                      </span>
                     </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Enable or disable this product. Disabled products are hidden from the store.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={cn("text-xs font-medium", newProduct.isActive ? "text-success" : "text-destructive")}>
-                      {newProduct.isActive ? "Active" : "Disabled"}
-                    </span>
                     <Switch
                       id="isActive"
                       checked={newProduct.isActive}
@@ -1229,16 +1407,15 @@ export default function Products() {
                   </div>
                 </div>
               </div>
-              <DialogFooter className="flex-shrink-0">
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreateProduct} disabled={!newProduct.name || isSubmitting}>
-                  {isSubmitting ? (editingId ? 'Updating...' : 'Creating...') : (editingId ? 'Update Product' : 'Create Product')}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { resetForm(); setActiveView('list'); }}>Cancel</Button>
+              <Button onClick={handleCreateProduct} disabled={!newProduct.name || isSubmitting}>
+                {isSubmitting ? (editingId ? 'Updating...' : 'Creating...') : (editingId ? 'Update Product' : 'Create Product')}
+              </Button>
+            </CardFooter>
+          </Card>
+        </TabsContent>
 
       <Dialog open={isCategoryDialogOpen} onOpenChange={(open) => {
         setIsCategoryDialogOpen(open);
@@ -1356,6 +1533,7 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
+      <TabsContent value="list" className="mt-0">
       <div className="space-y-4">
         {selectedProductIds.size > 0 && (
           <div className="flex items-center gap-2 bg-muted/50 p-2 rounded-lg border animate-in fade-in slide-in-from-top-2">
@@ -1544,6 +1722,8 @@ export default function Products() {
           </Card>
         ))}
       </div>
+      </TabsContent>
+      </Tabs>
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>

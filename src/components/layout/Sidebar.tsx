@@ -20,7 +20,8 @@ import {
   ChefHat,
   ShoppingBag,
   Wallet,
-  Bed
+  Bed,
+  FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,8 @@ const navigation: NavigationItem[] = [
   { name: 'Inventory', href: '/inventory', icon: Boxes, requiredRight: 'viewInventory' },
   { name: 'Stock Adjustment', href: '/adjustments', icon: SlidersHorizontal, requiredRight: 'stockAdjustment' },
   { name: 'Point of Sale', href: '/pos', icon: ShoppingCart, requiredRight: 'viewOrders' },
+  { name: 'Invoicing', href: '/invoicing', icon: FileText, requiredRight: 'viewOrders' },
+  { name: 'Customer Accounts', href: '/customer-accounts', icon: Wallet, requiredRight: 'paymentAccess' },
   { name: 'Accommodation', href: '/accommodation', icon: Bed, requiredRight: 'viewAccommodation' },
   { name: 'Online Orders', href: '/orders', icon: Truck, requiredRight: 'viewOrders' },
   { name: 'Stock Take', href: '/stock-take', icon: ClipboardList, requiredRight: 'stockTake' },

@@ -39,6 +39,12 @@ export interface UserRights {
   returnOrder: RightValue;
   reprintReceipt: RightValue;
   paymentAccess: RightValue; // Receive Order Payment
+  viewRetailPrice: RightValue; // See Retail price in the invoicing item picker
+  viewWholesalePrice: RightValue; // See Wholesale price in the invoicing item picker
+  viewSpecialPrice: RightValue; // See Special price in the invoicing item picker
+  viewTradePrice: RightValue; // See Trade price in the invoicing item picker
+  viewCostPrice: RightValue; // See Cost price in the invoicing item picker
+  viewItemStock: RightValue; // See stock levels in the invoicing item picker
 
   // Inventory (Window: VIEW_INVENTORY - Not explicitly in list but implied for system)
   viewInventory: RightValue;
@@ -140,6 +146,12 @@ export const defaultRights: UserRights = {
   returnOrder: 'no',
   reprintReceipt: 'no',
   paymentAccess: 'no',
+  viewRetailPrice: 'no',
+  viewWholesalePrice: 'no',
+  viewSpecialPrice: 'no',
+  viewTradePrice: 'no',
+  viewCostPrice: 'no',
+  viewItemStock: 'no',
   viewInventory: 'no',
   stockAdjustment: 'no',
   stockTake: 'no',
@@ -210,6 +222,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       returnOrder: 'yes',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
+      viewRetailPrice: 'yes',
+      viewWholesalePrice: 'yes',
+      viewSpecialPrice: 'yes',
+      viewTradePrice: 'yes',
+      viewCostPrice: 'yes',
+      viewItemStock: 'yes',
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
@@ -274,6 +292,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       returnOrder: 'supervised',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
+      viewRetailPrice: 'yes',
+      viewWholesalePrice: 'yes',
+      viewSpecialPrice: 'yes',
+      viewTradePrice: 'yes',
+      viewCostPrice: 'yes',
+      viewItemStock: 'yes',
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
@@ -338,6 +362,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       returnOrder: 'no',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
+      viewRetailPrice: 'yes',
+      viewWholesalePrice: 'yes',
+      viewSpecialPrice: 'no',
+      viewTradePrice: 'no',
+      viewCostPrice: 'no',
+      viewItemStock: 'no',
       viewInventory: 'yes',
       stockAdjustment: 'no',
       stockTake: 'no',
@@ -407,6 +437,12 @@ export const hardcodedUserGroups: UserGroup[] = [
       returnOrder: 'no',
       reprintReceipt: 'no',
       paymentAccess: 'no',
+      viewRetailPrice: 'no',
+      viewWholesalePrice: 'no',
+      viewSpecialPrice: 'no',
+      viewTradePrice: 'no',
+      viewCostPrice: 'no',
+      viewItemStock: 'yes',
       viewInventory: 'yes',
       stockAdjustment: 'yes',
       stockTake: 'yes',
@@ -514,6 +550,12 @@ export const rightLabels: Record<keyof UserRights, string> = {
   returnOrder: 'Return Order',
   reprintReceipt: 'Reprint Receipt',
   paymentAccess: 'Receive Order Payment',
+  viewRetailPrice: 'View Retail Price',
+  viewWholesalePrice: 'View Wholesale Price',
+  viewSpecialPrice: 'View Special Price',
+  viewTradePrice: 'View Trade Price',
+  viewCostPrice: 'View Cost Price',
+  viewItemStock: 'View Item Stock Levels',
   viewInventory: 'View Inventory',
   stockAdjustment: 'Stock Adjustment',
   stockTake: 'Stock Take',
@@ -578,6 +620,12 @@ export const rightDescriptions: Partial<Record<keyof UserRights, string>> = {
   returnOrder: 'Process returns and refunds for orders',
   reprintReceipt: 'Print duplicate receipts for past orders',
   paymentAccess: 'Ability to finalize an order and receive payment',
+  viewRetailPrice: 'See the Retail price column when selecting items in Invoicing',
+  viewWholesalePrice: 'See the Wholesale price column when selecting items in Invoicing',
+  viewSpecialPrice: 'See the Special price column when selecting items in Invoicing',
+  viewTradePrice: 'See the Trade price column when selecting items in Invoicing',
+  viewCostPrice: 'See the Cost price column when selecting items in Invoicing',
+  viewItemStock: 'See stock levels when selecting items in Invoicing',
   viewInventory: 'View current stock levels and inventory',
   stockAdjustment: 'Adjust stock levels manually for discrepancies',
   stockTake: 'Perform full physical stock counting',
@@ -595,7 +643,7 @@ export const rightDescriptions: Partial<Record<keyof UserRights, string>> = {
 
 export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Dashboard': ['viewDashboard', 'exportDashboard'],
-  'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'reprintReceipt', 'paymentAccess'],
+  'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'reprintReceipt', 'paymentAccess', 'viewRetailPrice', 'viewWholesalePrice', 'viewSpecialPrice', 'viewTradePrice', 'viewCostPrice', 'viewItemStock'],
   'Customers': ['viewCustomers', 'createCustomer', 'editCustomer', 'deleteCustomer'],
   'Products & Services': ['viewProducts', 'createProduct', 'editProduct', 'deleteProduct'],
   'Users & Employees': ['viewUsers', 'createUser', 'editUser', 'deleteUser', 'manageUserRoles'],

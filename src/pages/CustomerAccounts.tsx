@@ -4,7 +4,7 @@ import { useInventory } from '@/contexts/InventoryContext';
 import {
   Search, Banknote, CreditCard, Smartphone, FileText,
   ChevronsUpDown, Check, ArrowUpRight, ArrowDownLeft,
-  Wallet, BookOpen, RotateCcw, Receipt, Printer
+  Wallet, BookOpen, RotateCcw, Receipt, Printer, AlertTriangle
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -29,13 +29,13 @@ import { usePdfPreview } from '@/hooks/usePdfPreview';
 
 interface LedgerEntry {
   id: number;
-  supplier: { id: number; name: string };
+  customer: { id: number; name: string };
   type: string;
   amount: number;
   reference: string;
   notes: string;
   paymentMethod: string;
-  purchaseOrderId: number | null;
+  saleId: number | null;
   linkedEntryId: number | null;
   timestamp: string;
   createdBy: number | null;
@@ -59,7 +59,7 @@ interface OutstandingInvoice {
   remaining: number;
   reference: string;
   notes: string;
-  purchaseOrderId: number | null;
+  saleId: number | null;
   timestamp: string;
   payments: LedgerEntry[];
 }
@@ -74,33 +74,65 @@ interface UnmatchedCredit {
   timestamp: string;
 }
 
-type EntryType = 'PAYMENT' | 'DEBIT_NOTE' | 'CREDIT_NOTE' | 'OPENING_BALANCE' | 'PREPAYMENT' | 'CASH_PURCHASE';
+interface AgingSummaryRow {
+  customerId: number;
+  customerName: string;
+  buckets: Record<string, number>;
+  total: number;
+}
+
+interface AgingDetailRow {
+  id: number;
+  type: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  dueDate: string;
+  invoiceAmount: number;
+  paid: number;
+  balance: number;
+  daysOverdue: number;
+  bucket: string;
+}
+
+const AGING_BUCKETS: { key: string; label: string }[] = [
+  { key: 'current', label: 'Current / 0–7 Days' },
+  { key: 'd8_21', label: '8–21 Days' },
+  { key: 'd22_30', label: '22–30 Days' },
+  { key: 'd31_60', label: '31–60 Days' },
+  { key: 'd61_90', label: '61–90 Days' },
+  { key: 'd91_120', label: '91–120 Days' },
+  { key: 'd121_150', label: '121–150 Days' },
+  { key: 'd151_180', label: '151–180 Days' },
+  { key: 'over180', label: '>180 Days' },
+];
+
+type EntryType = 'PAYMENT' | 'DEBIT_NOTE' | 'CREDIT_NOTE' | 'OPENING_BALANCE' | 'PREPAYMENT' | 'CASH_SALE';
 
 const ENTRY_TYPE_CONFIG: Record<EntryType, { label: string; description: string; icon: any; color: string; badgeClass: string }> = {
   PAYMENT: {
     label: 'Record Payment',
-    description: 'Record a payment to this supplier',
+    description: 'Record a payment received from this customer',
     icon: Banknote,
     color: 'text-green-600',
     badgeClass: 'border-green-500 text-green-600 bg-green-50 dark:bg-green-950/20',
   },
   DEBIT_NOTE: {
     label: 'Debit Note',
-    description: 'Increase amount owed (e.g. returns, overcharges)',
+    description: 'Increase amount owed (e.g. undercharges, added fees)',
     icon: ArrowUpRight,
     color: 'text-red-600',
     badgeClass: 'border-red-500 text-red-600 bg-red-50 dark:bg-red-950/20',
   },
   CREDIT_NOTE: {
     label: 'Credit Note',
-    description: 'Decrease amount owed (e.g. discount, refund from supplier)',
+    description: 'Decrease amount owed (e.g. discount, refund to customer)',
     icon: ArrowDownLeft,
     color: 'text-blue-600',
     badgeClass: 'border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/20',
   },
   OPENING_BALANCE: {
     label: 'Opening Balance',
-    description: 'Set the initial outstanding balance for this supplier',
+    description: 'Set the initial outstanding balance for this customer',
     icon: BookOpen,
     color: 'text-amber-600',
     badgeClass: 'border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/20',
@@ -112,9 +144,9 @@ const ENTRY_TYPE_CONFIG: Record<EntryType, { label: string; description: string;
     color: 'text-purple-600',
     badgeClass: 'border-purple-500 text-purple-600 bg-purple-50 dark:bg-purple-950/20',
   },
-  CASH_PURCHASE: {
-    label: 'Cash Purchase',
-    description: 'Direct cash purchase',
+  CASH_SALE: {
+    label: 'Cash Sale',
+    description: 'Direct cash sale',
     icon: Receipt,
     color: 'text-orange-600',
     badgeClass: 'border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/20',
@@ -123,12 +155,20 @@ const ENTRY_TYPE_CONFIG: Record<EntryType, { label: string; description: string;
 
 const INVOICE_BADGE_CLASS = 'border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/20';
 
-export default function SupplierAccounts() {
-  const { suppliers } = useInventory();
-  const { sym } = useCurrency();
+export default function CustomerAccounts() {
+  const { customers } = useInventory();
+  const { sym, fmt } = useCurrency();
   const pdfPreview = usePdfPreview();
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
-  const [isSupplierPopoverOpen, setIsSupplierPopoverOpen] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
+
+  // Aging report
+  const [activeView, setActiveView] = useState<'ledger' | 'aging'>('ledger');
+  const [agingRows, setAgingRows] = useState<AgingSummaryRow[]>([]);
+  const [isLoadingAging, setIsLoadingAging] = useState(false);
+  const [agingDrillDown, setAgingDrillDown] = useState<{ customerId: number; customerName: string; bucketLabel: string } | null>(null);
+  const [agingDrillDownRows, setAgingDrillDownRows] = useState<AgingDetailRow[]>([]);
+  const [isLoadingDrillDown, setIsLoadingDrillDown] = useState(false);
 
   // Data
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
@@ -157,12 +197,10 @@ export default function SupplierAccounts() {
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
   const [invoiceAllocations, setInvoiceAllocations] = useState<Record<number, string>>({});
   const [paymentMode, setPaymentMode] = useState<'cash_payment' | 'apply_credit'>('cash_payment');
-  const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentMethodSingle, setPaymentMethodSingle] = useState('CASH');
   const [selectedCreditId, setSelectedCreditId] = useState<number | null>(null);
-  const [applyCreditAmount, setApplyCreditAmount] = useState('');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
 
@@ -175,9 +213,9 @@ export default function SupplierAccounts() {
     bank_transfer: { active: false, amount: '', reference: '' },
   });
 
-  const selectedSupplier = useMemo(() =>
-    suppliers.find(s => String(s.id) === selectedSupplierId),
-    [suppliers, selectedSupplierId]
+  const selectedCustomer = useMemo(() =>
+    customers.find(c => String(c.id) === selectedCustomerId),
+    [customers, selectedCustomerId]
   );
 
   const selectedInvoices = useMemo(() =>
@@ -191,22 +229,53 @@ export default function SupplierAccounts() {
   );
 
   useEffect(() => {
-    if (selectedSupplierId) {
-      fetchLedgerData(selectedSupplierId);
+    if (selectedCustomerId) {
+      fetchLedgerData(selectedCustomerId);
     } else {
       setLedgerEntries([]);
       setBalance(null);
     }
-  }, [selectedSupplierId]);
+  }, [selectedCustomerId]);
 
-  const fetchLedgerData = async (supplierId: string) => {
+  const fetchAgingReport = async () => {
+    setIsLoadingAging(true);
+    try {
+      const res = await apiFetch<{ data: AgingSummaryRow[] }>('/api/customer-ledger/aging');
+      setAgingRows(res.data || []);
+    } catch (error) {
+      console.error('Failed to fetch aging report:', error);
+      toast.error('Failed to load aging report');
+    } finally {
+      setIsLoadingAging(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeView === 'aging') fetchAgingReport();
+  }, [activeView]);
+
+  const openAgingDrillDown = async (customerId: number, customerName: string, bucketKey: string, bucketLabel: string) => {
+    setAgingDrillDown({ customerId, customerName, bucketLabel });
+    setIsLoadingDrillDown(true);
+    try {
+      const res = await apiFetch<{ data: AgingDetailRow[] }>(`/api/customer-ledger/${customerId}/aging`);
+      setAgingDrillDownRows((res.data || []).filter(r => r.bucket === bucketKey));
+    } catch (error) {
+      console.error('Failed to fetch aging detail:', error);
+      toast.error('Failed to load invoices');
+    } finally {
+      setIsLoadingDrillDown(false);
+    }
+  };
+
+  const fetchLedgerData = async (customerId: string) => {
     setIsLoading(true);
     try {
       const [entriesRes, balanceRes, invoicesRes, creditsRes] = await Promise.all([
-        apiFetch<{ data: LedgerEntry[] }>(`/api/supplier-ledger/${supplierId}`),
-        apiFetch<{ data: BalanceSummary }>(`/api/supplier-ledger/${supplierId}/balance`),
-        apiFetch<{ data: OutstandingInvoice[] }>(`/api/supplier-ledger/${supplierId}/outstanding-invoices`),
-        apiFetch<{ data: UnmatchedCredit[] }>(`/api/supplier-ledger/${supplierId}/unmatched-credits`),
+        apiFetch<{ data: LedgerEntry[] }>(`/api/customer-ledger/${customerId}`),
+        apiFetch<{ data: BalanceSummary }>(`/api/customer-ledger/${customerId}/balance`),
+        apiFetch<{ data: OutstandingInvoice[] }>(`/api/customer-ledger/${customerId}/outstanding-invoices`),
+        apiFetch<{ data: UnmatchedCredit[] }>(`/api/customer-ledger/${customerId}/unmatched-credits`),
       ]);
       setLedgerEntries(entriesRes.data || []);
       setBalance(balanceRes.data || null);
@@ -214,19 +283,19 @@ export default function SupplierAccounts() {
       setUnmatchedCredits(creditsRes.data || []);
     } catch (error) {
       console.error('Failed to fetch ledger data:', error);
-      toast.error('Failed to load supplier ledger');
+      toast.error('Failed to load customer statement');
     } finally {
       setIsLoading(false);
     }
   };
 
   const fetchOutstandingData = async () => {
-    if (!selectedSupplierId) return;
+    if (!selectedCustomerId) return;
     setIsLoadingInvoices(true);
     try {
       const [invoicesRes, creditsRes] = await Promise.all([
-        apiFetch<{ data: OutstandingInvoice[] }>(`/api/supplier-ledger/${selectedSupplierId}/outstanding-invoices`),
-        apiFetch<{ data: UnmatchedCredit[] }>(`/api/supplier-ledger/${selectedSupplierId}/unmatched-credits`),
+        apiFetch<{ data: OutstandingInvoice[] }>(`/api/customer-ledger/${selectedCustomerId}/outstanding-invoices`),
+        apiFetch<{ data: UnmatchedCredit[] }>(`/api/customer-ledger/${selectedCustomerId}/unmatched-credits`),
       ]);
       setOutstandingInvoices(invoicesRes.data || []);
       setUnmatchedCredits(creditsRes.data || []);
@@ -237,17 +306,15 @@ export default function SupplierAccounts() {
     }
   };
 
-  // Open the Payment dialog
+  // Open the Payment dialog fresh - lets the user pick invoice(s) from within the dialog
   const openPaymentDialog = () => {
     setSelectedInvoiceIds([]);
     setInvoiceAllocations({});
     setPaymentMode('cash_payment');
-    setPaymentAmount('');
     setPaymentReference('');
     setPaymentNotes('');
     setPaymentMethodSingle('CASH');
     setSelectedCreditId(null);
-    setApplyCreditAmount('');
     setUsePaymentSplit(false);
     setPaymentSplits({
       cash: { active: false, amount: '', reference: '' },
@@ -259,18 +326,17 @@ export default function SupplierAccounts() {
     fetchOutstandingData();
   };
 
+  // Invoice(s) already selected (from the Outstanding Invoices tab) - go straight to payment details
   const handleApprovePayment = () => {
     if (selectedInvoiceIds.length === 0) {
       toast.error('Please select at least one invoice/debit note');
       return;
     }
     setPaymentMode('cash_payment');
-    setPaymentAmount('');
     setPaymentReference('');
     setPaymentNotes('');
     setPaymentMethodSingle('CASH');
     setSelectedCreditId(null);
-    setApplyCreditAmount('');
     setUsePaymentSplit(false);
     setPaymentSplits({
       cash: { active: false, amount: '', reference: '' },
@@ -298,16 +364,16 @@ export default function SupplierAccounts() {
   };
 
   const printStatement = async () => {
-    if (!selectedSupplierId) return;
+    if (!selectedCustomerId) return;
     setIsPrintingStatement(true);
     try {
       const params = new URLSearchParams();
       if (statementStartDate) params.set('startDate', statementStartDate);
       if (statementEndDate) params.set('endDate', statementEndDate);
-      const url = `${getBaseUrl()}/api/supplier-ledger/${selectedSupplierId}/statement/pdf?${params.toString()}`;
+      const url = `${getBaseUrl()}/api/customer-ledger/${selectedCustomerId}/statement/pdf?${params.toString()}`;
       // auto: false - a statement should always be reviewed in the popup first, never silently
       // sent straight to the receipt printer even if autoPrintReceipts is on.
-      await pdfPreview.showPdf(url, { title: `Statement - ${selectedSupplier?.name || ''}`, auto: false });
+      await pdfPreview.showPdf(url, { title: `Statement - ${selectedCustomer?.name || ''}`, auto: false });
       setIsStatementDialogOpen(false);
     } catch (err) {
       toast.error('Failed to generate statement');
@@ -318,7 +384,7 @@ export default function SupplierAccounts() {
 
   // Submit simple entry
   const handleSubmitEntry = async () => {
-    if (!selectedSupplierId) return;
+    if (!selectedCustomerId) return;
     const amount = parseFloat(entryAmount);
     if (!amount || amount <= 0) {
       toast.error('Please enter a valid amount');
@@ -326,10 +392,10 @@ export default function SupplierAccounts() {
     }
     setIsSubmittingEntry(true);
     try {
-      await apiFetch('/api/supplier-ledger', {
+      await apiFetch('/api/customer-ledger', {
         method: 'POST',
         body: JSON.stringify({
-          supplier: { id: Number(selectedSupplierId) },
+          customer: { id: Number(selectedCustomerId) },
           type: entryType,
           amount,
           reference: entryReference || '',
@@ -339,7 +405,7 @@ export default function SupplierAccounts() {
       });
       toast.success(`${ENTRY_TYPE_CONFIG[entryType].label} recorded successfully`);
       setIsEntryDialogOpen(false);
-      fetchLedgerData(selectedSupplierId);
+      fetchLedgerData(selectedCustomerId);
     } catch (error) {
       toast.error(`Failed to record ${ENTRY_TYPE_CONFIG[entryType].label.toLowerCase()}`);
     } finally {
@@ -349,12 +415,11 @@ export default function SupplierAccounts() {
 
   // Submit payment against selected invoices
   const handleSubmitPayment = async () => {
-    if (!selectedSupplierId || selectedInvoiceIds.length === 0) {
+    if (!selectedCustomerId || selectedInvoiceIds.length === 0) {
       toast.error('Please select at least one invoice');
       return;
     }
 
-    // Sum up total allocated
     const totalAllocated = selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0);
     if (totalAllocated <= 0) {
       toast.error('Please allocate a payment amount to the selected invoice(s)');
@@ -364,7 +429,6 @@ export default function SupplierAccounts() {
     setIsSubmittingPayment(true);
     try {
       if (paymentMode === 'apply_credit') {
-        // Apply a credit note or prepayment to selected invoices
         if (!selectedCreditId) {
           toast.error('Please select a credit note or prepayment to apply');
           setIsSubmittingPayment(false);
@@ -377,17 +441,13 @@ export default function SupplierAccounts() {
           return;
         }
 
-        // Apply allocations sequentially, capped by the remaining credit note balance
         for (const id of selectedInvoiceIds) {
           let alloc = parseFloat(invoiceAllocations[id]) || 0;
           if (alloc <= 0) continue;
-
-          if (alloc > remainingCredit) {
-            alloc = remainingCredit;
-          }
+          if (alloc > remainingCredit) alloc = remainingCredit;
 
           if (alloc > 0.001) {
-            await apiFetch('/api/supplier-ledger/match', {
+            await apiFetch('/api/customer-ledger/match', {
               method: 'POST',
               body: JSON.stringify({
                 creditEntryId: selectedCreditId,
@@ -397,12 +457,10 @@ export default function SupplierAccounts() {
             });
             remainingCredit -= alloc;
           }
-
           if (remainingCredit <= 0.001) break;
         }
         toast.success('Credit applied to invoice(s) successfully');
       } else if (usePaymentSplit) {
-        // Split payment mode
         const activeSplits = Object.entries(paymentSplits)
           .filter(([_, m]) => m.active && (parseFloat(m.amount) || 0) > 0)
           .map(([method, m]) => ({
@@ -419,12 +477,11 @@ export default function SupplierAccounts() {
 
         const totalSplit = activeSplits.reduce((sum, s) => sum + s.amount, 0);
         if (Math.abs(totalSplit - totalAllocated) > 0.01) {
-          toast.error(`Total split payment (${sym}${totalSplit.toFixed(2)}) must match the total allocated amount (${sym}${totalAllocated.toFixed(2)})`);
+          toast.error(`Total split payment (${fmt(totalSplit)}) must match the total allocated amount (${fmt(totalAllocated)})`);
           setIsSubmittingPayment(false);
           return;
         }
 
-        // Distribute split payments proportionally to each selected invoice
         for (const id of selectedInvoiceIds) {
           const alloc = parseFloat(invoiceAllocations[id]) || 0;
           if (alloc <= 0) continue;
@@ -432,10 +489,10 @@ export default function SupplierAccounts() {
           for (const split of activeSplits) {
             const propAmount = (alloc / totalAllocated) * split.amount;
             if (propAmount > 0.001) {
-              await apiFetch('/api/supplier-ledger', {
+              await apiFetch('/api/customer-ledger', {
                 method: 'POST',
                 body: JSON.stringify({
-                  supplier: { id: Number(selectedSupplierId) },
+                  customer: { id: Number(selectedCustomerId) },
                   type: 'PAYMENT',
                   amount: parseFloat(propAmount.toFixed(2)),
                   reference: split.reference || paymentReference || '',
@@ -449,14 +506,13 @@ export default function SupplierAccounts() {
         }
         toast.success('Split payments recorded successfully');
       } else {
-        // Single payment: Pay allocated amounts for each invoice
         for (const id of selectedInvoiceIds) {
           const alloc = parseFloat(invoiceAllocations[id]) || 0;
           if (alloc <= 0) continue;
-          await apiFetch('/api/supplier-ledger', {
+          await apiFetch('/api/customer-ledger', {
             method: 'POST',
             body: JSON.stringify({
-              supplier: { id: Number(selectedSupplierId) },
+              customer: { id: Number(selectedCustomerId) },
               type: 'PAYMENT',
               amount: alloc,
               reference: paymentReference || '',
@@ -472,7 +528,7 @@ export default function SupplierAccounts() {
       setIsPaymentDialogOpen(false);
       setSelectedInvoiceIds([]);
       setInvoiceAllocations({});
-      fetchLedgerData(selectedSupplierId);
+      fetchLedgerData(selectedCustomerId);
     } catch (error) {
       toast.error('Failed to record payments');
     } finally {
@@ -494,13 +550,15 @@ export default function SupplierAccounts() {
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     let running = 0;
-    const DEBIT_TYPES = ['INVOICE', 'DEBIT_NOTE', 'OPENING_BALANCE', 'CASH_PURCHASE'];
+    const DEBIT_TYPES = ['INVOICE', 'DEBIT_NOTE', 'OPENING_BALANCE'];
+    const CREDIT_TYPES = ['PAYMENT', 'CREDIT_NOTE', 'PREPAYMENT'];
     return sorted.map(entry => {
       if (DEBIT_TYPES.includes(entry.type)) {
         running += Number(entry.amount);
-      } else {
+      } else if (CREDIT_TYPES.includes(entry.type)) {
         running -= Number(entry.amount);
       }
+      // CASH_SALE is settled in full at the point of sale - it never touches the running balance
       return { ...entry, runningBalance: running };
     }).reverse();
   }, [ledgerEntries]);
@@ -512,36 +570,46 @@ export default function SupplierAccounts() {
   );
 
   return (
-    <AppLayout title="Supplier Accounts">
+    <AppLayout title="Customer Accounts">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center gap-4 justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Supplier Accounts</h1>
+            <h1 className="text-2xl font-bold">Customer Accounts</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Manage balances, payments, debit/credit notes, and prepayments
+              Balances, payments, and statements for credit sales
             </p>
           </div>
+          <div className="flex items-center gap-3">
+            <div className="flex rounded-lg border p-0.5 bg-muted/40 shrink-0">
+              <Button variant={activeView === 'ledger' ? 'default' : 'ghost'} size="sm" className="gap-1.5" onClick={() => setActiveView('ledger')}>
+                <BookOpen className="h-3.5 w-3.5" /> Customer Ledger
+              </Button>
+              <Button variant={activeView === 'aging' ? 'default' : 'ghost'} size="sm" className="gap-1.5" onClick={() => setActiveView('aging')}>
+                <AlertTriangle className="h-3.5 w-3.5" /> Aging Report
+              </Button>
+            </div>
+            {activeView === 'ledger' && (
           <div className="w-full md:w-96">
-            <Popover open={isSupplierPopoverOpen} onOpenChange={setIsSupplierPopoverOpen}>
+            <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}>
               <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" aria-expanded={isSupplierPopoverOpen} className="w-full justify-between h-11 text-sm">
-                  {selectedSupplier ? selectedSupplier.name : 'Select a supplier...'}
+                <Button variant="outline" role="combobox" aria-expanded={isCustomerPopoverOpen} className="w-full justify-between h-11 text-sm">
+                  {selectedCustomer ? selectedCustomer.name : 'Select a customer...'}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                 <Command>
-                  <CommandInput placeholder="Search suppliers..." />
+                  <CommandInput placeholder="Search customers..." />
                   <CommandList>
-                    <CommandEmpty>No suppliers found.</CommandEmpty>
+                    <CommandEmpty>No customers found.</CommandEmpty>
                     <CommandGroup>
-                      {suppliers.map(supplier => (
-                        <CommandItem key={supplier.id} value={supplier.name} onSelect={() => { setSelectedSupplierId(String(supplier.id)); setIsSupplierPopoverOpen(false); }}>
-                          <Check className={cn("mr-2 h-4 w-4", String(supplier.id) === selectedSupplierId ? "opacity-100" : "opacity-0")} />
+                      {customers.map(customer => (
+                        <CommandItem key={customer.id} value={customer.name} onSelect={() => { setSelectedCustomerId(String(customer.id)); setIsCustomerPopoverOpen(false); }}>
+                          <Check className={cn("mr-2 h-4 w-4", String(customer.id) === selectedCustomerId ? "opacity-100" : "opacity-0")} />
                           <div>
-                            <p className="font-medium">{supplier.name}</p>
-                            {supplier.phone && <p className="text-xs text-muted-foreground">{supplier.phone}</p>}
+                            <p className="font-medium">{customer.name}</p>
+                            {customer.phone && <p className="text-xs text-muted-foreground">{customer.phone}</p>}
                           </div>
                         </CommandItem>
                       ))}
@@ -551,17 +619,21 @@ export default function SupplierAccounts() {
               </PopoverContent>
             </Popover>
           </div>
+            )}
+          </div>
         </div>
 
-        {!selectedSupplierId && (
+        {activeView === 'ledger' && (
+        <>
+        {!selectedCustomerId && (
           <div className="text-center py-20 border-2 border-dashed rounded-xl">
             <Search className="h-12 w-12 mx-auto text-muted-foreground opacity-20 mb-4" />
-            <p className="text-lg font-medium text-muted-foreground">Select a Supplier</p>
-            <p className="text-sm text-muted-foreground mt-1">Choose a supplier above to view their account ledger</p>
+            <p className="text-lg font-medium text-muted-foreground">Select a Customer</p>
+            <p className="text-sm text-muted-foreground mt-1">Choose a customer above to view their statement</p>
           </div>
         )}
 
-        {selectedSupplierId && (
+        {selectedCustomerId && (
           <>
             {/* Balance Summary Cards */}
             {balance && (
@@ -569,19 +641,19 @@ export default function SupplierAccounts() {
                 <Card className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10 border-orange-200 dark:border-orange-800/30">
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wider">Total Invoiced</p>
-                    <p className="text-xl md:text-2xl font-bold mt-1">{sym}{Number(balance.totalInvoiced || 0).toFixed(2)}</p>
+                    <p className="text-xl md:text-2xl font-bold mt-1">{fmt(Number(balance.totalInvoiced || 0))}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/20 dark:to-green-900/10 border-green-200 dark:border-green-800/30">
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">Total Paid</p>
-                    <p className="text-xl md:text-2xl font-bold mt-1">{sym}{Number(balance.totalPaid || 0).toFixed(2)}</p>
+                    <p className="text-xl md:text-2xl font-bold mt-1">{fmt(Number(balance.totalPaid || 0))}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 border-purple-200 dark:border-purple-800/30">
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wider">Prepayments</p>
-                    <p className="text-xl md:text-2xl font-bold mt-1">{sym}{Number(balance.totalPrepayments || 0).toFixed(2)}</p>
+                    <p className="text-xl md:text-2xl font-bold mt-1">{fmt(Number(balance.totalPrepayments || 0))}</p>
                   </CardContent>
                 </Card>
                 <Card className={cn("border-2",
@@ -593,10 +665,13 @@ export default function SupplierAccounts() {
                     <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Current Balance</p>
                     <p className={cn("text-xl md:text-2xl font-bold mt-1",
                       Number(balance.currentBalance || 0) > 0 ? "text-red-600" : Number(balance.currentBalance || 0) < 0 ? "text-blue-600" : ""
-                    )}>{sym}{Number(balance.currentBalance || 0).toFixed(2)}</p>
+                    )}>{fmt(Number(balance.currentBalance || 0))}</p>
                     <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {Number(balance.currentBalance || 0) > 0 ? 'You owe this supplier' : Number(balance.currentBalance || 0) < 0 ? 'Supplier owes you (overpaid)' : 'Fully settled'}
+                      {Number(balance.currentBalance || 0) > 0 ? 'Customer owes you' : Number(balance.currentBalance || 0) < 0 ? 'You owe the customer (overpaid)' : 'Fully settled'}
                     </p>
+                    {selectedCustomer?.creditLimit != null && selectedCustomer.creditLimit > 0 && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Credit limit: {fmt(Number(selectedCustomer.creditLimit))}</p>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -606,21 +681,21 @@ export default function SupplierAccounts() {
             {balance && (Number(balance.totalDebitNotes || 0) > 0 || Number(balance.totalCreditNotes || 0) > 0 || Number(balance.totalOpeningBalance || 0) > 0) && (
               <div className="flex flex-wrap gap-3 text-xs">
                 {Number(balance.totalOpeningBalance || 0) > 0 && (
-                  <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/20">Opening Balance: ${Number(balance.totalOpeningBalance).toFixed(2)}</Badge>
+                  <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/20">Opening Balance: {fmt(Number(balance.totalOpeningBalance))}</Badge>
                 )}
                 {Number(balance.totalDebitNotes || 0) > 0 && (
-                  <Badge variant="outline" className="border-red-500 text-red-600 bg-red-50 dark:bg-red-950/20">Debit Notes: ${Number(balance.totalDebitNotes).toFixed(2)}</Badge>
+                  <Badge variant="outline" className="border-red-500 text-red-600 bg-red-50 dark:bg-red-950/20">Debit Notes: {fmt(Number(balance.totalDebitNotes))}</Badge>
                 )}
                 {Number(balance.totalCreditNotes || 0) > 0 && (
-                  <Badge variant="outline" className="border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/20">Credit Notes: ${Number(balance.totalCreditNotes).toFixed(2)}</Badge>
+                  <Badge variant="outline" className="border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/20">Credit Notes: {fmt(Number(balance.totalCreditNotes))}</Badge>
                 )}
               </div>
             )}
 
             <Tabs defaultValue="history" className="w-full space-y-4">
               <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
-                <TabsTrigger value="history">Ledger History</TabsTrigger>
-                <TabsTrigger value="pending">Pending Payments & Allocations</TabsTrigger>
+                <TabsTrigger value="history">Statement / Ledger History</TabsTrigger>
+                <TabsTrigger value="pending">Outstanding Invoices</TabsTrigger>
               </TabsList>
 
               <TabsContent value="history" className="space-y-4">
@@ -641,7 +716,7 @@ export default function SupplierAccounts() {
                   <Button variant="outline" size="sm" onClick={openStatementDialog} className="gap-1.5 ml-auto">
                     <Printer className="h-3.5 w-3.5" /> Print Statement
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => fetchLedgerData(selectedSupplierId)} className="gap-1.5">
+                  <Button variant="ghost" size="sm" onClick={() => fetchLedgerData(selectedCustomerId)} className="gap-1.5">
                     <RotateCcw className="h-3.5 w-3.5" /> Refresh
                   </Button>
                 </div>
@@ -665,7 +740,7 @@ export default function SupplierAccounts() {
                       </div>
                     )}
                     {!isLoading && entriesWithRunningBalance.map((entry) => {
-                      const isDebit = ['INVOICE', 'DEBIT_NOTE', 'OPENING_BALANCE', 'CASH_PURCHASE'].includes(entry.type);
+                      const isDebit = ['INVOICE', 'DEBIT_NOTE', 'OPENING_BALANCE', 'CASH_SALE'].includes(entry.type);
                       const config = ENTRY_TYPE_CONFIG[entry.type as EntryType];
                       const badgeClass = config?.badgeClass || INVOICE_BADGE_CLASS;
                       const typeLabel = config?.label || entry.type.replace('_', ' ');
@@ -685,11 +760,11 @@ export default function SupplierAccounts() {
                           </div>
                           <div className="text-muted-foreground">{formatDate(entry.timestamp)}</div>
                           <div className={cn("text-right font-semibold", isDebit ? "text-red-600" : "text-green-600")}>
-                            {isDebit ? '+' : '-'}{sym}{Number(entry.amount).toFixed(2)}
+                            {isDebit ? '+' : '-'}{fmt(Number(entry.amount))}
                           </div>
                           <div className={cn("text-right font-bold",
                             entry.runningBalance > 0 ? "text-red-600" : entry.runningBalance < 0 ? "text-blue-600" : ""
-                          )}>{sym}{entry.runningBalance.toFixed(2)}</div>
+                          )}>{fmt(entry.runningBalance)}</div>
                         </div>
                       );
                     })}
@@ -700,7 +775,7 @@ export default function SupplierAccounts() {
               <TabsContent value="pending" className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold">Pending Payments & Outstanding Invoices</h3>
+                    <h3 className="text-sm font-semibold">Outstanding Invoices</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Select items and allocate payment amounts</p>
                   </div>
                   <Button
@@ -708,7 +783,7 @@ export default function SupplierAccounts() {
                     disabled={selectedInvoiceIds.length === 0}
                     className="gap-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold h-9 text-xs"
                   >
-                    <Check className="h-4 w-4" /> Approve Payment ({selectedInvoiceIds.length})
+                    <Check className="h-4 w-4" /> Receive Payment ({selectedInvoiceIds.length})
                   </Button>
                 </div>
 
@@ -777,14 +852,14 @@ export default function SupplierAccounts() {
                               className="w-24 h-8 text-right font-medium text-xs bg-background"
                             />
                             <div className="text-right min-w-[50px]">
-                              <p className="font-bold text-[11px]">{sym}{Number(inv.remaining).toFixed(2)}</p>
+                              <p className="font-bold text-[11px]">{fmt(Number(inv.remaining))}</p>
                               <p className="text-[9px] text-muted-foreground">max</p>
                             </div>
                           </div>
                         ) : (
                           <div className="text-right shrink-0 ml-2">
-                            <p className="font-bold">{sym}{Number(inv.remaining).toFixed(2)}</p>
-                            <p className="text-[10px] text-muted-foreground">of ${Number(inv.amount).toFixed(2)}</p>
+                            <p className="font-bold">{fmt(Number(inv.remaining))}</p>
+                            <p className="text-[10px] text-muted-foreground">of {fmt(Number(inv.amount))}</p>
                           </div>
                         )}
                       </div>
@@ -794,32 +869,91 @@ export default function SupplierAccounts() {
 
                 {selectedInvoiceIds.length > 0 && (
                   <div className="flex justify-between items-center px-1 text-xs font-bold border-t pt-3">
-                    <span>Total Allocated for Approval:</span>
-                    <span className="text-sm text-green-600">{sym}{
-                      selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
-                    }</span>
+                    <span>Total Allocated:</span>
+                    <span className="text-sm text-green-600">{fmt(
+                      selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0)
+                    )}</span>
                   </div>
                 )}
               </TabsContent>
             </Tabs>
           </>
         )}
+        </>
+        )}
+
+        {activeView === 'aging' && (
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={fetchAgingReport} disabled={isLoadingAging} className="gap-1.5">
+                <RotateCcw className="h-3.5 w-3.5" /> Refresh
+              </Button>
+            </div>
+            <Card>
+              <CardContent className="p-0">
+                {isLoadingAging ? (
+                  <div className="py-16 text-center text-sm text-muted-foreground">Loading aging report...</div>
+                ) : agingRows.length === 0 ? (
+                  <div className="py-16 text-center text-sm text-muted-foreground">No outstanding customer balances.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
+                          <th className="text-left py-2.5 px-3 sticky left-0 bg-muted/40">Customer</th>
+                          {AGING_BUCKETS.map(b => (
+                            <th key={b.key} className="text-right py-2.5 px-3 whitespace-nowrap">{b.label}</th>
+                          ))}
+                          <th className="text-right py-2.5 px-3 font-bold">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {agingRows.map(row => (
+                          <tr key={row.customerId} className="border-b last:border-b-0 hover:bg-muted/20">
+                            <td className="py-2 px-3 font-medium sticky left-0 bg-background">{row.customerName}</td>
+                            {AGING_BUCKETS.map(b => {
+                              const value = row.buckets[b.key] || 0;
+                              return (
+                                <td key={b.key} className="text-right py-2 px-3">
+                                  {value > 0 ? (
+                                    <button
+                                      className="text-primary hover:underline underline-offset-2"
+                                      onClick={() => openAgingDrillDown(row.customerId, row.customerName, b.key, b.label)}
+                                    >
+                                      {fmt(value)}
+                                    </button>
+                                  ) : (
+                                    <span className="text-muted-foreground">—</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="text-right py-2 px-3 font-bold">{fmt(row.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
-      {/* ──── Payment Dialog (Invoice-based) ──── */}
+      {/* Payment Dialog (Invoice-based) */}
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-green-600" /> Record Payment
+              <Receipt className="h-5 w-5 text-green-600" /> Receive Payment
             </DialogTitle>
             <DialogDescription>
-              Select an invoice to pay — <span className="font-semibold text-foreground">{selectedSupplier?.name}</span>
+              Select an invoice to receive payment against — <span className="font-semibold text-foreground">{selectedCustomer?.name}</span>
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
-            {/* Step 1: Invoice Selection / Review */}
             {selectedInvoiceIds.length > 0 ? (
               <div className="space-y-2 border rounded-lg p-3 bg-muted/20 text-xs">
                 <Label className="text-xs font-semibold">Invoices / Debit Notes to Pay</Label>
@@ -836,20 +970,20 @@ export default function SupplierAccounts() {
                         </span>
                         <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
                       </div>
-                      <span className="font-bold text-foreground">{sym}{Number(invoiceAllocations[inv.id] || 0).toFixed(2)}</span>
+                      <span className="font-bold text-foreground">{fmt(Number(invoiceAllocations[inv.id] || 0))}</span>
                     </div>
                   ))}
                   <div className="flex justify-between items-center pt-2 font-bold text-sm text-foreground">
                     <span>Total Payment:</span>
-                    <span className="text-green-600">{sym}{
-                      selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
-                    }</span>
+                    <span className="text-green-600">{fmt(
+                      selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0)
+                    )}</span>
                   </div>
                 </div>
               </div>
             ) : (
               <div className="space-y-2">
-                <Label className="text-xs font-semibold">Select Invoice(s) to Pay</Label>
+                <Label className="text-xs font-semibold">Select Invoice(s)</Label>
                 {isLoadingInvoices && <div className="text-center py-4 text-sm text-muted-foreground">Loading invoices...</div>}
                 {!isLoadingInvoices && outstandingInvoices.length === 0 && (
                   <div className="text-center py-6 border-2 border-dashed rounded-lg">
@@ -889,9 +1023,7 @@ export default function SupplierAccounts() {
                         >
                           <div className="flex items-center gap-2.5 min-w-0 flex-1">
                             <div className="pointer-events-none">
-                              <Checkbox
-                                checked={isSelected}
-                              />
+                              <Checkbox checked={isSelected} />
                             </div>
                             <div className="min-w-0">
                               <p className="font-semibold truncate">
@@ -915,14 +1047,14 @@ export default function SupplierAccounts() {
                                 className="w-24 h-8 text-right font-medium text-xs"
                               />
                               <div className="text-right min-w-[50px]">
-                                <p className="font-bold text-[11px]">{sym}{Number(inv.remaining).toFixed(2)}</p>
+                                <p className="font-bold text-[11px]">{fmt(Number(inv.remaining))}</p>
                                 <p className="text-[9px] text-muted-foreground">max</p>
                               </div>
                             </div>
                           ) : (
                             <div className="text-right shrink-0 ml-2">
-                              <p className="font-bold">{sym}{Number(inv.remaining).toFixed(2)}</p>
-                              <p className="text-[10px] text-muted-foreground">of ${Number(inv.amount).toFixed(2)}</p>
+                              <p className="font-bold">{fmt(Number(inv.remaining))}</p>
+                              <p className="text-[10px] text-muted-foreground">of {fmt(Number(inv.amount))}</p>
                             </div>
                           )}
                         </div>
@@ -933,18 +1065,17 @@ export default function SupplierAccounts() {
               </div>
             )}
 
-            {/* Step 2: Allocation & Payment Details (only if invoices selected) */}
             {selectedInvoiceIds.length > 0 && (
               <>
                 <div className="flex justify-between items-center px-1 text-xs font-bold border-b pb-2">
                   <span>Total Allocated:</span>
-                  <span className="text-sm text-green-600">{sym}{
-                    selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
-                  }</span>
+                  <span className="text-sm text-green-600">{fmt(
+                    selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0)
+                  )}</span>
                 </div>
 
                 <div className="flex items-center gap-4 border-b pb-2 pt-1">
-                  <Label className="text-xs font-semibold shrink-0">Pay with:</Label>
+                  <Label className="text-xs font-semibold shrink-0">Receive via:</Label>
                   <div className="flex gap-2">
                     <Button
                       type="button" size="sm" variant={paymentMode === 'cash_payment' ? 'default' : 'outline'}
@@ -963,7 +1094,6 @@ export default function SupplierAccounts() {
                   </div>
                 </div>
 
-                {/* Cash Payment Mode */}
                 {paymentMode === 'cash_payment' && (
                   <div className="space-y-3">
                     <div className="flex items-center space-x-2">
@@ -1000,13 +1130,13 @@ export default function SupplierAccounts() {
                         <div className="flex items-center gap-4 text-xs font-medium border-b pb-2">
                           <div>
                             <span className="text-muted-foreground">Allocated:</span>{" "}
-                            <span className="font-bold text-sm">{sym}{
-                              selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0).toFixed(2)
-                            }</span>
+                            <span className="font-bold text-sm">{fmt(
+                              selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0)
+                            )}</span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground">Paying Now:</span>{" "}
-                            <span className="font-bold text-sm text-green-600">{sym}{totalSplitAmount.toFixed(2)}</span>
+                            <span className="text-muted-foreground">Receiving Now:</span>{" "}
+                            <span className="font-bold text-sm text-green-600">{fmt(totalSplitAmount)}</span>
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1052,7 +1182,6 @@ export default function SupplierAccounts() {
                   </div>
                 )}
 
-                {/* Apply Credit / Prepayment Mode */}
                 {paymentMode === 'apply_credit' && (
                   <div className="space-y-3">
                     <Label className="text-xs font-semibold">Select Credit Note / Prepayment to Apply</Label>
@@ -1089,7 +1218,7 @@ export default function SupplierAccounts() {
                               <p className="text-[10px] text-muted-foreground">{formatDateShort(credit.timestamp)}</p>
                             </div>
                           </div>
-                          <p className="font-bold shrink-0 ml-2">{sym}{Number(credit.amount).toFixed(2)}</p>
+                          <p className="font-bold shrink-0 ml-2">{fmt(Number(credit.amount))}</p>
                         </div>
                       ))}
                     </div>
@@ -1113,7 +1242,7 @@ export default function SupplierAccounts() {
         </DialogContent>
       </Dialog>
 
-      {/* ──── Simple Entry Dialog (Debit Note, Credit Note, Opening Balance, Prepayment) ──── */}
+      {/* Simple Entry Dialog (Debit Note, Credit Note, Opening Balance, Prepayment) */}
       <Dialog open={isEntryDialogOpen} onOpenChange={setIsEntryDialogOpen}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -1121,7 +1250,7 @@ export default function SupplierAccounts() {
               {(() => { const c = ENTRY_TYPE_CONFIG[entryType]; const I = c.icon; return <><I className={cn("h-5 w-5", c.color)} /> {c.label}</>; })()}
             </DialogTitle>
             <DialogDescription>
-              {ENTRY_TYPE_CONFIG[entryType].description} — <span className="font-semibold text-foreground">{selectedSupplier?.name}</span>
+              {ENTRY_TYPE_CONFIG[entryType].description} — <span className="font-semibold text-foreground">{selectedCustomer?.name}</span>
             </DialogDescription>
           </DialogHeader>
 
@@ -1174,7 +1303,7 @@ export default function SupplierAccounts() {
               <Printer className="h-5 w-5" /> Print Statement
             </DialogTitle>
             <DialogDescription>
-              Generate a statement for <span className="font-semibold text-foreground">{selectedSupplier?.name}</span> — the balance
+              Generate a statement for <span className="font-semibold text-foreground">{selectedCustomer?.name}</span> — the balance
               before the start date is carried forward as the opening balance.
             </DialogDescription>
           </DialogHeader>
@@ -1211,6 +1340,67 @@ export default function SupplierAccounts() {
         iframeRef={pdfPreview.iframeRef}
         onPrint={pdfPreview.handlePrint}
       />
+
+      {/* Aging Drill-Down Dialog */}
+      <Dialog open={!!agingDrillDown} onOpenChange={(open) => { if (!open) setAgingDrillDown(null); }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              {agingDrillDown?.customerName} — {agingDrillDown?.bucketLabel}
+            </DialogTitle>
+            <DialogDescription>Invoices making up this outstanding balance</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            {isLoadingDrillDown ? (
+              <div className="py-16 text-center text-sm text-muted-foreground">Loading invoices...</div>
+            ) : agingDrillDownRows.length === 0 ? (
+              <div className="py-16 text-center text-sm text-muted-foreground">No invoices found.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground sticky top-0">
+                    <th className="text-left py-2 px-3">Invoice No</th>
+                    <th className="text-left py-2 px-3">Invoice Date</th>
+                    <th className="text-left py-2 px-3">Due Date</th>
+                    <th className="text-right py-2 px-3">Invoice Amount</th>
+                    <th className="text-right py-2 px-3">Paid</th>
+                    <th className="text-right py-2 px-3">Balance</th>
+                    <th className="text-right py-2 px-3">Days Overdue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {agingDrillDownRows.map(row => (
+                    <tr key={row.id} className="border-b last:border-b-0">
+                      <td className="py-2 px-3 font-medium">{row.invoiceNumber || `#${row.id}`}</td>
+                      <td className="py-2 px-3 text-muted-foreground">{formatDateShort(row.invoiceDate)}</td>
+                      <td className="py-2 px-3 text-muted-foreground">{formatDateShort(row.dueDate)}</td>
+                      <td className="py-2 px-3 text-right">{fmt(row.invoiceAmount)}</td>
+                      <td className="py-2 px-3 text-right">{fmt(row.paid)}</td>
+                      <td className="py-2 px-3 text-right font-semibold">{fmt(row.balance)}</td>
+                      <td className="py-2 px-3 text-right">
+                        <Badge variant="outline" className={cn(row.daysOverdue > 30 ? 'border-red-500 text-red-600 bg-red-50 dark:bg-red-950/20' : 'border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/20')}>
+                          {row.daysOverdue}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t font-bold">
+                    <td colSpan={5} className="py-2 px-3 text-right">Total:</td>
+                    <td className="py-2 px-3 text-right">{fmt(agingDrillDownRows.reduce((sum, r) => sum + r.balance, 0))}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+          <DialogFooter className="border-t pt-3">
+            <Button variant="outline" onClick={() => setAgingDrillDown(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

@@ -42,6 +42,7 @@ export default function Locations() {
     const [editingLocation, setEditingLocation] = useState<Location | null>(null);
     const [newLocation, setNewLocation] = useState({
         name: '',
+        code: '',
         address: '',
         isMain: false,
     });
@@ -59,11 +60,12 @@ export default function Locations() {
         try {
             await addLocation({
                 name: newLocation.name,
+                code: newLocation.code || undefined,
                 address: newLocation.address,
                 isMain: newLocation.isMain,
             });
 
-            setNewLocation({ name: '', address: '', isMain: false });
+            setNewLocation({ name: '', code: '', address: '', isMain: false });
             setIsAddDialogOpen(false);
         } catch (error) {
             console.error('Error adding location:', error);
@@ -130,10 +132,15 @@ export default function Locations() {
                                                     <MapPin className="h-5 w-5 text-primary" />
                                                 </div>
                                                 <div>
-                                                    <p className="font-medium">{location.name}</p>
-                                                    {location.isMain && (
-                                                        <Badge variant="secondary" className="text-[10px] h-4">Main</Badge>
-                                                    )}
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="font-medium">{location.name}</p>
+                                                        {location.code && (
+                                                            <Badge variant="outline" className="text-[10px] h-4 font-mono">{location.code}</Badge>
+                                                        )}
+                                                        {location.isMain && (
+                                                            <Badge variant="secondary" className="text-[10px] h-4">Main</Badge>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </TableCell>
@@ -202,6 +209,18 @@ export default function Locations() {
                                 />
                             </div>
                             <div className="space-y-2">
+                                <Label htmlFor="code">Branch Code</Label>
+                                <Input
+                                    id="code"
+                                    value={newLocation.code}
+                                    onChange={(e) => setNewLocation(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                                    placeholder="e.g. MAI"
+                                    maxLength={10}
+                                    className="font-mono"
+                                />
+                                <p className="text-xs text-muted-foreground">Used to prefix invoice numbers for this branch, e.g. MAI000001SI. Required before invoicing from this location.</p>
+                            </div>
+                            <div className="space-y-2">
                                 <Label htmlFor="address">Address</Label>
                                 <Input
                                     id="address"
@@ -246,6 +265,18 @@ export default function Locations() {
                                         value={editingLocation.name}
                                         onChange={(e) => setEditingLocation(prev => prev ? { ...prev, name: e.target.value } : null)}
                                     />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="edit-code">Branch Code</Label>
+                                    <Input
+                                        id="edit-code"
+                                        value={editingLocation.code || ''}
+                                        onChange={(e) => setEditingLocation(prev => prev ? { ...prev, code: e.target.value.toUpperCase() } : null)}
+                                        placeholder="e.g. MAI"
+                                        maxLength={10}
+                                        className="font-mono"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Used to prefix invoice numbers for this branch, e.g. MAI000001SI.</p>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="edit-address">Address</Label>

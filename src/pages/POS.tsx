@@ -848,11 +848,12 @@ export default function POS() {
           console.warn('Local print service offline, falling back to browser print...', e);
         }
 
-        // Cleanup previous blob URL if any
+        // Local print service isn't reachable - fall back to showing the popup so the receipt isn't lost silently
         if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
           URL.revokeObjectURL(receiptPreviewUrl);
         }
         setReceiptPreviewUrl(blobUrl);
+        setReceiptPreviewOpen(true);
       } else {
         // Cleanup previous blob URL if any
         if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {

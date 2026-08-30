@@ -47,6 +47,8 @@ import DashboardMenu from '@/pages/DashboardMenu';
 import Products from '@/pages/Products';
 import Inventory from '@/pages/Inventory';
 import POS from '@/pages/POS';
+import Invoicing from '@/pages/Invoicing';
+import CustomerAccounts from '@/pages/CustomerAccounts';
 import StockAdjustment from '@/pages/StockAdjustment';
 import StockTake from '@/pages/StockTake';
 import StockTransfer from '@/pages/StockTransfer';
@@ -85,6 +87,8 @@ const tabMetadata: Record<string, { title: string; icon: any; component: React.C
   '/products': { title: 'Products & Variants', icon: Barcode, component: Products },
   '/inventory': { title: 'Inventory Asset', icon: Boxes, component: Inventory },
   '/pos': { title: 'Point of Sale', icon: ShoppingCart, component: POS },
+  '/invoicing': { title: 'Invoicing', icon: FileText, component: Invoicing },
+  '/customer-accounts': { title: 'Customer Accounts', icon: Wallet, component: CustomerAccounts },
   '/adjustments': { title: 'Stock Adjustments', icon: ArrowRightLeft, component: StockAdjustment },
   '/stock-take': { title: 'Stock Take', icon: ClipboardList, component: StockTake },
   '/recipes': { title: 'Recipes & Production', icon: ChefHat, component: Recipes },
