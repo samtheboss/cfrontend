@@ -7,7 +7,7 @@ import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift, Utensils } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift, Utensils, LayoutGrid } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -167,7 +167,15 @@ export default function POS() {
   });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [categorySidebarOpen, setCategorySidebarOpen] = useState<boolean>(
+    () => localStorage.getItem('pos_category_sidebar') !== 'closed'
+  );
+  const [categorySearch, setCategorySearch] = useState('');
+  useEffect(() => {
+    localStorage.setItem('pos_category_sidebar', categorySidebarOpen ? 'open' : 'closed');
+  }, [categorySidebarOpen]);
   const [selectedTable, setSelectedTable] = useState<{ id: number; code: string } | null>(null);
+  const [wantTablePicker, setWantTablePicker] = useState(false);
   const [tableOrdersOpen, setTableOrdersOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -365,12 +373,35 @@ export default function POS() {
     ? dbCategories.filter(c => c.parentId === selectedMainId)
     : [];
 
+  // Product counts per category (active products only), for the category sidebar.
+  const productCountByCategory = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const p of products) {
+      if (p.isActive === false) continue;
+      const key = p.category || '';
+      m[key] = (m[key] || 0) + 1;
+    }
+    return m;
+  }, [products]);
+  const totalActiveProducts = useMemo(
+    () => products.filter(p => p.isActive !== false).length,
+    [products]
+  );
+  const sidebarCategories = useMemo(() => {
+    const q = categorySearch.trim().toLowerCase();
+    return mainCategories
+      .filter(c => !q || c.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainCategories, categorySearch]);
+
   // ---- Table management ----
   const activeTables = (tables || []).filter(t => t.active !== false)
     .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
   const tableOpenCount = (tableId: number) =>
     (salesHistory || []).filter(s => s.status === 'PAYMENT_PENDING' && Number(s.tableId) === tableId).length;
-  const showTablePicker = tableManagementEnabled && !selectedTable && !currentSaleId && cart.length === 0;
+  const showTablePicker = tableManagementEnabled && !selectedTable &&
+    ((!currentSaleId && cart.length === 0) || wantTablePicker);
   const currentTableOrders = (selectedTable
     ? (salesHistory || []).filter(s => s.status === 'PAYMENT_PENDING' && Number(s.tableId) === selectedTable.id)
     : []
@@ -926,6 +957,7 @@ export default function POS() {
     setCurrentSalePaid(0);
     setCurrentSaleStatus(null);
     setSelectedTable(null);
+    setWantTablePicker(false);
   };
 
   const handlePreviewReceipt = (url: string) => {
@@ -1521,13 +1553,14 @@ export default function POS() {
   const autoResumedRef = useRef(false);
   useEffect(() => {
     if (autoResumedRef.current) return;
+    if (tableManagementEnabled) return;              // restaurant mode starts at the table picker
     if (posLoadSaleId) return;                       // an explicit dashboard hand-off wins
     if (cart.length > 0 || currentSaleId) return;    // work already in progress / draft restored
     if (!activeOrders || activeOrders.length === 0) return;
     autoResumedRef.current = true;
     handleResumeOrder(activeOrders[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrders, posLoadSaleId]);
+  }, [activeOrders, posLoadSaleId, tableManagementEnabled]);
 
   const toggleExpandOrder = (id: string) => {
     if (expandedOrderId === id) {
@@ -1792,7 +1825,7 @@ export default function POS() {
       <div className="flex flex-1 h-[calc(100vh-48px)] md:h-full min-h-0 overflow-hidden">
         {/* Left Panel - Products (scrollable) - has right margin on md+ to make room for fixed cart */}
         <div className={cn(
-          "relative flex-1 flex flex-col border-r bg-background h-full overflow-hidden md:mr-80 lg:mr-96 pb-16",
+          "relative flex-1 flex flex-col border-r bg-background h-full overflow-hidden md:mr-64 lg:mr-72 pb-16",
           activeTab !== 'products' && "hidden md:flex"
         )}>
           {/* Header */}
@@ -1844,6 +1877,12 @@ export default function POS() {
                 <Clock className="h-4 w-4 mr-2" />
                 Orders
               </Button>
+              {tableManagementEnabled && !selectedTable && (
+                <Button variant="outline" className="h-9" onClick={() => setWantTablePicker(true)}>
+                  <Utensils className="h-4 w-4 mr-2" />
+                  Select Table
+                </Button>
+              )}
               {tableManagementEnabled && selectedTable && (
                 <>
                   <span className="hidden md:inline-flex items-center gap-1 px-2 h-9 rounded-md border bg-primary/10 text-sm font-semibold whitespace-nowrap">
@@ -1896,6 +1935,11 @@ export default function POS() {
                   <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => refreshData()} title="Refresh">
                     <RefreshCw className="h-4 w-4" />
                   </Button>
+                  {wantTablePicker && (currentSaleId || cart.length > 0) && (
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setWantTablePicker(false)} title="Close">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4">
@@ -1912,7 +1956,7 @@ export default function POS() {
                       return (
                         <button
                           key={t.id}
-                          onClick={() => setSelectedTable({ id: t.id, code: t.code })}
+                          onClick={() => { setSelectedTable({ id: t.id, code: t.code }); setWantTablePicker(false); }}
                           className={cn(
                             'border rounded-lg p-4 text-left transition hover:border-primary',
                             count > 0
@@ -1937,27 +1981,89 @@ export default function POS() {
             </div>
           )}
 
-          {/* Categories */}
-          <div className="flex gap-2 p-3 border-b bg-muted/95 backdrop-blur overflow-x-auto">
-            <Button
-              variant={selectedCategory === null ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedCategory(null)}
-            >
-              All
-            </Button>
-            {mainCategories.map(category => (
-              <Button
-                key={category.name}
-                variant={selectedCategory === category.name ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedCategory(category.name)}
+          {/* Body: collapsible category sidebar + product column */}
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Category sidebar */}
+            {categorySidebarOpen ? (
+              <aside className="w-40 sm:w-52 shrink-0 flex flex-col border-r bg-muted/30">
+                <div className="flex items-center justify-between gap-1 h-10 px-2 border-b">
+                  <span className="text-xs font-bold tracking-wider text-primary">CATEGORIES</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground"
+                    onClick={() => setCategorySidebarOpen(false)}
+                    title="Collapse categories"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="p-2 border-b">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={categorySearch}
+                      onChange={(e) => setCategorySearch(e.target.value)}
+                      placeholder="Search Categories..."
+                      className="h-8 pl-7 text-xs"
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto divide-y divide-border/60">
+                  <button
+                    onClick={() => { setSelectedCategory(null); setSelectedSubcategory(null); }}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-2 py-2.5 min-h-[42px] text-[10px] font-semibold border-l-2 transition-colors text-left active:opacity-80",
+                      selectedCategory === null
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-transparent hover:bg-muted text-foreground"
+                    )}
+                  >
+                    <LayoutGrid className={cn("h-4 w-4 shrink-0", selectedCategory === null ? "text-primary-foreground" : "text-primary")} />
+                    <span className="flex-1 break-words leading-tight">ALL PRODUCTS</span>
+                    <span className={cn("text-[10px] shrink-0 tabular-nums", selectedCategory === null ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                      {totalActiveProducts}
+                    </span>
+                  </button>
+                  {sidebarCategories.map(category => {
+                    const active = selectedCategory === category.name;
+                    return (
+                      <button
+                        key={category.name}
+                        onClick={() => { setSelectedCategory(category.name); setSelectedSubcategory(null); }}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-2 py-2.5 min-h-[42px] text-[10px] font-medium border-l-2 transition-colors uppercase text-left active:opacity-80",
+                          active
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-transparent hover:bg-muted text-foreground"
+                        )}
+                      >
+                        <LayoutGrid className={cn("h-4 w-4 shrink-0", active ? "text-primary-foreground" : "text-primary")} />
+                        <span className="flex-1 break-words leading-tight">{category.name}</span>
+                        <span className={cn("text-[10px] shrink-0 tabular-nums", active ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                          {productCountByCategory[category.name] || 0}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {sidebarCategories.length === 0 && (
+                    <p className="px-2 py-2 text-[10px] text-muted-foreground italic">No categories match.</p>
+                  )}
+                </div>
+              </aside>
+            ) : (
+              <button
+                onClick={() => setCategorySidebarOpen(true)}
+                className="w-9 shrink-0 flex flex-col items-center gap-2 border-r bg-muted/30 pt-2 hover:bg-muted transition-colors"
+                title="Show categories"
               >
-                {category.name}
-              </Button>
-            ))}
-          </div>
+                <ChevronRight className="h-4 w-4 text-primary" />
+                <span className="text-[10px] font-bold tracking-wider text-primary [writing-mode:vertical-rl]">CATEGORIES</span>
+              </button>
+            )}
 
+            {/* Product column */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Sub-categories (only when the selected main category has some) */}
           {subCategories.length > 0 && (
             <div className="flex gap-2 px-3 py-2 border-b bg-muted/60 backdrop-blur overflow-x-auto">
@@ -2012,7 +2118,10 @@ export default function POS() {
               </div>
             )}
 
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-2">
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}
+            >
               {paginatedProducts.map((product) => {
                 const totalStock = product.variants.reduce((sum, v) => sum + (v.locationStock[selectedLocationId] || 0), 0);
                 const variantCount = product.variants.filter(v => v.isActive !== false).length;
@@ -2052,7 +2161,7 @@ export default function POS() {
                       )}
                     </div>
                     <div className="p-2 flex-1 flex flex-col">
-                      <h4 className="font-medium text-xs line-clamp-2 leading-tight min-h-[2.4em]" title={product.name}>{product.name}</h4>
+                      <h4 className="font-medium text-[10px] line-clamp-3 leading-tight break-words min-h-[3em]" title={product.name}>{product.name}</h4>
                       <div className="mt-auto flex flex-col gap-1">
                         <div className="flex items-center justify-between">
                           <div className="flex flex-col">
@@ -2095,11 +2204,13 @@ export default function POS() {
               </div>
             )}
           </div>
+            </div>
+          </div>
         </div>
 
         {/* Right Panel - Cart (FIXED - no scroll) */}
         <div className={cn(
-          "fixed inset-x-0 bottom-16 top-[48px] z-20 md:fixed md:inset-auto md:right-0 md:top-0 md:bottom-16 md:h-[calc(100vh-4rem)] md:w-80 lg:w-96 flex flex-col bg-card shadow-xl overflow-hidden",
+          "fixed inset-x-0 bottom-16 top-[48px] z-20 md:fixed md:inset-auto md:right-0 md:top-0 md:bottom-16 md:h-[calc(100vh-4rem)] md:w-64 lg:w-72 flex flex-col bg-card shadow-xl overflow-hidden",
           activeTab !== 'cart' ? "hidden md:flex" : "flex"
         )}>
           <div className="p-3 md:p-4 border-b">
@@ -2178,7 +2289,7 @@ export default function POS() {
           </div>
 
           {/* Cart Items */}
-          <div className="flex-1 p-4 overflow-y-auto">
+          <div className="flex-1 p-2 overflow-y-auto">
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Receipt className="h-12 w-12 text-muted-foreground mb-4" />
@@ -2188,16 +2299,16 @@ export default function POS() {
             ) : (
               <div className="space-y-1.5">
                 {cart.map((item) => (
-                  <div key={item.cartItemId || item.variantId} className="flex items-center gap-2 px-2 py-1.5 bg-muted/50 rounded-md">
+                  <div key={item.cartItemId || item.variantId} className="flex items-start gap-2 px-2 py-1.5 bg-muted/50 rounded-md">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-xs sm:text-[13px] leading-tight truncate">{item.productName}</p>
-                      <p className="text-[10px] sm:text-[11px] leading-tight text-muted-foreground font-medium mt-0.5">
+                      <p className="font-medium text-[11px] leading-tight break-words">{item.productName}</p>
+                      <p className="text-[10px] leading-tight text-muted-foreground font-medium mt-0.5 break-words">
                         {item.attributes && Object.keys(item.attributes).length > 0
                           ? Object.values(item.attributes).join(' / ')
                           : item.variantSku}
                       </p>
                       {item.attributes && Object.keys(item.attributes).length > 0 && (
-                        <p className="text-[9px] leading-tight text-muted-foreground uppercase mt-0.5">{item.variantSku}</p>
+                        <p className="text-[9px] leading-tight text-muted-foreground uppercase mt-0.5 break-words">{item.variantSku}</p>
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
