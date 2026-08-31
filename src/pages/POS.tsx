@@ -7,7 +7,7 @@ import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift, Utensils } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -65,8 +65,12 @@ export default function POS() {
     holdOrder,
     discardOrder,
     salesHistory = [],
-    refreshData
+    refreshData,
+    tables = [],
+    posLoadSaleId = null,
+    clearPosLoad,
   } = useInventory() || {};
+  const tableManagementEnabled = !!settings?.enableTableManagement;
   const { user, logout, getUserRights } = useAuth();
   const rights = user ? getUserRights(user) : null;
   const { sym, computeTax, vatInclusive } = useCurrency();
@@ -156,6 +160,8 @@ export default function POS() {
   });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [selectedTable, setSelectedTable] = useState<{ id: number; code: string } | null>(null);
+  const [tableOrdersOpen, setTableOrdersOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [variantDialogOpen, setVariantDialogOpen] = useState(false);
@@ -242,6 +248,24 @@ export default function POS() {
     }
     return null;
   });
+  // Amount already paid on the order currently loaded into the POS (partial payments)
+  const [currentSalePaid, setCurrentSalePaid] = useState<number>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try { return JSON.parse(saved).currentSalePaid || 0; } catch { return 0; }
+    }
+    return 0;
+  });
+  // Status of the order currently loaded into the POS, so re-holding it keeps its own
+  // status (e.g. a resumed KOT stays PENDING) instead of being forced to PAYMENT_PENDING
+  // before the cashier actually places the bill.
+  const [currentSaleStatus, setCurrentSaleStatus] = useState<string | null>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try { return JSON.parse(saved).currentSaleStatus || null; } catch { return null; }
+    }
+    return null;
+  });
 
   // Auto-save draft order
   useEffect(() => {
@@ -249,12 +273,14 @@ export default function POS() {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
         cart,
         selectedCustomer,
-        currentSaleId
+        currentSaleId,
+        currentSalePaid,
+        currentSaleStatus
       }));
     } else {
       localStorage.removeItem(DRAFT_KEY);
     }
-  }, [cart, selectedCustomer, currentSaleId, DRAFT_KEY]);
+  }, [cart, selectedCustomer, currentSaleId, currentSalePaid, currentSaleStatus, DRAFT_KEY]);
 
   // Synchronize across multiple tabs
   useEffect(() => {
@@ -266,6 +292,8 @@ export default function POS() {
             setCart(parsed.cart || []);
             setSelectedCustomer(parsed.selectedCustomer || null);
             setCurrentSaleId(parsed.currentSaleId || null);
+            setCurrentSalePaid(parsed.currentSalePaid || 0);
+            setCurrentSaleStatus(parsed.currentSaleStatus || null);
           } catch {
             // Ignore parse errors
           }
@@ -273,6 +301,8 @@ export default function POS() {
           setCart([]);
           setSelectedCustomer(null);
           setCurrentSaleId(null);
+          setCurrentSalePaid(0);
+          setCurrentSaleStatus(null);
         }
       }
     };
@@ -324,6 +354,17 @@ export default function POS() {
   const subCategories = selectedMainId != null
     ? dbCategories.filter(c => c.parentId === selectedMainId)
     : [];
+
+  // ---- Table management ----
+  const activeTables = (tables || []).filter(t => t.active !== false)
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  const tableOpenCount = (tableId: number) =>
+    (salesHistory || []).filter(s => s.status === 'PAYMENT_PENDING' && Number(s.tableId) === tableId).length;
+  const showTablePicker = tableManagementEnabled && !selectedTable && !currentSaleId && cart.length === 0;
+  const currentTableOrders = (selectedTable
+    ? (salesHistory || []).filter(s => s.status === 'PAYMENT_PENDING' && Number(s.tableId) === selectedTable.id)
+    : []
+  ).slice().sort((a, b) => new Date(b.timestamp as any).getTime() - new Date(a.timestamp as any).getTime());
 
   async function pollMpesaStatus(requestId: string, sessionId?: number) {
     // If we've been told to stop, or this is a ghost session, just exit
@@ -718,6 +759,8 @@ export default function POS() {
         locationId: selectedLocationId,
         customerId: selectedCustomer?.id ? parseInt(selectedCustomer.id) : null,
         paymentMethod: 'PENDING',
+        tableId: selectedTable?.id ?? null,
+        tableName: selectedTable?.code ?? null,
         payments: [],
         subtotal,
         taxAmount: tax,
@@ -753,12 +796,33 @@ export default function POS() {
 
       const dbSaleId = savedSale.id;
       setCurrentSaleId(dbSaleId);
+      setCurrentSaleStatus('PENDING');
 
       await dispatchKOTs(dbSaleId, newItems);
 
-      setCart(prev => prev.map(item => ({ ...item, printed: true })));
+      // KOT is saved to the DB and sent to the kitchen. Hold it locally so the cashier
+      // can immediately start the next order, and clear the POS.
+      const kotHeld: ActiveOrder = {
+        id: `db-${dbSaleId}`,
+        customer: selectedCustomer,
+        items: cart.map(item => ({ ...item, printed: true })),
+        userId: user?.id,
+        saleId: Number(dbSaleId),
+        kot: true,
+        timestamp: new Date(),
+      };
+      const held = holdOrder(kotHeld);
       refreshData();
-      setPostActionPromptOpen(true);
+      if (held) {
+        resetPOSState();
+        toast.success('KOT sent — order held. Ready for the next order.');
+      } else {
+        // Hold limit reached: keep the order on screen so it isn't lost.
+        setCart(prev => prev.map(item => ({ ...item, printed: true })));
+        toast.warning(
+          `KOT sent, but the held-orders limit (${settings?.maxHeldOrders ?? 10}) is reached — finish or resume a held order first.`
+        );
+      }
     } catch (err: any) {
       toast.error("Failed to save KOT order to database: " + err.message);
     }
@@ -825,6 +889,9 @@ export default function POS() {
     setIsPollingMpesa(false);
     setCompletedMpesaPayments([]); // Clear the list of payments
     setCurrentSaleId(null);
+    setCurrentSalePaid(0);
+    setCurrentSaleStatus(null);
+    setSelectedTable(null);
   };
 
   const handlePreviewReceipt = (url: string) => {
@@ -943,6 +1010,8 @@ export default function POS() {
       locationId: selectedLocationId,
       customerId: selectedCustomer?.id ? (selectedCustomer.id) : null,
       paymentMethod: payments.map(p => p.method).join(', '),
+      tableId: selectedTable?.id ?? null,
+      tableName: selectedTable?.code ?? null,
       payments,
       subtotal,
       taxAmount: tax,
@@ -964,7 +1033,28 @@ export default function POS() {
     setIsProcessing(true);
     try {
       let saved;
-      if (currentSaleId) {
+      if (currentSaleId && currentSalePaid >= total - 0.01 && total > 0) {
+        // The order is already fully covered by earlier payments — don't post again.
+        toast.error('This order has already been paid in full.');
+        return;
+      }
+      if (currentSaleId && currentSalePaid > 0) {
+        // Order already carries a partial payment: persist any item changes (staying
+        // PAYMENT_PENDING, payments left intact), then post the new payment so the
+        // backend adds it on top of what was already paid.
+        const { amountPaid: _ap, changeAmount: _ca, payments: _pm, ...itemsPayload } = saleData;
+        const putRes = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ ...itemsPayload, payments: [], status: 'PAYMENT_PENDING' })
+        });
+        const putSale = putRes.data || putRes;
+        const rpRes = await apiFetch<any>(`/api/transactions/sale/${putSale.journalNumber}/receive-payment`, {
+          method: 'POST',
+          body: JSON.stringify(payments)
+        });
+        saved = rpRes.data || rpRes;
+        toast.success('Balance received!');
+      } else if (currentSaleId) {
         const updatePayload = {
           ...saleData,
           status: 'COMPLETED'
@@ -996,7 +1086,11 @@ export default function POS() {
 
   const handlePayLater = async () => {
     if (cart.length === 0) return;
-    if (!selectedCustomer) {
+
+    // In table mode a customer is optional — fall back to the cash-sales account.
+    const fallbackCust = contextCustomers?.find(c => c.name?.toUpperCase() === 'CASH-SALES ACCOUNT');
+    const payLaterCustomer = selectedCustomer || (tableManagementEnabled ? fallbackCust : null);
+    if (!payLaterCustomer) {
       toast.error('Please select a customer to proceed');
       setCustomerPopoverOpen(true);
       return;
@@ -1006,8 +1100,10 @@ export default function POS() {
       type: 'SALE',
       status: 'PAYMENT_PENDING',
       locationId: selectedLocationId,
-      customerId: selectedCustomer?.id ? selectedCustomer.id : null,
+      customerId: payLaterCustomer?.id ? payLaterCustomer.id : null,
       paymentMethod: 'PAY_LATER',
+      tableId: selectedTable?.id ?? null,
+      tableName: selectedTable?.code ?? null,
       payments: [],
       subtotal,
       taxAmount: tax,
@@ -1030,8 +1126,12 @@ export default function POS() {
     try {
       let savedId: string | number;
       if (currentSaleId) {
+        // Don't send amountPaid/changeAmount/payments on an update — that would wipe
+        // any partial payment already recorded against this pending order.
+        const { amountPaid: _ap, changeAmount: _ca, payments: _pm, ...rest } = saleData;
         const updatePayload = {
-          ...saleData,
+          ...rest,
+          payments: [],
           status: 'PAYMENT_PENDING'
         };
         await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
@@ -1070,6 +1170,15 @@ export default function POS() {
   const handleReceivePayment = async (finalPayments: PaymentDetails[]) => {
     if (!receivePaymentSale) return;
 
+    // Guard against posting twice against an order that is already settled.
+    const outstanding = Number(receivePaymentSale.totalAmount || 0) - Number(receivePaymentSale.amountPaid || 0);
+    if (outstanding <= 0.01) {
+      toast.error('This order has already been paid in full.');
+      setReceivePaymentSale(null);
+      refreshData();
+      return;
+    }
+
     const payments = finalPayments.map(p => ({
       method: p.method.toUpperCase(),
       amount: p.amount,
@@ -1095,16 +1204,16 @@ export default function POS() {
     }
   };
 
-  const handleHomeClick = () => {
+  const handleHomeClick = async () => {
     if (cart.length > 0) {
-      handleHoldOrder();
+      await handleHoldOrder();
     }
     navigate('/');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (cart.length > 0) {
-      handleHoldOrder();
+      await handleHoldOrder();
     }
     logout();
     navigate('/signin');
@@ -1200,34 +1309,79 @@ export default function POS() {
     }
   };
 
-  const handleHoldOrder = () => {
-    if (cart.length === 0) return;
+  const handleHoldOrder = async (): Promise<boolean> => {
+    if (cart.length === 0) return true;
+
+    // Order was loaded from an existing DB sale (pending payment / KOT): persist the
+    // current cart back onto that same order instead of creating a duplicate held copy.
+    // Keep the order's existing status — a resumed KOT stays PENDING until the cashier
+    // explicitly places the bill (Pay Later / checkout); only orders that were already
+    // PAYMENT_PENDING stay PAYMENT_PENDING.
+    if (currentSaleId) {
+      const keepStatus = currentSaleStatus === 'PENDING' ? 'PENDING' : 'PAYMENT_PENDING';
+      try {
+        const updatePayload = {
+          type: 'SALE',
+          status: keepStatus,
+          locationId: selectedLocationId,
+          customerId: selectedCustomer?.id ? selectedCustomer.id : null,
+          paymentMethod: keepStatus === 'PENDING' ? 'PENDING' : 'PAY_LATER',
+          tableId: selectedTable?.id ?? null,
+          tableName: selectedTable?.code ?? null,
+          payments: [],
+          subtotal,
+          taxAmount: tax,
+          totalAmount: total,
+          items: cart.map(item => ({
+            variantId: item.variantId,
+            sku: item.variantSku,
+            productName: item.productName,
+            adjustment: -item.quantity,
+            price: item.price,
+            taxRate: item.taxRate ?? 16.0,
+            taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
+          })),
+        };
+        await apiFetch(`/api/transactions/${currentSaleId}`, {
+          method: 'PUT',
+          body: JSON.stringify(updatePayload),
+        });
+        toast.success(keepStatus === 'PENDING' ? 'Order saved' : 'Pending order updated');
+        resetPOSState();
+        refreshData();
+        return true;
+      } catch (error: any) {
+        toast.error(error?.message || 'Failed to update pending order');
+        return false;
+      }
+    }
 
     const order: ActiveOrder = {
-      id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
+      id: `hold-${Date.now()}`,
       customer: selectedCustomer,
       items: [...cart],
       userId: user?.id,
       timestamp: new Date()
     };
 
-    holdOrder(order);
+    if (!holdOrder(order)) {
+      toast.error(
+        `Maximum held orders reached (${settings?.maxHeldOrders ?? 10}). Resume or clear a held order first.`
+      );
+      return false;
+    }
     clearCart();
+    setSelectedTable(null);
     toast.success('Order held successfully');
+    return true;
   };
 
-  const handleResumeOrder = (order: ActiveOrder) => {
-    // If the current cart has items, hold it first before resuming
+  const handleResumeOrder = async (order: ActiveOrder) => {
+    // If the current cart has items, hold it first before resuming (persists to the
+    // existing DB order when one is loaded, otherwise creates a local held order).
     if (cart.length > 0) {
-      const currentOrder: ActiveOrder = {
-        id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
-        customer: selectedCustomer,
-        items: [...cart], // Create a copy to ensure reference doesn't change
-        userId: user?.id,
-        timestamp: new Date()
-      };
-      holdOrder(currentOrder);
-      toast.info('Current order held');
+      const held = await handleHoldOrder();
+      if (!held) return;
     }
 
     setCart(order.items);
@@ -1236,8 +1390,19 @@ export default function POS() {
     if (order.id.startsWith('db-')) {
       const dbId = parseInt(order.id.replace('db-', ''));
       setCurrentSaleId(dbId);
+      const dbSale = (salesHistory || []).find(s => Number(s.id) === dbId)
+        || (transactions || []).find(t => Number((t as any).id) === dbId);
+      setCurrentSalePaid(Number((dbSale as any)?.amountPaid || 0));
+      // Preserve the order's real status (a KOT stays PENDING) so re-holding it doesn't
+      // prematurely promote it to PAYMENT_PENDING before the bill is placed.
+      setCurrentSaleStatus((dbSale as any)?.status || 'PENDING');
+      if ((dbSale as any)?.tableId) {
+        setSelectedTable({ id: Number((dbSale as any).tableId), code: (dbSale as any).tableName || `#${(dbSale as any).tableId}` });
+      }
     } else {
       setCurrentSaleId((order as any).saleId || null);
+      setCurrentSalePaid(0);
+      setCurrentSaleStatus((order as any).saleId ? 'PENDING' : null);
     }
 
     discardOrder(order.id);
@@ -1266,18 +1431,11 @@ export default function POS() {
     toast.success('Items loaded to cart');
   };
 
-  const handleLoadPendingReceipt = (sale: Sale) => {
-    // Hold current order if there's an active cart
+  const handleLoadPendingReceipt = async (sale: Sale) => {
+    // Persist / hold the current cart before loading another order
     if (cart.length > 0) {
-      const currentOrder: ActiveOrder = {
-        id: currentSaleId ? `db-${currentSaleId}` : `hold-${Date.now()}`,
-        customer: selectedCustomer,
-        items: [...cart],
-        userId: user?.id,
-        timestamp: new Date()
-      };
-      holdOrder(currentOrder);
-      toast.info('Current order held');
+      const held = await handleHoldOrder();
+      if (!held) return;
     }
 
     const newCart: CartItem[] = sale.items.map(item => {
@@ -1300,10 +1458,42 @@ export default function POS() {
     );
     setSelectedCustomer(customerObj || (sale as any).customer || null);
     setCurrentSaleId(typeof sale.id === 'number' ? sale.id : parseInt(sale.id.toString()));
-    
+    setCurrentSalePaid(Number(sale.amountPaid || 0));
+    setCurrentSaleStatus((sale as any).status || 'PAYMENT_PENDING');
+
     setOrdersDialogOpen(false);
+    setTableOrdersOpen(false);
+    if ((sale as any).tableId) {
+      setSelectedTable({ id: Number((sale as any).tableId), code: (sale as any).tableName || `#${(sale as any).tableId}` });
+    }
     toast.success('Pending receipt loaded to cart');
   };
+
+  // Dashboard -> POS hand-off: open a specific pending sale requested from Table Orders
+  useEffect(() => {
+    if (!posLoadSaleId) return;
+    const sale = (salesHistory || []).find(s => Number(s.id) === Number(posLoadSaleId));
+    if (sale) {
+      handleLoadPendingReceipt(sale as Sale);
+    } else {
+      toast.error('Could not find that order');
+    }
+    clearPosLoad?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posLoadSaleId, salesHistory]);
+
+  // When the POS is opened with a held order waiting and nothing already in progress,
+  // load the most recent held order automatically so the cashier picks up where they left off.
+  const autoResumedRef = useRef(false);
+  useEffect(() => {
+    if (autoResumedRef.current) return;
+    if (posLoadSaleId) return;                       // an explicit dashboard hand-off wins
+    if (cart.length > 0 || currentSaleId) return;    // work already in progress / draft restored
+    if (!activeOrders || activeOrders.length === 0) return;
+    autoResumedRef.current = true;
+    handleResumeOrder(activeOrders[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrders, posLoadSaleId]);
 
   const toggleExpandOrder = (id: string) => {
     if (expandedOrderId === id) {
@@ -1568,7 +1758,7 @@ export default function POS() {
       <div className="flex flex-1 h-[calc(100vh-48px)] md:h-full min-h-0 overflow-hidden">
         {/* Left Panel - Products (scrollable) - has right margin on md+ to make room for fixed cart */}
         <div className={cn(
-          "flex-1 flex flex-col border-r bg-background h-full overflow-hidden md:mr-80 lg:mr-96 pb-16",
+          "relative flex-1 flex flex-col border-r bg-background h-full overflow-hidden md:mr-80 lg:mr-96 pb-16",
           activeTab !== 'products' && "hidden md:flex"
         )}>
           {/* Header */}
@@ -1620,6 +1810,28 @@ export default function POS() {
                 <Clock className="h-4 w-4 mr-2" />
                 Orders
               </Button>
+              {tableManagementEnabled && selectedTable && (
+                <>
+                  <span className="hidden md:inline-flex items-center gap-1 px-2 h-9 rounded-md border bg-primary/10 text-sm font-semibold whitespace-nowrap">
+                    <Utensils className="h-4 w-4" /> {selectedTable.code}
+                  </span>
+                  <Button
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => {
+                      if (cart.length > 0) { toast.error('Hold or complete the current cart before switching tables'); return; }
+                      setSelectedTable(null);
+                      setCurrentSaleId(null);
+                    }}
+                  >
+                    Change Table
+                  </Button>
+                  <Button variant="outline" className="h-9" onClick={() => setTableOrdersOpen(true)}>
+                    <Utensils className="h-4 w-4 mr-2" />
+                    Table Orders
+                  </Button>
+                </>
+              )}
               <Button
                 variant="outline"
                 size="icon"
@@ -1634,6 +1846,62 @@ export default function POS() {
               </Button>
             </div>
           </div>
+
+          {/* Table picker (restaurant mode) */}
+          {showTablePicker && (
+            <div className="absolute inset-0 z-30 bg-background flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h2 className="text-lg font-semibold">Select a Table</h2>
+                  <p className="text-xs text-muted-foreground">Pick a table to start a new order</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleHomeClick} title="Home">
+                    <Home className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => refreshData()} title="Refresh">
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                {activeTables.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
+                    <Utensils className="h-10 w-10 mb-3 opacity-30" />
+                    <p>No tables configured yet.</p>
+                    <Button variant="outline" className="mt-3" onClick={() => navigate('/tables')}>Manage Tables</Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    {activeTables.map(t => {
+                      const count = tableOpenCount(t.id);
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setSelectedTable({ id: t.id, code: t.code })}
+                          className={cn(
+                            'border rounded-lg p-4 text-left transition hover:border-primary',
+                            count > 0
+                              ? 'bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800'
+                              : 'bg-card'
+                          )}
+                        >
+                          <div className="text-lg font-bold">{t.code}</div>
+                          {t.name && <div className="text-xs text-muted-foreground truncate">{t.name}</div>}
+                          <div className={cn('text-xs mt-2', count > 0 ? 'text-amber-600 font-medium' : 'text-muted-foreground')}>
+                            {count > 0 ? `${count} open order${count > 1 ? 's' : ''}` : 'Available'}
+                          </div>
+                          {t.capacity != null && (
+                            <div className="text-[10px] text-muted-foreground">{t.capacity} seats</div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Categories */}
           <div className="flex gap-2 p-3 border-b bg-muted/95 backdrop-blur overflow-x-auto">
@@ -2121,13 +2389,16 @@ export default function POS() {
         module="POS"
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
-        totalAmount={total}
+        totalAmount={Math.max(0, total - currentSalePaid)}
+        allowPartialPayment={currentSalePaid > 0}
         initialPayments={paymentMethods as any}
         onSubmit={handleCheckout}
         isProcessing={isProcessing}
         onCancel={() => setCheckoutOpen(false)}
-        title="Complete Payment"
-        description="Select payment methods and process the transaction."
+        title={currentSalePaid > 0 ? 'Receive Balance' : 'Complete Payment'}
+        description={currentSalePaid > 0
+          ? `${sym}${currentSalePaid.toFixed(2)} already paid — balance due ${sym}${Math.max(0, total - currentSalePaid).toFixed(2)}`
+          : 'Select payment methods and process the transaction.'}
         extraActions={
           <Button
             size="sm"
@@ -2667,6 +2938,54 @@ export default function POS() {
             <Button onClick={handleAddCustomer} disabled={!newCustomer.name.trim()}>
               Add Customer
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Current table's open orders */}
+      <Dialog open={tableOrdersOpen} onOpenChange={setTableOrdersOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Table {selectedTable?.code} — open orders</DialogTitle>
+            <DialogDescription>Open any bill to keep adding items or take payment.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto py-2">
+            {currentTableOrders.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No open orders on this table yet.</p>
+            ) : (
+              currentTableOrders.map(s => {
+                const bal = Math.max(0, Number(s.totalAmount || 0) - Number(s.amountPaid || 0));
+                const gross = Number(s.totalAmount || 0);
+                const ratio = gross > 0 ? bal / gross : 1;
+                const balColor = bal <= 0
+                  ? 'text-emerald-600'
+                  : ratio >= 0.999 ? 'text-red-700 dark:text-red-500'
+                  : ratio >= 0.5 ? 'text-red-600 dark:text-red-400'
+                  : 'text-red-400 dark:text-red-300';
+                return (
+                  <div key={s.journalNumber} className="flex items-center justify-between border rounded-md p-3">
+                    <div>
+                      <div className="font-mono text-xs">{s.journalNumber}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(s.timestamp as any).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {(s.items || []).length} items
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className={`text-sm font-semibold ${balColor}`}>{settings?.currency || ''}{bal.toFixed(2)}</div>
+                        <div className="text-[10px] text-muted-foreground">balance</div>
+                      </div>
+                      <Button size="sm" onClick={() => handleLoadPendingReceipt(s as Sale)}>
+                        <ShoppingCart className="h-4 w-4 mr-1" /> Open
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTableOrdersOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

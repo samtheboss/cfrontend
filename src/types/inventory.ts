@@ -21,6 +21,29 @@ export interface Category {
   parentId?: number | null;
 }
 
+export interface RestaurantTable {
+  id: number;
+  code: string;
+  name?: string;
+  capacity?: number;
+  active: boolean;
+  sortOrder?: number;
+}
+
+export interface TableDashboardRow {
+  tableId: number;
+  code: string;
+  name?: string | null;
+  capacity?: number | null;
+  active: boolean;
+  orderCount: number;
+  outstanding: number;
+  paid: number;
+  lastActivity?: string | null;
+  cashier?: string;
+  status: 'AVAILABLE' | 'OCCUPIED';
+}
+
 export interface ProductAttribute {
   id: string;
   name: string;
@@ -147,6 +170,7 @@ export interface InventoryTransaction {
   status: TransactionStatus;
   timestamp: Date | string;
   userId: string;
+  createdBy?: string;
   locationId?: string | number;
   notes?: string;
   items: TransactionItem[];
@@ -205,6 +229,9 @@ export interface SystemSettings {
   dailySalesSummary: boolean;
   allowNegativeStock: boolean;
   vatInclusive: boolean;
+  enableTableManagement: boolean;
+  /** Max orders a cashier can keep on hold in the POS. <= 0 or undefined = unlimited. */
+  maxHeldOrders?: number;
 }
 
 export interface EcommerceSettings {
@@ -225,6 +252,8 @@ export interface Sale extends InventoryTransaction {
   locationId: string | number;
   customerId?: number;
   paymentMethod?: string;
+  tableId?: number | null;
+  tableName?: string;
   salePayments: { method: string; amount: number; reference?: string }[];
   amountPaid: number;
   changeAmount: number;
@@ -294,6 +323,11 @@ export interface ActiveOrder {
   items: CartItem[];
   timestamp: Date;
   note?: string;
+  userId?: string;
+  /** Set when the held order is backed by a saved DB sale (e.g. a printed KOT). */
+  saleId?: number | null;
+  /** True when this held order was created by printing a KOT. */
+  kot?: boolean;
 }
 export interface Promotion {
   id?: number;

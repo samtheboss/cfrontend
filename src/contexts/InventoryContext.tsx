@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category, Promotion, Recipe, Supplier } from '@/types/inventory';
+import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category, Promotion, Recipe, Supplier, RestaurantTable } from '@/types/inventory';
 import { mockProducts, mockLocations, mockAdjustments, mockCustomers } from '@/data/mockData';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -15,6 +15,7 @@ interface InventoryContextType {
     promotions: Promotion[];
     recipes: Recipe[];
     suppliers: Supplier[];
+    tables: RestaurantTable[];
     isLoading: boolean;
 
     // Actions
@@ -33,6 +34,19 @@ interface InventoryContextType {
     addCategory: (name: string, image?: string, parentId?: number | null) => Promise<void>;
     updateCategory: (id: number, name: string, image?: string, parentId?: number | null) => Promise<void>;
     deleteCategory: (category: string) => Promise<void>;
+
+    // Restaurant tables
+    addTable: (table: Partial<RestaurantTable>) => Promise<void>;
+    updateTable: (id: number, table: Partial<RestaurantTable>) => Promise<void>;
+    deleteTable: (id: number) => Promise<void>;
+    transferOrderTable: (journalNumber: string, tableId: number) => Promise<void>;
+    mergeTables: (fromTableId: number, toTableId: number) => Promise<void>;
+    mergeOrders: (targetJournalNumber: string, sourceJournalNumbers: string[]) => Promise<void>;
+    splitOrder: (journalNumber: string, lines: { variantId: number; quantity: number }[]) => Promise<void>;
+    /** Cross-tab hand-off: dashboard asks POS to open a specific pending sale. */
+    posLoadSaleId: number | null;
+    requestPosLoad: (saleId: number) => void;
+    clearPosLoad: () => void;
 
     // Locations
     addLocation: (location: Partial<Location>) => Promise<void>;
@@ -69,7 +83,8 @@ interface InventoryContextType {
     createReturn: (returnData: any) => Promise<{ id: number; journalNumber: string }>;
     checkReturnableItems: (saleId: number) => Promise<any[]>;
     activeOrders: ActiveOrder[];
-    holdOrder: (order: ActiveOrder) => void;
+    /** Returns false when the system-configured hold limit is reached (order not added). */
+    holdOrder: (order: ActiveOrder) => boolean;
     discardOrder: (orderId: string) => void;
     salesHistory: Sale[];
 
@@ -97,6 +112,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const [promotions, setPromotions] = useState<Promotion[]>([]);
     const [recipes, setRecipes] = useState<Recipe[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+    const [tables, setTables] = useState<RestaurantTable[]>([]);
+    const [posLoadSaleId, setPosLoadSaleId] = useState<number | null>(null);
     const [settings, setSettings] = useState<SystemSettings | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -111,8 +128,15 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('activeOrders', JSON.stringify(activeOrders));
     }, [activeOrders]);
 
-    const holdOrder = (order: ActiveOrder) => {
-        setActiveOrders(prev => [order, ...prev]);
+    const holdOrder = (order: ActiveOrder): boolean => {
+        const max = Number(settings?.maxHeldOrders ?? 10);
+        const isReplacement = activeOrders.some(o => o.id === order.id);
+        if (!isReplacement && max > 0 && activeOrders.length >= max) {
+            return false;
+        }
+        // Replace any existing entry with the same id, otherwise prepend.
+        setActiveOrders(prev => [order, ...prev.filter(o => o.id !== order.id)]);
+        return true;
     };
 
     const discardOrder = (orderId: string) => {
@@ -154,7 +178,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             const queryParams = queryString ? `&${queryString}` : '';
             console.log('[fetchInventoryData] Full query params:', queryParams);
 
-            const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, promotionsRes, recipesRes, suppliersRes, settingsRes] = await Promise.all([
+            const [productsRes, categoriesRes, transactionsRes, salesRes, locationsRes, customersRes, promotionsRes, recipesRes, suppliersRes, settingsRes, tablesRes] = await Promise.all([
                 apiFetch<ApiResponse<Product[]>>('/api/products'),
                 apiFetch<ApiResponse<Category[]>>('/api/categories'),
                 apiFetch<ApiResponse<InventoryTransaction[]>>(`/api/transactions?${queryParams.replace('&', '')}`), // Remove leading & if basic param
@@ -165,6 +189,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 apiFetch<ApiResponse<Recipe[]>>('/api/recipes'),
                 apiFetch<ApiResponse<Supplier[]>>('/api/suppliers'),
                 apiFetch<ApiResponse<SystemSettings>>('/api/system-settings'),
+                apiFetch<ApiResponse<RestaurantTable[]>>('/api/tables'),
             ]);
             setProducts(productsRes.data);
             setCategories(categoriesRes.data);
@@ -176,6 +201,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             setRecipes(recipesRes.data);
             setSuppliers(suppliersRes.data);
             setSettings(settingsRes.data);
+            setTables(tablesRes.data || []);
         } catch (error) {
             console.error('Failed to fetch inventory data:', error);
             toast.error('Connection failed: Could not fetch inventory data');
@@ -374,6 +400,96 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             toast.success('Category deleted successfully');
         } catch (error) {
             toast.error('Failed to delete category');
+        }
+    };
+
+    // ---- Restaurant tables ----
+    const addTable = async (table: Partial<RestaurantTable>) => {
+        try {
+            await apiFetch('/api/tables', { method: 'POST', body: JSON.stringify(table) });
+            await fetchInventoryData();
+            toast.success('Table added');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to add table');
+            throw error;
+        }
+    };
+
+    const updateTable = async (id: number, table: Partial<RestaurantTable>) => {
+        try {
+            await apiFetch(`/api/tables/${id}`, { method: 'PUT', body: JSON.stringify(table) });
+            await fetchInventoryData();
+            toast.success('Table updated');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to update table');
+            throw error;
+        }
+    };
+
+    const deleteTable = async (id: number) => {
+        try {
+            await apiFetch(`/api/tables/${id}`, { method: 'DELETE' });
+            await fetchInventoryData();
+            toast.success('Table deleted');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to delete table');
+            throw error;
+        }
+    };
+
+    const transferOrderTable = async (journalNumber: string, tableId: number) => {
+        try {
+            await apiFetch(`/api/tables/orders/${journalNumber}/transfer`, {
+                method: 'POST',
+                body: JSON.stringify({ tableId }),
+            });
+            await fetchInventoryData();
+            toast.success('Order transferred');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to transfer order');
+            throw error;
+        }
+    };
+
+    const mergeTables = async (fromTableId: number, toTableId: number) => {
+        try {
+            await apiFetch('/api/tables/tables/merge', {
+                method: 'POST',
+                body: JSON.stringify({ fromTableId, toTableId }),
+            });
+            await fetchInventoryData();
+            toast.success('Tables merged');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to merge tables');
+            throw error;
+        }
+    };
+
+    const mergeOrders = async (targetJournalNumber: string, sourceJournalNumbers: string[]) => {
+        try {
+            await apiFetch('/api/tables/orders/merge', {
+                method: 'POST',
+                body: JSON.stringify({ targetJournalNumber, sourceJournalNumbers }),
+            });
+            await fetchInventoryData();
+            toast.success('Orders merged');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to merge orders');
+            throw error;
+        }
+    };
+
+    const splitOrder = async (journalNumber: string, lines: { variantId: number; quantity: number }[]) => {
+        try {
+            await apiFetch(`/api/tables/orders/${journalNumber}/split`, {
+                method: 'POST',
+                body: JSON.stringify({ lines }),
+            });
+            await fetchInventoryData();
+            toast.success('Order split');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to split order');
+            throw error;
         }
     };
 
@@ -584,6 +700,17 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                 addCategory,
                 updateCategory,
                 deleteCategory,
+                tables,
+                addTable,
+                updateTable,
+                deleteTable,
+                transferOrderTable,
+                mergeTables,
+                mergeOrders,
+                splitOrder,
+                posLoadSaleId,
+                requestPosLoad: (saleId: number) => setPosLoadSaleId(saleId),
+                clearPosLoad: () => setPosLoadSaleId(null),
                 addLocation,
                 updateLocation,
                 deleteLocation,

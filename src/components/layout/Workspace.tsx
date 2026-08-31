@@ -73,6 +73,8 @@ import PmsExpenses from '@/pages/PmsExpenses';
 import Maintenance from '@/pages/Maintenance';
 import CustomReports from '@/pages/CustomReports';
 import Accounting from '@/pages/Accounting';
+import TableOrders from '@/pages/TableOrders';
+import Tables from '@/pages/Tables';
 import NotFound from '@/pages/NotFound';
 
 interface TabItem {
@@ -87,6 +89,8 @@ const tabMetadata: Record<string, { title: string; icon: any; component: React.C
   '/products': { title: 'Products & Variants', icon: Barcode, component: Products },
   '/inventory': { title: 'Inventory Asset', icon: Boxes, component: Inventory },
   '/pos': { title: 'Point of Sale', icon: ShoppingCart, component: POS },
+  '/table-orders': { title: 'Table Orders', icon: Grid, component: TableOrders },
+  '/tables': { title: 'Tables', icon: Grid, component: Tables },
   '/invoicing': { title: 'Invoicing', icon: FileText, component: Invoicing },
   '/customer-accounts': { title: 'Customer Accounts', icon: Wallet, component: CustomerAccounts },
   '/adjustments': { title: 'Stock Adjustments', icon: ArrowRightLeft, component: StockAdjustment },

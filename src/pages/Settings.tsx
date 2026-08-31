@@ -251,6 +251,32 @@ export default function Settings() {
                   onCheckedChange={(checked) => updateField('allowNegativeStock', checked)}
                 />
               </div>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Enable Table Management</Label>
+                  <p className="text-sm text-muted-foreground">Restaurant mode: the POS asks for a table when starting an order, and a Table Orders board tracks open bills per table. Applies to every workstation.</p>
+                </div>
+                <Switch
+                  checked={!!formData.enableTableManagement}
+                  onCheckedChange={(checked) => updateField('enableTableManagement', checked)}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5 flex-1 pr-4">
+                  <Label htmlFor="maxHeldOrders">Max Held Orders</Label>
+                  <p className="text-sm text-muted-foreground">
+                    How many orders a cashier may keep on hold in the POS at once. Set 0 for unlimited.
+                  </p>
+                </div>
+                <Input
+                  id="maxHeldOrders"
+                  type="number"
+                  min={0}
+                  className="w-24"
+                  value={formData.maxHeldOrders ?? 10}
+                  onChange={(e) => updateField('maxHeldOrders', Math.max(0, parseInt(e.target.value) || 0))}
+                />
+              </div>
               <div className="flex items-center justify-between border-t pt-4">
                 <div className="space-y-0.5 flex-1 pr-4">
                   <Label htmlFor="localPrinterName">Local Printer Name</Label>

@@ -2,12 +2,14 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useInventory } from '@/contexts/InventoryContext';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
+  Grid,
   ShoppingCart,
   ShoppingBag,
   Users,
@@ -59,6 +61,7 @@ interface MenuCard {
 
 export default function DashboardMenu() {
   const { user, getUserRights, getLandingPage } = useAuth();
+  const { settings } = useInventory();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<'all' | 'core' | 'catalog' | 'purchasing' | 'management'>('all');
@@ -92,6 +95,15 @@ export default function DashboardMenu() {
       iconGradientClass: 'from-amber-500 to-orange-550 shadow-amber-500/20',
       requiredRight: 'viewOrders',
       hasRedDot: true,
+      category: 'core'
+    },
+    {
+      name: 'Table Orders',
+      description: 'Track open bills per restaurant table and take payments',
+      href: '/table-orders',
+      icon: Grid,
+      iconGradientClass: 'from-amber-500 to-orange-550 shadow-amber-500/20',
+      requiredRight: 'viewOrders',
       category: 'core'
     },
     {
@@ -335,6 +347,10 @@ export default function DashboardMenu() {
 
   const filteredItems = useMemo(() => {
     return menuItems.filter(item => {
+      // 0. Table Orders only when the feature is enabled
+      if (item.href === '/table-orders' && !settings?.enableTableManagement) {
+        return false;
+      }
       // 1. Right check
       if (item.requiredRight && rights && rights[item.requiredRight as any] === 'no') {
         return false;
@@ -352,7 +368,7 @@ export default function DashboardMenu() {
       }
       return true;
     });
-  }, [rights, searchQuery, activeCategory]);
+  }, [rights, searchQuery, activeCategory, settings?.enableTableManagement]);
 
   const handleCardClick = (item: MenuCard) => {
     if (item.isComingSoon) {
