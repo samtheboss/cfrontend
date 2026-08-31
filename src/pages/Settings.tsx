@@ -23,6 +23,7 @@ export default function Settings() {
   const [printers, setPrinters] = useState<string[]>([]);
   const [isFetchingPrinters, setIsFetchingPrinters] = useState(false);
   const [printerMappings, setPrinterMappings] = useState<Record<string, string>>({});
+  const [kotCatSearch, setKotCatSearch] = useState('');
 
   // Connection state
   const [serverUrl, setServerUrlInput] = useState(getBaseUrl);
@@ -64,7 +65,8 @@ export default function Settings() {
     if (categories.length > 0) {
       setPrinterMappings(prev => {
         const mappings = { ...prev };
-        categories.forEach(cat => {
+        // Only main categories get a KOT printer mapping; sub-categories inherit their parent's.
+        categories.filter(cat => !cat.parentId).forEach(cat => {
           if (!mappings[cat.name]) {
             mappings[cat.name] = localStorage.getItem(`printer_mapping_${cat.name}`) || 'Receipt Printer';
           }
@@ -103,6 +105,14 @@ export default function Settings() {
   const updateField = (field: keyof SystemSettings, value: any) => {
     setFormData(prev => prev ? { ...prev, [field]: value } : null);
   };
+
+  // KOT printer mappings are per main category only (sub-categories inherit their parent's).
+  // A category counts as "main" when it has no parentId, or its parentId points nowhere.
+  const categoryIds = new Set(categories.map(c => c.id));
+  const mainCategories = categories.filter(c => c.parentId == null || !categoryIds.has(c.parentId));
+  const kotCategories = mainCategories
+    .filter(c => c.name.toLowerCase().includes(kotCatSearch.trim().toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <AppLayout title="Settings">
@@ -331,11 +341,20 @@ export default function Settings() {
               <div className="border-t pt-4 space-y-4">
                 <div>
                   <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">KOT Printer Mappings (By Category)</h4>
-                  <p className="text-xs text-muted-foreground">Map different product categories to specific kitchen/bar printers</p>
+                  <p className="text-xs text-muted-foreground">Map main product categories to specific kitchen/bar printers</p>
                 </div>
-                {categories.length > 0 ? (
+                {mainCategories.length > 0 && (
+                  <Input
+                    value={kotCatSearch}
+                    onChange={(e) => setKotCatSearch(e.target.value)}
+                    placeholder="Search categories..."
+                    className="w-64 h-9"
+                  />
+                )}
+                {mainCategories.length > 0 ? (
+                  kotCategories.length > 0 ? (
                   <div className="space-y-3 pl-2">
-                    {categories.map(cat => (
+                    {kotCategories.map(cat => (
                       <div key={cat.id} className="flex items-center justify-between gap-4">
                         <Label className="text-xs font-medium">{cat.name}</Label>
                         {printers.length > 0 ? (
@@ -365,6 +384,9 @@ export default function Settings() {
                       </div>
                     ))}
                   </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">No categories match "{kotCatSearch}".</p>
+                  )
                 ) : (
                   <p className="text-xs text-muted-foreground italic">No categories available to map.</p>
                 )}

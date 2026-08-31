@@ -79,22 +79,29 @@ export default function POS() {
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
   const [localPrinter, setLocalPrinter] = useState(() => localStorage.getItem('localPrinterName') || 'Receipt Printer');
   const [posPrinterMappings, setPosPrinterMappings] = useState<Record<string, string>>({});
+  const [kotCatSearch, setKotCatSearch] = useState('');
   const [localPrinters, setLocalPrinters] = useState<string[]>([]);
   const [isFetchingPrinters, setIsFetchingPrinters] = useState(false);
 
   useEffect(() => {
-    if (dbCategories.length > 0) {
+    if (dbCategories.length > 0 || products.length > 0) {
+      // Only main categories get a KOT printer mapping; sub-categories inherit their parent's.
+      const catIds = new Set(dbCategories.map(c => c.id));
+      const mainNames = new Set<string>([
+        ...dbCategories.filter(c => c.parentId == null || !catIds.has(c.parentId)).map(c => c.name),
+        ...products.filter(p => p.isActive !== false).map(p => p.category).filter(Boolean) as string[],
+      ]);
       setPosPrinterMappings(prev => {
         const mappings = { ...prev };
-        dbCategories.forEach(cat => {
-          if (!mappings[cat.name]) {
-            mappings[cat.name] = localStorage.getItem(`printer_mapping_${cat.name}`) || 'Receipt Printer';
+        mainNames.forEach(name => {
+          if (!mappings[name]) {
+            mappings[name] = localStorage.getItem(`printer_mapping_${name}`) || 'Receipt Printer';
           }
         });
         return mappings;
       });
     }
-  }, [dbCategories]);
+  }, [dbCategories, products]);
 
   const fetchLocalPrinters = async () => {
     setIsFetchingPrinters(true);
@@ -344,8 +351,11 @@ export default function POS() {
   const productCategoryNames = Array.from(
     new Set(products.filter(p => p.isActive !== false).map(p => p.category).filter(Boolean))
   );
+  const dbCategoryIds = new Set(dbCategories.map(c => c.id));
   const mainCategories: { id: number | null; name: string }[] = [
-    ...dbCategories.filter(c => !c.parentId).map(c => ({ id: c.id, name: c.name })),
+    ...dbCategories
+      .filter(c => c.parentId == null || !dbCategoryIds.has(c.parentId))
+      .map(c => ({ id: c.id, name: c.name })),
     ...productCategoryNames
       .filter(name => !dbCategories.some(c => c.name === name))
       .map(name => ({ id: null, name })),
@@ -574,6 +584,20 @@ export default function POS() {
     setVariantDialogOpen(false);
     const attrStr = Object.values(variant.attributes).join(' / ');
     toast.success(`Added ${productName}${attrStr ? ` (${attrStr})` : ''} to cart`);
+
+    // Warn (top-right) when the item just added is at/below its reorder level
+    const reorderLevel = Number(variant.lowStockThreshold || 0);
+    if (
+      settings?.showStockWarning !== false &&
+      !variant.hasRecipe &&
+      reorderLevel > 0 &&
+      availableStock <= reorderLevel
+    ) {
+      toast.warning(
+        `Low stock: ${productName}${attrStr ? ` (${attrStr})` : ''} — ${availableStock} left at ${selectedLocation?.name || 'this location'} (reorder level ${reorderLevel})`,
+        { position: 'top-right' }
+      );
+    }
   };
 
   const updateQuantity = (cartItemId: string, delta: number) => {
@@ -712,16 +736,24 @@ export default function POS() {
           if (printResponse.ok) {
             toast.success(`KOT printed on ${printerName}!`);
           } else {
-            console.warn(`Local print service failed for ${printerName}, falling back to browser preview...`);
+            // Printer is mapped but the local print service rejected the job — surface the
+            // real reason and show the KOT in the in-app preview. Never open a browser tab.
+            const reason = await printResponse.text().catch(() => `HTTP ${printResponse.status}`);
+            console.warn(`Local print service rejected job for ${printerName}: ${reason}`);
+            toast.error(`Printer "${printerName}": ${reason}`, { duration: 8000 });
             const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-            window.open(blobUrl, '_blank');
+            if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(receiptPreviewUrl);
+            setReceiptPreviewUrl(blobUrl);
+            setReceiptPreviewOpen(true);
           }
         } catch (e) {
-          console.warn(`Print error for ${printerName}, falling back to preview...`, e);
-          toast.error(`Print failed for ${printerName}, opening preview...`);
-          // Fallback if the print service is entirely offline or fetch fails later
+          console.warn(`Print error for ${printerName}, showing in-app preview...`, e);
+          toast.error(
+            `Cannot reach the local print service (localhost:9000) for "${printerName}". Is PrinterService running?`,
+            { duration: 8000 }
+          );
+          // Local print service unreachable: re-fetch the KOT and show it in-app (no new tab).
           try {
-              // Re-fetch since blob might be undefined if response.ok failed
               const retryResponse = await fetch(`${getBaseUrl()}/api/transactions/sale/${dbSaleId}/receipt_kot_custom`, {
                   method: 'POST',
                   headers: {
@@ -732,7 +764,9 @@ export default function POS() {
               });
               const retryBlob = await retryResponse.blob();
               const blobUrl = URL.createObjectURL(new Blob([retryBlob], { type: 'application/pdf' }));
-              window.open(blobUrl, '_blank');
+              if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(receiptPreviewUrl);
+              setReceiptPreviewUrl(blobUrl);
+              setReceiptPreviewOpen(true);
           } catch(innerErr) {
              console.error("Preview fallback failed", innerErr);
           }
@@ -1781,8 +1815,8 @@ export default function POS() {
               </Button>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-64 md:w-80">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 min-w-[160px] sm:w-64 md:w-80">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="Search products..."
@@ -2247,13 +2281,13 @@ export default function POS() {
       </div>
 
       {/* ── Fixed full-page POS footer ── */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 h-14 mb-5 flex border-t shadow-2xl overflow-hidden">
+      <div className="fixed bottom-0 left-0 right-0 z-30 h-14 flex border-t shadow-2xl overflow-x-auto">
         {/* Hold */}
         <button
           id="pos-hold-btn"
           disabled={cart.length === 0}
           onClick={handleHoldOrder}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-amber-400 hover:bg-amber-500 text-white active:brightness-90"
+          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-amber-400 hover:bg-amber-500 text-white active:brightness-90"
         >
           <PauseCircle className="h-5 w-5" />
           Hold
@@ -2271,7 +2305,7 @@ export default function POS() {
             setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
             toast.info('New order started');
           }}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all bg-cyan-500 hover:bg-cyan-600 text-white active:brightness-90"
+          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all bg-cyan-500 hover:bg-cyan-600 text-white active:brightness-90"
         >
           <Plus className="h-5 w-5" />
           New
@@ -2282,7 +2316,7 @@ export default function POS() {
           id="pos-cancel-btn"
           disabled={cart.length === 0}
           onClick={clearCart}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-red-500 hover:bg-red-600 text-white active:brightness-90"
+          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-red-500 hover:bg-red-600 text-white active:brightness-90"
         >
           <Trash2 className="h-5 w-5" />
           Cancel
@@ -2295,7 +2329,7 @@ export default function POS() {
           id="pos-pay-later-btn"
           disabled={cart.length === 0 || isProcessing}
           onClick={handlePayLater}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-500 hover:bg-blue-600 text-white active:brightness-90"
+          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-500 hover:bg-blue-600 text-white active:brightness-90"
         >
           <Wallet className="h-5 w-5" />
           Place And Bill
@@ -2306,7 +2340,7 @@ export default function POS() {
           id="pos-kot-btn"
           disabled={cart.length === 0}
           onClick={handlePrintKOT}
-          className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-700 hover:bg-blue-800 text-white active:brightness-90"
+          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-700 hover:bg-blue-800 text-white active:brightness-90"
         >
           <FileText className="h-5 w-5" />
           KOT
@@ -2323,7 +2357,7 @@ export default function POS() {
               setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
               setCheckoutOpen(true);
             }}
-            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-emerald-700 hover:bg-emerald-800 text-white active:brightness-90"
+            className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-emerald-700 hover:bg-emerald-800 text-white active:brightness-90"
           >
             <Smartphone className="h-5 w-5" />
             Mob Money
@@ -2341,7 +2375,7 @@ export default function POS() {
               setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
               setCheckoutOpen(true);
             }}
-            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-600 hover:bg-blue-700 text-white active:brightness-90"
+            className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-600 hover:bg-blue-700 text-white active:brightness-90"
           >
             <Building className="h-5 w-5" />
             Bank
@@ -2359,7 +2393,7 @@ export default function POS() {
               setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
               setCheckoutOpen(true);
             }}
-            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-purple-600 hover:bg-purple-700 text-white active:brightness-90"
+            className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-purple-600 hover:bg-purple-700 text-white active:brightness-90"
           >
             <Gift className="h-5 w-5" />
             Complimentary
@@ -2377,7 +2411,7 @@ export default function POS() {
               setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
               setCheckoutOpen(true);
             }}
-            className="flex-1 flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-teal-500 hover:bg-teal-600 text-white active:brightness-90"
+            className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-teal-500 hover:bg-teal-600 text-white active:brightness-90"
           >
             <Banknote className="h-5 w-5" />
             Pay Cash
@@ -3098,12 +3132,30 @@ export default function POS() {
             <div className="space-y-4">
               <div>
                 <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">KOT Printer Mappings (By Category)</h4>
-                <p className="text-xs text-muted-foreground">Route kitchen order tickets for different categories to specific kitchen/bar printers.</p>
+                <p className="text-xs text-muted-foreground">Route kitchen order tickets for main categories to specific kitchen/bar printers.</p>
               </div>
-              {dbCategories.length > 0 ? (
+              {mainCategories.length > 0 && (
+                <Input
+                  value={kotCatSearch}
+                  onChange={(e) => setKotCatSearch(e.target.value)}
+                  placeholder="Search categories..."
+                  className="h-9"
+                />
+              )}
+              {(() => {
+                const list = mainCategories
+                  .filter(c => c.name.toLowerCase().includes(kotCatSearch.trim().toLowerCase()))
+                  .sort((a, b) => a.name.localeCompare(b.name));
+                if (mainCategories.length === 0) {
+                  return <p className="text-xs text-muted-foreground italic">No categories available to map.</p>;
+                }
+                if (list.length === 0) {
+                  return <p className="text-xs text-muted-foreground italic">No categories match "{kotCatSearch}".</p>;
+                }
+                return (
                 <div className="space-y-3">
-                  {dbCategories.map(cat => (
-                    <div key={cat.id} className="flex items-center justify-between gap-4">
+                  {list.map(cat => (
+                    <div key={cat.name} className="flex items-center justify-between gap-4">
                       <Label className="text-xs font-medium flex-1 truncate">{cat.name}</Label>
                       {localPrinters.length > 0 ? (
                         <Select
@@ -3132,9 +3184,8 @@ export default function POS() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground italic">No categories available to map.</p>
-              )}
+                );
+              })()}
             </div>
           </div>
           <DialogFooter className="flex flex-row justify-end gap-2 pt-4 border-t">
