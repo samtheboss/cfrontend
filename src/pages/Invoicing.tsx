@@ -284,6 +284,10 @@ export default function Invoicing() {
   });
 
   const createInvoice = async (status: 'COMPLETED' | 'PAYMENT_PENDING', payments: PaymentDetails[] = []) => {
+    if (!canView('createInvoice')) {
+      toast.error('You are not allowed to create invoices');
+      return;
+    }
     if (cart.length === 0) {
       toast.error('Add at least one item first');
       return;
@@ -441,6 +445,10 @@ export default function Invoicing() {
   };
 
   const submitPayment = async (invoiceNumber: string, payments: PaymentDetails[]) => {
+    if (!canView('invoiceReceivePayment')) {
+      toast.error('You are not allowed to receive invoice payments');
+      return;
+    }
     await apiFetch(`/api/invoices/${invoiceNumber}/receive-payment`, {
       method: 'POST',
       body: JSON.stringify(payments.map(p => ({ method: p.method, amount: p.amount, reference: p.reference, glAccountId: p.glAccountId }))),
@@ -467,6 +475,10 @@ export default function Invoicing() {
   // Return flow - mirrors POS.tsx's handleOpenReturn/handleReturnAmountChange/calculateReturnTotal/submitReturn,
   // scoped to the single invoice currently open in the view dialog.
   const openReturnDialog = async () => {
+    if (!canView('invoiceReturn')) {
+      toast.error('You are not allowed to process invoice returns');
+      return;
+    }
     const sale = viewingInvoice?.sale;
     if (!sale) return;
     if (sale.status !== 'COMPLETED' && sale.status !== 'PAYMENT_PENDING') {
@@ -549,6 +561,10 @@ export default function Invoicing() {
   };
 
   const submitReturn = async () => {
+    if (!canView('invoiceReturn')) {
+      toast.error('You are not allowed to process invoice returns');
+      return;
+    }
     const sale = viewingInvoice?.sale;
     if (!sale) return;
     const itemsToReturn = returnItems.filter(item => item.quantity > 0);
@@ -626,6 +642,19 @@ export default function Invoicing() {
     }
     setCalcValue(prev => (prev === '0' || prev === 'Error' ? btn : prev + btn));
   };
+
+  if (!canView('viewInvoicing')) {
+    return (
+      <AppLayout title="Invoicing">
+        <Card className="border-amber-300 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="py-6 text-center text-sm text-amber-800 dark:text-amber-300">
+            You don't have permission to use Invoicing. Ask an administrator for the
+            "Invoicing: Open Window" right.
+          </CardContent>
+        </Card>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Invoicing">
@@ -875,7 +904,11 @@ export default function Invoicing() {
                   <Button variant="outline" onClick={handleHoldOrder} disabled={cart.length === 0}><Pause className="h-4 w-4 mr-1" />Hold Order</Button>
                   <Button variant="outline" className="text-destructive" onClick={() => setCart([])} disabled={cart.length === 0}><Ban className="h-4 w-4 mr-1" />Cancel Order</Button>
 
-                  {documentType === 'CASH_SALE' ? (
+                  {!canView('createInvoice') ? (
+                    <p className="col-span-2 text-center text-xs text-muted-foreground py-2">
+                      You don't have the "Create Cash Sale / Invoice" right.
+                    </p>
+                  ) : documentType === 'CASH_SALE' ? (
                     <Button className="col-span-2" disabled={cart.length === 0 || isSubmitting} onClick={() => setPaymentDialogOpen(true)}>
                       <Wallet className="h-4 w-4 mr-1" />Pay Cash / Mob Money
                     </Button>
@@ -1009,7 +1042,7 @@ export default function Invoicing() {
                         <TableCell className="text-sm text-muted-foreground">{row.createdBy || '-'}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            {row.kind === 'invoice' && row.status === 'PAYMENT_PENDING' && (
+                            {row.kind === 'invoice' && row.status === 'PAYMENT_PENDING' && canView('invoiceReceivePayment') && (
                               <Button variant="outline" size="sm" onClick={() => setPayingInvoice(row.raw)}>Receive Payment</Button>
                             )}
                             <Button
@@ -1267,7 +1300,7 @@ export default function Invoicing() {
           )}
 
           <DialogFooter>
-            {(viewingInvoice?.sale?.status === 'COMPLETED' || viewingInvoice?.sale?.status === 'PAYMENT_PENDING') && (
+            {(viewingInvoice?.sale?.status === 'COMPLETED' || viewingInvoice?.sale?.status === 'PAYMENT_PENDING') && canView('invoiceReturn') && (
               <Button variant="outline" onClick={openReturnDialog}>
                 <Undo2 className="h-4 w-4 mr-1" />Return Items
               </Button>

@@ -870,6 +870,7 @@ export default function Reports() {
       const matchStatus = salesStatusFilter === 'all' || (salesStatusFilter === 'paid' && isPaid) || (salesStatusFilter === 'pending' && !isPaid);
       const matchSearch = !salesSearchQuery ||
         sale.items.map(i => i.productName).join(' ').toLowerCase().includes(salesSearchQuery.toLowerCase()) ||
+        (sale.journalNumber && sale.journalNumber.toLowerCase().includes(salesSearchQuery.toLowerCase())) ||
         (sale.status && sale.status.toLowerCase().includes(salesSearchQuery.toLowerCase()));
       return matchStatus && matchSearch;
     });
@@ -911,13 +912,14 @@ export default function Reports() {
   const handleExportSales = () => {
     const rows = salesItems.map(sale => [
       format(new Date(sale.timestamp), 'yyyy-MM-dd HH:mm'),
+      sale.journalNumber || String(sale.id),
       sale.items.map(i => `${i.productName} (${i.adjustment})`).join(', '),
       sale.status,
       (sale.subtotal || 0).toFixed(2),
       (sale.tax || sale.taxAmount || 0).toFixed(2),
       (sale.total || sale.totalAmount || 0).toFixed(2)
     ]);
-    exportToCSV(rows, ["Date", "Items", "Payment Status", "Subtotal (KES)", "Tax (KES)", "Total (KES)"], `Sales_Summary_${startDate}_to_${endDate}.csv`);
+    exportToCSV(rows, ["Date", "Receipt #", "Items", "Payment Status", "Subtotal (KES)", "Tax (KES)", "Total (KES)"], `Sales_Summary_${startDate}_to_${endDate}.csv`);
   };
 
   const handleExportReturns = () => {
@@ -1518,6 +1520,7 @@ export default function Reports() {
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
                       <th className="py-3.5 px-6">Date</th>
+                      <th className="py-3.5 px-4">Receipt #</th>
                       <th className="py-3.5 px-4">Items</th>
                       <th className="py-3.5 px-4">Payment Status</th>
                       <th className="py-3.5 px-4 text-right">Subtotal</th>
@@ -1532,6 +1535,7 @@ export default function Reports() {
                           <span className="font-semibold text-foreground">{format(new Date(sale.timestamp), 'MMM d')}</span>
                           <span className="text-xs text-muted-foreground ml-2">{format(new Date(sale.timestamp), 'HH:mm')}</span>
                         </td>
+                        <td className="py-4 px-4 whitespace-nowrap font-mono text-xs font-bold text-amber-600 dark:text-amber-400">{sale.journalNumber || sale.id}</td>
                         <td className="py-4 px-4 text-xs font-medium text-foreground max-w-[250px] truncate">
                           {sale.items.map(i => `${i.productName} (${i.adjustment})`).join(', ')}
                         </td>
@@ -1548,7 +1552,7 @@ export default function Reports() {
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={3}>TOTALS</td>
+                      <td className="py-3.5 px-6" colSpan={4}>TOTALS</td>
                       <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{salesItems.reduce((sum, s) => sum + (s.subtotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{salesItems.reduce((sum, s) => sum + (s.tax || s.taxAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td className="py-3.5 px-6 text-right font-serif text-base text-emerald-600 dark:text-emerald-400">{sym}{salesItems.reduce((sum, s) => sum + (s.total || s.totalAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>

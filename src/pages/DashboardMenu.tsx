@@ -103,7 +103,7 @@ export default function DashboardMenu() {
       href: '/table-orders',
       icon: Grid,
       iconGradientClass: 'from-amber-500 to-orange-550 shadow-amber-500/20',
-      requiredRight: 'viewOrders',
+      requiredRight: 'viewTableOrders',
       category: 'core'
     },
     {
@@ -112,7 +112,7 @@ export default function DashboardMenu() {
       href: '/invoicing',
       icon: FileText,
       iconGradientClass: 'from-amber-600 to-orange-600 shadow-amber-600/20',
-      requiredRight: 'viewOrders',
+      requiredRight: 'viewInvoicing',
       hasRedDot: true,
       category: 'core'
     },
@@ -122,7 +122,7 @@ export default function DashboardMenu() {
       href: '/customer-accounts',
       icon: Wallet,
       iconGradientClass: 'from-teal-500 to-cyan-600 shadow-teal-500/20',
-      requiredRight: 'paymentAccess',
+      requiredRight: 'viewCustomerAccounts',
       category: 'core'
     },
     {

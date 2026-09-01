@@ -254,7 +254,7 @@ export default function Settings() {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Allow Negative Stock</Label>
-                  <p className="text-sm text-muted-foreground">Allow processing sales even if stock is unavailable</p>
+                  <p className="text-sm text-muted-foreground">Default for all products: allow processing sales even if stock is unavailable. A product can override this (Products → edit → “Negative stock for this item”).</p>
                 </div>
                 <Switch
                   checked={formData.allowNegativeStock}

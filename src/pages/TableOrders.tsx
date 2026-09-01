@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/hooks/useCurrency';
 import { Sale } from '@/types/inventory';
 import { apiFetch, getBaseUrl } from '@/lib/api';
@@ -45,6 +46,15 @@ export default function TableOrders() {
   const navigate = useNavigate();
   const { fmt, computeTax } = useCurrency();
   const pdf = usePdfPreview();
+  const { user, getUserRights } = useAuth();
+  const rights = user ? getUserRights(user) : null;
+  const can = {
+    view: !rights || rights.viewTableOrders !== 'no',
+    edit: !rights || rights.editTableOrder !== 'no',
+    pay: !rights || rights.receiveTableOrderPayment !== 'no',
+    transfer: !rights || rights.transferTableOrder !== 'no',
+    mergeSplit: !rights || rights.mergeSplitTableOrders !== 'no',
+  };
   const {
     tables = [], salesHistory = [], customers = [], settings,
     transferOrderTable, mergeTables, mergeOrders, splitOrder, requestPosLoad, refreshData,
@@ -171,6 +181,7 @@ export default function TableOrders() {
 
   const handleReceivePayment = async (finalPayments: PaymentDetails[]) => {
     if (!payingSale) return;
+    if (!can.pay) { toast.error('You are not allowed to receive table payments'); return; }
     if (balanceOf(payingSale) <= 0.01) {
       toast.error('This order has already been paid in full.');
       setPayingSale(null);
@@ -196,6 +207,7 @@ export default function TableOrders() {
   };
 
   const doTransfer = async () => {
+    if (!can.transfer) { toast.error('You are not allowed to transfer table orders'); return; }
     if (!transferSale || !transferTarget) return;
     await transferOrderTable(transferSale.journalNumber, Number(transferTarget));
     setTransferSale(null);
@@ -203,6 +215,7 @@ export default function TableOrders() {
   };
 
   const doSplit = async () => {
+    if (!can.mergeSplit) { toast.error('You are not allowed to split bills'); return; }
     if (!splitSale) return;
     const lines = (splitSale.items || [])
       .map(it => ({ variantId: Number(it.variantId), quantity: Number(splitQty[String(it.variantId)] || 0) }))
@@ -214,6 +227,7 @@ export default function TableOrders() {
   };
 
   const doMergeOrders = async () => {
+    if (!can.mergeSplit) { toast.error('You are not allowed to merge bills'); return; }
     const target = mergeTarget || mergeSel[0];
     const sources = mergeSel.filter(j => j !== target);
     if (!target || sources.length === 0) { toast.error('Pick at least two orders and a target'); return; }
@@ -223,6 +237,7 @@ export default function TableOrders() {
   };
 
   const doMergeTables = async () => {
+    if (!can.mergeSplit) { toast.error('You are not allowed to merge tables'); return; }
     if (!tableMergeFrom || !tableMergeTo || tableMergeFrom === tableMergeTo) {
       toast.error('Pick two different tables'); return;
     }
@@ -234,7 +249,11 @@ export default function TableOrders() {
 
   const printReceipt = (s: Sale) =>
     pdf.showPdf(`${getBaseUrl()}/api/transactions/sale/${s.id}/receipt`, { title: `Receipt · ${s.journalNumber}` });
-  const openInPos = (s: Sale) => { requestPosLoad(Number(s.id)); navigate('/pos'); };
+  const openInPos = (s: Sale) => {
+    if (!can.edit) { toast.error('You are not allowed to edit table orders'); return; }
+    requestPosLoad(Number(s.id));
+    navigate('/pos');
+  };
 
   const renderOrderCard = (s: Sale, showTable: boolean) => {
     const bal = balanceOf(s);
@@ -243,11 +262,13 @@ export default function TableOrders() {
       <div key={s.journalNumber} className="rounded-lg border bg-card p-3 space-y-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-2 min-w-0">
-            <Checkbox
-              className="mt-0.5"
-              checked={mergeSel.includes(s.journalNumber)}
-              onCheckedChange={c => toggleMerge(s.journalNumber, !!c)}
-            />
+            {can.mergeSplit && (
+              <Checkbox
+                className="mt-0.5"
+                checked={mergeSel.includes(s.journalNumber)}
+                onCheckedChange={c => toggleMerge(s.journalNumber, !!c)}
+              />
+            )}
             <div className="min-w-0">
               <div className="font-mono text-xs truncate">{s.journalNumber}</div>
               <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
@@ -282,35 +303,43 @@ export default function TableOrders() {
         )}
 
         <div className="flex flex-wrap gap-1">
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openInPos(s)}>
-            <ShoppingCart className="h-3.5 w-3.5 mr-1" /> Open / Add
-          </Button>
+          {can.edit && (
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openInPos(s)}>
+              <ShoppingCart className="h-3.5 w-3.5 mr-1" /> Open / Add
+            </Button>
+          )}
           <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
             onClick={() => setExpandedOrder(isExpanded ? null : s.journalNumber)}>
             {isExpanded ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
             Items
           </Button>
-          <Button size="sm" className="h-7 px-2 text-xs bg-amber-500 hover:bg-amber-600 text-white"
-            onClick={() => setPayingSale(s)}>
-            <Wallet className="h-3.5 w-3.5 mr-1" /> Payment
-          </Button>
+          {can.pay && (
+            <Button size="sm" className="h-7 px-2 text-xs bg-amber-500 hover:bg-amber-600 text-white"
+              onClick={() => setPayingSale(s)}>
+              <Wallet className="h-3.5 w-3.5 mr-1" /> Payment
+            </Button>
+          )}
           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => printReceipt(s)} title="Print">
             <Printer className="h-3.5 w-3.5" />
           </Button>
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" title="Transfer table"
-            onClick={() => { setTransferSale(s); setTransferTarget(''); }}>
-            <ArrowRightLeft className="h-3.5 w-3.5" />
-          </Button>
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" title="Split bill"
-            onClick={() => { setSplitSale(s); setSplitQty({}); }}>
-            <Split className="h-3.5 w-3.5" />
-          </Button>
+          {can.transfer && (
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" title="Transfer table"
+              onClick={() => { setTransferSale(s); setTransferTarget(''); }}>
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {can.mergeSplit && (
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" title="Split bill"
+              onClick={() => { setSplitSale(s); setSplitQty({}); }}>
+              <Split className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     );
   };
 
-  const mergeBar = mergeSel.length >= 2 && (
+  const mergeBar = can.mergeSplit && mergeSel.length >= 2 && (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 p-2">
       <span className="text-sm font-medium">{mergeSel.length} orders selected</span>
       {mergeSpansTables ? (
@@ -331,6 +360,19 @@ export default function TableOrders() {
       <Button size="sm" variant="ghost" onClick={resetMerge}>Clear</Button>
     </div>
   );
+
+  if (!can.view) {
+    return (
+      <AppLayout title="Table Orders">
+        <Card className="border-amber-300 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="py-6 text-center text-sm text-amber-800 dark:text-amber-300">
+            You don't have permission to view Table Orders. Ask an administrator for the
+            "Table Orders: View Board" right.
+          </CardContent>
+        </Card>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Table Orders">
@@ -420,9 +462,11 @@ export default function TableOrders() {
           <Button size="sm" variant="outline" onClick={() => refreshData()}>
             <RefreshCw className="h-4 w-4 mr-1" /> Refresh
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setTableMergeOpen(true)}>
-            <Combine className="h-4 w-4 mr-1" /> Merge Tables
-          </Button>
+          {can.mergeSplit && (
+            <Button size="sm" variant="outline" onClick={() => setTableMergeOpen(true)}>
+              <Combine className="h-4 w-4 mr-1" /> Merge Tables
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => navigate('/tables')}>
             <Settings2 className="h-4 w-4 mr-1" /> Manage Tables
           </Button>

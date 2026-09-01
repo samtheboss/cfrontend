@@ -100,6 +100,8 @@ export interface Product {
   availableOnline: boolean;
   isActive: boolean;
   isFeatured: boolean;
+  /** Per-product override for overselling. Falls back to SystemSettings.allowNegativeStock when INHERIT/undefined. */
+  negativeStockPolicy?: 'INHERIT' | 'ALLOW' | 'BLOCK';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -315,6 +317,8 @@ export interface CartItem {
   cartItemId?: string;
   printed?: boolean;
   hasRecipe?: boolean;
+  /** Effective negative-stock permission for this line, resolved when added to the cart. */
+  allowNegative?: boolean;
 }
 
 export interface ActiveOrder {

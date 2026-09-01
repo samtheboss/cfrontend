@@ -43,9 +43,20 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { getProductPriceInfo } from '@/lib/pricing';
+import { negativeStockAllowed } from '@/lib/stock';
 import { useCurrency } from '@/hooks/useCurrency';
 
-
+/**
+ * Guarantee every cart item has a unique cartItemId. Items rebuilt from a saved sale
+ * (re-order, load pending, resume) don't carry one, and a sale with two lines for the
+ * same variant would otherwise collide on the React key AND on quantity/price edits.
+ */
+const withCartIds = (items: CartItem[]): CartItem[] =>
+  items.map((it, i) =>
+    it.cartItemId
+      ? it
+      : { ...it, cartItemId: `ci-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}` }
+  );
 
 export default function POS() {
   const navigate = useNavigate();
@@ -167,6 +178,9 @@ export default function POS() {
   });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  // Bumped on every full POS reset so the cart list remounts with fresh DOM
+  // (works around stale paint in the fixed cart panel after clearing).
+  const [cartViewKey, setCartViewKey] = useState(0);
   const [categorySidebarOpen, setCategorySidebarOpen] = useState<boolean>(
     () => localStorage.getItem('pos_category_sidebar') !== 'closed'
   );
@@ -571,7 +585,8 @@ export default function POS() {
   const addToCart = (variant: ProductVariant, productName: string, productObj?: Product) => {
     // Force string lookup for map key
     const availableStock = variant.locationStock?.[selectedLocationId?.toString()] || 0;
-    const allowNegative = settings?.allowNegativeStock ?? false;
+    const productForPolicy = productObj || products.find(p => p.id?.toString() === variant?.productId?.toString());
+    const allowNegative = negativeStockAllowed(productForPolicy, settings);
     const skipStockCheck = variant.hasRecipe;
 
     if (availableStock <= 0 && !allowNegative && !skipStockCheck) {
@@ -608,6 +623,7 @@ export default function POS() {
         price: currentPrice,
         maxStock: availableStock,
         hasRecipe: variant.hasRecipe,
+        allowNegative,
         taxRate: product?.taxRate ?? 16.0,
         taxType: product?.taxType ?? 'A'
       }];
@@ -640,7 +656,8 @@ export default function POS() {
         }
         const newQuantity = item.quantity + delta;
         if (newQuantity <= 0) return item;
-        if (newQuantity > item.maxStock && !settings?.allowNegativeStock && !item.hasRecipe) {
+        const itemAllowsNegative = item.allowNegative ?? (settings?.allowNegativeStock ?? false);
+        if (newQuantity > item.maxStock && !itemAllowsNegative && !item.hasRecipe) {
           toast.error('Cannot exceed available stock');
           return item;
         }
@@ -846,11 +863,26 @@ export default function POS() {
 
       let savedSale;
       if (currentSaleId) {
-        const res = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
-          method: 'PUT',
-          body: JSON.stringify(saleData)
-        });
-        savedSale = res.data || res;
+        try {
+          const res = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
+            method: 'PUT',
+            body: JSON.stringify(saleData)
+          });
+          savedSale = res.data || res;
+        } catch (putErr: any) {
+          // The loaded order no longer exists (completed, cancelled, stale draft) —
+          // fall back to creating a fresh KOT sale instead of failing.
+          if (String(putErr?.message || '').toLowerCase().includes('not found')) {
+            setCurrentSaleId(null);
+            const res = await apiFetch<any>('/api/transactions/sale', {
+              method: 'POST',
+              body: JSON.stringify({ ...saleData, idempotencyKey: `kot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` })
+            });
+            savedSale = res.data || res;
+          } else {
+            throw putErr;
+          }
+        }
       } else {
         const res = await apiFetch<any>('/api/transactions/sale', {
           method: 'POST',
@@ -865,29 +897,12 @@ export default function POS() {
 
       await dispatchKOTs(dbSaleId, newItems);
 
-      // KOT is saved to the DB and sent to the kitchen. Hold it locally so the cashier
-      // can immediately start the next order, and clear the POS.
-      const kotHeld: ActiveOrder = {
-        id: `db-${dbSaleId}`,
-        customer: selectedCustomer,
-        items: cart.map(item => ({ ...item, printed: true })),
-        userId: user?.id,
-        saleId: Number(dbSaleId),
-        kot: true,
-        timestamp: new Date(),
-      };
-      const held = holdOrder(kotHeld);
+      // KOT is saved to the DB as a PENDING sale and sent to the kitchen. Fully clear the
+      // POS so the next order can start; the pending order is still reachable from the
+      // Orders dialog (and the table board in restaurant mode).
+      resetPOSState();
       refreshData();
-      if (held) {
-        resetPOSState();
-        toast.success('KOT sent — order held. Ready for the next order.');
-      } else {
-        // Hold limit reached: keep the order on screen so it isn't lost.
-        setCart(prev => prev.map(item => ({ ...item, printed: true })));
-        toast.warning(
-          `KOT sent, but the held-orders limit (${settings?.maxHeldOrders ?? 10}) is reached — finish or resume a held order first.`
-        );
-      }
+      toast.success('KOT sent — cart cleared. Ready for the next order.');
     } catch (err: any) {
       toast.error("Failed to save KOT order to database: " + err.message);
     }
@@ -958,6 +973,7 @@ export default function POS() {
     setCurrentSaleStatus(null);
     setSelectedTable(null);
     setWantTablePicker(false);
+    setCartViewKey(k => k + 1);
   };
 
   const handlePreviewReceipt = (url: string) => {
@@ -1125,11 +1141,20 @@ export default function POS() {
           ...saleData,
           status: 'COMPLETED'
         };
-        const response = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
-          method: 'PUT',
-          body: JSON.stringify(updatePayload)
-        });
-        saved = response.data || response;
+        try {
+          const response = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
+            method: 'PUT',
+            body: JSON.stringify(updatePayload)
+          });
+          saved = response.data || response;
+        } catch (putErr: any) {
+          if (String(putErr?.message || '').toLowerCase().includes('not found')) {
+            setCurrentSaleId(null);
+            saved = await createSale(saleData);
+          } else {
+            throw putErr;
+          }
+        }
         toast.success('Sale completed!');
       } else {
         saved = await createSale(saleData);
@@ -1200,12 +1225,23 @@ export default function POS() {
           payments: [],
           status: 'PAYMENT_PENDING'
         };
-        await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
-          method: 'PUT',
-          body: JSON.stringify(updatePayload)
-        });
-        savedId = currentSaleId;
-        toast.success('Pending receipt updated! Payment can be collected later.');
+        try {
+          await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
+            method: 'PUT',
+            body: JSON.stringify(updatePayload)
+          });
+          savedId = currentSaleId;
+          toast.success('Pending receipt updated! Payment can be collected later.');
+        } catch (putErr: any) {
+          if (String(putErr?.message || '').toLowerCase().includes('not found')) {
+            setCurrentSaleId(null);
+            const res = await createSale(saleData);
+            savedId = res.id;
+            toast.success('Sale saved! Payment can be collected later.');
+          } else {
+            throw putErr;
+          }
+        }
       } else {
         const res = await createSale(saleData);
         savedId = res.id;
@@ -1417,8 +1453,15 @@ export default function POS() {
         refreshData();
         return true;
       } catch (error: any) {
-        toast.error(error?.message || 'Failed to update pending order');
-        return false;
+        // Loaded order is gone (completed/cancelled/stale) — drop the dead id and fall
+        // through to holding the cart as a fresh local order instead of erroring out.
+        if (String(error?.message || '').toLowerCase().includes('not found')) {
+          setCurrentSaleId(null);
+          setCurrentSaleStatus(null);
+        } else {
+          toast.error(error?.message || 'Failed to update pending order');
+          return false;
+        }
       }
     }
 
@@ -1450,7 +1493,7 @@ export default function POS() {
       if (!held) return;
     }
 
-    setCart(order.items);
+    setCart(withCartIds(order.items));
     setSelectedCustomer(order.customer);
 
     if (order.id.startsWith('db-')) {
@@ -1492,7 +1535,13 @@ export default function POS() {
       };
     });
 
-    setCart(newCart);
+    // A re-order is a brand-new sale — don't keep the previous order's DB id, or a
+    // later Print KOT / checkout would try to PUT a transaction that isn't this cart.
+    setCart(withCartIds(newCart));
+    setCurrentSaleId(null);
+    setCurrentSalePaid(0);
+    setCurrentSaleStatus(null);
+    setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
     setOrdersDialogOpen(false);
     toast.success('Items loaded to cart');
   };
@@ -1517,9 +1566,9 @@ export default function POS() {
       };
     });
 
-    setCart(newCart);
-    const customerObj = contextCustomers?.find(c => 
-      c.id?.toString() === sale.customerId?.toString() || 
+    setCart(withCartIds(newCart));
+    const customerObj = contextCustomers?.find(c =>
+      c.id?.toString() === sale.customerId?.toString() ||
       c.id?.toString() === (sale as any).customer?.id?.toString()
     );
     setSelectedCustomer(customerObj || (sale as any).customer || null);
@@ -1899,10 +1948,12 @@ export default function POS() {
                   >
                     Change Table
                   </Button>
-                  <Button variant="outline" className="h-9" onClick={() => setTableOrdersOpen(true)}>
-                    <Utensils className="h-4 w-4 mr-2" />
-                    Table Orders
-                  </Button>
+                  {rights?.viewTableOrders !== 'no' && (
+                    <Button variant="outline" className="h-9" onClick={() => setTableOrdersOpen(true)}>
+                      <Utensils className="h-4 w-4 mr-2" />
+                      Table Orders
+                    </Button>
+                  )}
                 </>
               )}
               <Button
@@ -2289,7 +2340,7 @@ export default function POS() {
           </div>
 
           {/* Cart Items */}
-          <div className="flex-1 p-2 overflow-y-auto">
+          <div key={cartViewKey} className="flex-1 p-2 overflow-y-auto">
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Receipt className="h-12 w-12 text-muted-foreground mb-4" />
@@ -2298,8 +2349,8 @@ export default function POS() {
               </div>
             ) : (
               <div className="space-y-1.5">
-                {cart.map((item) => (
-                  <div key={item.cartItemId || item.variantId} className="flex items-start gap-2 px-2 py-1.5 bg-muted/50 rounded-md">
+                {cart.map((item, idx) => (
+                  <div key={item.cartItemId || `${item.variantId}-${idx}`} className="flex items-start gap-2 px-2 py-1.5 bg-muted/50 rounded-md">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-[11px] leading-tight break-words">{item.productName}</p>
                       <p className="text-[10px] leading-tight text-muted-foreground font-medium mt-0.5 break-words">
@@ -2583,7 +2634,7 @@ export default function POS() {
                   // correct stock check
                   const locationStock = variant.locationStock?.[selectedLocationId?.toString()] || 0;
                   const isOutOfStock = locationStock <= 0;
-                  const canAdd = !isOutOfStock || settings?.allowNegativeStock || variant.hasRecipe;
+                  const canAdd = !isOutOfStock || negativeStockAllowed(selectedProduct, settings) || variant.hasRecipe;
 
                   return (
                     <div
@@ -3120,9 +3171,11 @@ export default function POS() {
                         <div className={`text-sm font-semibold ${balColor}`}>{settings?.currency || ''}{bal.toFixed(2)}</div>
                         <div className="text-[10px] text-muted-foreground">balance</div>
                       </div>
-                      <Button size="sm" onClick={() => handleLoadPendingReceipt(s as Sale)}>
-                        <ShoppingCart className="h-4 w-4 mr-1" /> Open
-                      </Button>
+                      {rights?.editTableOrder !== 'no' && (
+                        <Button size="sm" onClick={() => handleLoadPendingReceipt(s as Sale)}>
+                          <ShoppingCart className="h-4 w-4 mr-1" /> Open
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );

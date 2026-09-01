@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Search, Banknote, CreditCard, Smartphone, FileText,
   ChevronsUpDown, Check, ArrowUpRight, ArrowDownLeft,
@@ -157,6 +158,13 @@ const INVOICE_BADGE_CLASS = 'border-orange-500 text-orange-600 bg-orange-50 dark
 
 export default function CustomerAccounts() {
   const { customers } = useInventory();
+  const { user, getUserRights } = useAuth();
+  const rights = user ? getUserRights(user) : null;
+  const can = {
+    view: !rights || rights.viewCustomerAccounts !== 'no',
+    ledger: !rights || rights.manageCustomerLedger !== 'no',
+    pay: !rights || rights.customerReceivePayment !== 'no',
+  };
   const { sym, fmt } = useCurrency();
   const pdfPreview = usePdfPreview();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -328,6 +336,7 @@ export default function CustomerAccounts() {
 
   // Invoice(s) already selected (from the Outstanding Invoices tab) - go straight to payment details
   const handleApprovePayment = () => {
+    if (!can.pay) { toast.error('You are not allowed to receive customer payments'); return; }
     if (selectedInvoiceIds.length === 0) {
       toast.error('Please select at least one invoice/debit note');
       return;
@@ -384,6 +393,7 @@ export default function CustomerAccounts() {
 
   // Submit simple entry
   const handleSubmitEntry = async () => {
+    if (!can.ledger) { toast.error('You are not allowed to post ledger entries'); return; }
     if (!selectedCustomerId) return;
     const amount = parseFloat(entryAmount);
     if (!amount || amount <= 0) {
@@ -415,6 +425,7 @@ export default function CustomerAccounts() {
 
   // Submit payment against selected invoices
   const handleSubmitPayment = async () => {
+    if (!can.pay) { toast.error('You are not allowed to receive customer payments'); return; }
     if (!selectedCustomerId || selectedInvoiceIds.length === 0) {
       toast.error('Please select at least one invoice');
       return;
@@ -569,6 +580,19 @@ export default function CustomerAccounts() {
     [paymentSplits]
   );
 
+  if (!can.view) {
+    return (
+      <AppLayout title="Customer Accounts">
+        <Card className="border-amber-300 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="py-6 text-center text-sm text-amber-800 dark:text-amber-300">
+            You don't have permission to use Customer Accounts. Ask an administrator for the
+            "Customer Accounts: Open Window" right.
+          </CardContent>
+        </Card>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout title="Customer Accounts">
       <div className="space-y-6">
@@ -701,10 +725,12 @@ export default function CustomerAccounts() {
               <TabsContent value="history" className="space-y-4">
                 {/* Action Buttons */}
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={openPaymentDialog} className="gap-1.5">
-                    <Banknote className="h-3.5 w-3.5 text-green-600" /> Record Payment
-                  </Button>
-                  {(['DEBIT_NOTE', 'CREDIT_NOTE', 'OPENING_BALANCE', 'PREPAYMENT'] as EntryType[]).map(type => {
+                  {can.pay && (
+                    <Button variant="outline" size="sm" onClick={openPaymentDialog} className="gap-1.5">
+                      <Banknote className="h-3.5 w-3.5 text-green-600" /> Record Payment
+                    </Button>
+                  )}
+                  {can.ledger && (['DEBIT_NOTE', 'CREDIT_NOTE', 'OPENING_BALANCE', 'PREPAYMENT'] as EntryType[]).map(type => {
                     const config = ENTRY_TYPE_CONFIG[type];
                     const Icon = config.icon;
                     return (
@@ -778,13 +804,15 @@ export default function CustomerAccounts() {
                     <h3 className="text-sm font-semibold">Outstanding Invoices</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Select items and allocate payment amounts</p>
                   </div>
-                  <Button
-                    onClick={handleApprovePayment}
-                    disabled={selectedInvoiceIds.length === 0}
-                    className="gap-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold h-9 text-xs"
-                  >
-                    <Check className="h-4 w-4" /> Receive Payment ({selectedInvoiceIds.length})
-                  </Button>
+                  {can.pay && (
+                    <Button
+                      onClick={handleApprovePayment}
+                      disabled={selectedInvoiceIds.length === 0}
+                      className="gap-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold h-9 text-xs"
+                    >
+                      <Check className="h-4 w-4" /> Receive Payment ({selectedInvoiceIds.length})
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-1.5 max-h-[50vh] overflow-y-auto border rounded-lg p-1.5 bg-background">

@@ -146,10 +146,21 @@ export default function CustomReports() {
     setIsExecuting(true);
     try {
       const token = sessionStorage.getItem('token');
+
+      // Normalise the semantic filters so both array- and scalar-style report
+      // parameters resolve. 'all' means "no filter" (matches the bundled reports).
+      const locIds: string[] = execParams.locationIds || [];
+      const payload: Record<string, any> = {
+        ...execParams,
+        locationId: locIds.length === 1 ? locIds[0] : 'all',
+        // report param aliases: the user picker stores the name under `userId`
+        cashierName: execParams.userId || 'all',
+      };
+
       const response = await fetch(`${getBaseUrl()}/api/reports/templates/${executingTemplate.id}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ ...execParams }),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error('Report generation failed');
       const blob = await response.blob();

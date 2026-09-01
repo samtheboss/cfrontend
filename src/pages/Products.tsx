@@ -112,6 +112,7 @@ export default function Products() {
     unit: string;
     taxType: string;
     taxRate: number;
+    negativeStockPolicy: 'INHERIT' | 'ALLOW' | 'BLOCK';
   }>({
     name: '',
     description: '',
@@ -133,6 +134,7 @@ export default function Products() {
     unit: 'PCS',
     taxType: 'A',
     taxRate: 16.0,
+    negativeStockPolicy: 'INHERIT',
   });
 
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false);
@@ -474,6 +476,7 @@ export default function Products() {
       unit: 'PCS',
       taxType: 'A',
       taxRate: 16.0,
+      negativeStockPolicy: 'INHERIT',
     });
     setEditingId(null);
     setVariantRecipes({});
@@ -505,6 +508,7 @@ export default function Products() {
       unit: product.unit || 'PCS',
       taxType: product.taxType || 'A',
       taxRate: product.taxRate !== undefined ? product.taxRate : 16.0,
+      negativeStockPolicy: product.negativeStockPolicy || 'INHERIT',
     });
 
     // Extract recipes for variants
@@ -573,6 +577,7 @@ export default function Products() {
         unit: newProduct.unit,
         taxType: newProduct.taxType,
         taxRate: newProduct.taxRate,
+        negativeStockPolicy: newProduct.negativeStockPolicy,
       };
 
       let savedProduct: Product;
@@ -1477,6 +1482,29 @@ export default function Products() {
                       onCheckedChange={(checked) => setNewProduct(prev => ({ ...prev, isActive: checked }))}
                     />
                   </div>
+                </div>
+
+                <div className="rounded-lg border p-3 space-y-1.5">
+                  <Label htmlFor="negativeStockPolicy" className="flex items-center gap-2 text-sm">
+                    <Settings className="h-4 w-4 text-primary shrink-0" />
+                    Negative stock for this item
+                  </Label>
+                  <Select
+                    value={newProduct.negativeStockPolicy}
+                    onValueChange={(value) => setNewProduct(prev => ({ ...prev, negativeStockPolicy: value as 'INHERIT' | 'ALLOW' | 'BLOCK' }))}
+                  >
+                    <SelectTrigger id="negativeStockPolicy" className="w-full md:w-72">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="INHERIT">Inherit global setting</SelectItem>
+                      <SelectItem value="ALLOW">Always allow negative</SelectItem>
+                      <SelectItem value="BLOCK">Never allow negative</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Overrides the global “Allow Negative Stock” setting for this product only. Items with a recipe are unaffected.
+                  </p>
                 </div>
               </div>
             </CardContent>
