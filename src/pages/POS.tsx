@@ -84,7 +84,34 @@ export default function POS() {
   const tableManagementEnabled = !!settings?.enableTableManagement;
   const { user, logout, getUserRights } = useAuth();
   const rights = user ? getUserRights(user) : null;
+  const isAdmin = user?.username?.toLowerCase() === 'admin' || user?.role?.toUpperCase() === 'ADMIN';
   const { sym, computeTax, vatInclusive } = useCurrency();
+
+  // Hidden admin gesture: click the "POS" title in the header 5 times within 3s to wipe
+  // this browser's local/session storage (demo cleanup). No visible affordance or counter.
+  const clearStorageTaps = useRef(0);
+  const clearStorageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSecretClearStorage = () => {
+    if (!isAdmin) return;
+    if (clearStorageTimer.current) clearTimeout(clearStorageTimer.current);
+    clearStorageTaps.current += 1;
+    if (clearStorageTaps.current >= 5) {
+      clearStorageTaps.current = 0;
+      const apiBase = localStorage.getItem('api_base_url');
+      const printers: Record<string, string> = {};
+      Object.keys(localStorage)
+        .filter(k => k === 'localPrinterName' || k.startsWith('printer_mapping_'))
+        .forEach(k => { const v = localStorage.getItem(k); if (v != null) printers[k] = v; });
+      localStorage.clear();
+      sessionStorage.clear();
+      if (apiBase) localStorage.setItem('api_base_url', apiBase);
+      Object.entries(printers).forEach(([k, v]) => localStorage.setItem(k, v));
+      toast.success('Local storage cleared. Reloading…');
+      setTimeout(() => window.location.reload(), 500);
+      return;
+    }
+    clearStorageTimer.current = setTimeout(() => { clearStorageTaps.current = 0; }, 3000);
+  };
 
   // Workstation-specific local printer configuration
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
@@ -834,44 +861,61 @@ export default function POS() {
       return;
     }
 
-    try {
-      const saleData = {
-        type: 'SALE',
-        status: 'PENDING',
-        locationId: selectedLocationId,
-        customerId: selectedCustomer?.id ? parseInt(selectedCustomer.id) : null,
-        paymentMethod: 'PENDING',
-        tableId: selectedTable?.id ?? null,
-        tableName: selectedTable?.code ?? null,
-        payments: [],
-        subtotal,
-        taxAmount: tax,
-        totalAmount: total,
-        amountPaid: 0,
-        changeAmount: 0,
-        idempotencyKey: currentSaleId ? undefined : `kot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        items: cart.map(item => ({
-          variantId: parseInt(item.variantId),
-          sku: item.variantSku,
-          productName: item.productName,
-          adjustment: -item.quantity,
-          price: item.price,
-          taxRate: item.taxRate ?? 16.0,
-          taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
-        })),
-      };
+    // Printing a KOT now behaves exactly like "Place And Bill" (it creates a real open
+    // bill on the table board and deducts stock) — the ONLY difference is that it prints
+    // the kitchen ticket(s) instead of the customer bill.
+    const fallbackCust = contextCustomers?.find(c => c.name?.toUpperCase() === 'CASH-SALES ACCOUNT');
+    const kotCustomer = selectedCustomer || (tableManagementEnabled ? fallbackCust : null);
+    if (!kotCustomer) {
+      toast.error('Please select a customer to proceed');
+      setCustomerPopoverOpen(true);
+      return;
+    }
 
+    const saleData = {
+      type: 'SALE',
+      status: 'PAYMENT_PENDING',
+      locationId: selectedLocationId,
+      customerId: kotCustomer?.id ? kotCustomer.id : null,
+      paymentMethod: 'PAY_LATER',
+      tableId: selectedTable?.id ?? null,
+      tableName: selectedTable?.code ?? null,
+      payments: [],
+      subtotal,
+      taxAmount: tax,
+      totalAmount: total,
+      amountPaid: 0,
+      changeAmount: 0,
+      idempotencyKey: currentSaleId ? undefined : `kot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      items: cart.map(item => ({
+        variantId: parseInt(item.variantId),
+        sku: item.variantSku,
+        productName: item.productName,
+        adjustment: -item.quantity,
+        price: item.price,
+        taxRate: item.taxRate ?? 16.0,
+        taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
+      })),
+    };
+
+    setIsProcessing(true);
+    try {
       let savedSale;
       if (currentSaleId) {
+        // Strip amountPaid/changeAmount/payments on an update so a partial payment
+        // already recorded against this open order isn't wiped. The backend deducts
+        // stock for the delta (newly added lines) only.
+        const { amountPaid: _ap, changeAmount: _ca, payments: _pm, ...rest } = saleData;
+        const updatePayload = { ...rest, payments: [], status: 'PAYMENT_PENDING' };
         try {
           const res = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
             method: 'PUT',
-            body: JSON.stringify(saleData)
+            body: JSON.stringify(updatePayload)
           });
           savedSale = res.data || res;
         } catch (putErr: any) {
           // The loaded order no longer exists (completed, cancelled, stale draft) —
-          // fall back to creating a fresh KOT sale instead of failing.
+          // fall back to creating a fresh order instead of failing.
           if (String(putErr?.message || '').toLowerCase().includes('not found')) {
             setCurrentSaleId(null);
             const res = await apiFetch<any>('/api/transactions/sale', {
@@ -893,18 +937,19 @@ export default function POS() {
 
       const dbSaleId = savedSale.id;
       setCurrentSaleId(dbSaleId);
-      setCurrentSaleStatus('PENDING');
+      setCurrentSaleStatus('PAYMENT_PENDING');
 
+      // Kitchen ticket(s) only — never the customer bill.
       await dispatchKOTs(dbSaleId, newItems);
 
-      // KOT is saved to the DB as a PENDING sale and sent to the kitchen. Fully clear the
-      // POS so the next order can start; the pending order is still reachable from the
-      // Orders dialog (and the table board in restaurant mode).
       resetPOSState();
       refreshData();
-      toast.success('KOT sent — cart cleared. Ready for the next order.');
+      setPostActionPromptOpen(true);
+      toast.success('KOT sent to kitchen. Order is on the table board — no bill printed.');
     } catch (err: any) {
-      toast.error("Failed to save KOT order to database: " + err.message);
+      toast.error("Failed to save KOT order: " + err.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -1890,7 +1935,10 @@ export default function POS() {
                 <Button variant="outline" size="icon" onClick={handleLogout} title="Log out" className="h-9 w-9 text-destructive hover:text-destructive">
                   <LogOut className="h-4 w-4" />
                 </Button>
-                <h1 className="text-lg md:text-xl font-semibold whitespace-nowrap">POS</h1>
+                <h1
+                  className="text-lg md:text-xl font-semibold whitespace-nowrap select-none"
+                  onClick={handleSecretClearStorage}
+                >POS</h1>
               </div>
               <Button variant="outline" onClick={() => setOrdersDialogOpen(true)} className="md:hidden h-9 px-3">
                 <Clock className="h-4 w-4" />
@@ -2500,7 +2548,7 @@ export default function POS() {
         {/* KOT */}
         <button
           id="pos-kot-btn"
-          disabled={cart.length === 0}
+          disabled={cart.length === 0 || isProcessing}
           onClick={handlePrintKOT}
           className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-700 hover:bg-blue-800 text-white active:brightness-90"
         >
@@ -2579,6 +2627,7 @@ export default function POS() {
             Pay Cash
           </button>
         )}
+
       </div>
 
       <PaymentDialog
