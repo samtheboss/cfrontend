@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye, RefreshCw, Loader2, Upload, Trash, Calendar, Users, MapPin, Tag, Edit, Download, Search, CreditCard, Wallet, Clock, Hourglass, CheckCircle2, Printer } from 'lucide-react';
+import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye, RefreshCw, Loader2, Upload, Trash, Calendar, Users, MapPin, Tag, Edit, Download, Search, CreditCard, Wallet, Clock, Hourglass, CheckCircle2, Printer, ChevronRight, ChevronDown, Layers } from 'lucide-react';
 import { format, isAfter, isBefore, isEqual, compareAsc } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,7 @@ import { toast } from 'sonner';
 import { useCurrency } from '@/hooks/useCurrency';
 
 export default function Reports() {
-  const { products, transactions, locations, refreshData, customers, categories } = useInventory();
+  const { products, transactions, locations, refreshData, customers, categories, tables } = useInventory();
   const { allUsers } = useAuth();
   const { sym } = useCurrency();
 
@@ -256,6 +256,7 @@ export default function Reports() {
   const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'in' | 'low' | 'out'>('all');
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
   const [salesStatusFilter, setSalesStatusFilter] = useState<'all' | 'paid' | 'pending'>('all');
+  const [salesGroupBy, setSalesGroupBy] = useState<'date' | 'user' | 'category' | 'location' | 'item' | 'table' | 'customer' | 'payment'>('date');
   const [returnsSearchQuery, setReturnsSearchQuery] = useState('');
   const [fastMovingSearchQuery, setFastMovingSearchQuery] = useState('');
   const [historySearchQuery, setHistorySearchQuery] = useState('');
@@ -922,6 +923,278 @@ export default function Reports() {
     exportToCSV(rows, ["Date", "Receipt #", "Items", "Payment Status", "Subtotal (KES)", "Tax (KES)", "Total (KES)"], `Sales_Summary_${startDate}_to_${endDate}.csv`);
   };
 
+  // ── Grouped Sales Report ───────────────────────────────────────────────
+  // Aggregates the currently filtered sales by a user-selected dimension.
+  const salesGroupByLabels: Record<typeof salesGroupBy, string> = {
+    date: 'Date',
+    user: 'User',
+    category: 'Category',
+    location: 'Location',
+    item: 'Item',
+    table: 'Table',
+    customer: 'Customer',
+    payment: 'Payment Method',
+  };
+
+  const resolveUserName = (id?: string | number | null) => {
+    if (id === undefined || id === null || id === '') return 'Unassigned';
+    const u = allUsers.find(x => String(x.id) === String(id));
+    return u ? (u.name || u.username) : `User ${id}`;
+  };
+  const resolveLocationName = (id?: string | number | null) => {
+    if (id === undefined || id === null || id === '') return 'No Location';
+    const loc = locations.find(l => String(l.id) === String(id));
+    return loc ? loc.name : `Location ${id}`;
+  };
+  const resolveCustomerName = (id?: string | number | null) => {
+    if (id === undefined || id === null || id === '') return 'Walk-in';
+    const c = customers.find(x => String(x.id) === String(id));
+    return c ? c.name : `Customer ${id}`;
+  };
+  const resolveTableName = (id?: string | number | null, fallbackName?: string) => {
+    const t = (id !== undefined && id !== null && id !== '')
+      ? tables.find(x => String(x.id) === String(id))
+      : undefined;
+    if (t) return t.name ? `${t.name} (${t.code})` : t.code;
+    if (fallbackName) return fallbackName;
+    if (id !== undefined && id !== null && id !== '') return `Table ${id}`;
+    return 'No Table';
+  };
+
+  type GroupChild = { key: string; label: string; sublabel?: string; units: number; subtotal: number; tax: number; total: number; children?: GroupChild[] };
+  type GroupRow = { key: string; label: string; transactions: number; units: number; subtotal: number; tax: number; total: number; children: GroupChild[] };
+
+  const groupedSales = useMemo<GroupRow[]>(() => {
+    // Payment-method grouping is built from individual payment records — a split-tender
+    // sale (e.g. part CASH, part CARD) contributes one line to each method, exactly like
+    // the Payments Report. Each group just lists its receipt references and amounts.
+    if (salesGroupBy === 'payment') {
+      const pmap = new Map<string, GroupRow>();
+      combinedPayments
+        .filter(p => {
+          if ((p.source || 'POS') !== 'POS') return false;
+          const matchLocation = reportLocationId === 'all' || !p.locationId || String(p.locationId) === reportLocationId;
+          const matchUser = reportUserId === 'all' || !p.userId || String(p.userId) === reportUserId || String(p.cashierId) === reportUserId || String(p.createdBy) === reportUserId;
+          return matchLocation && matchUser;
+        })
+        .forEach(p => {
+          let label = (p.method || '').toString().trim().replace(/_/g, ' ').toUpperCase() || 'UNSPECIFIED';
+          if (label === 'PENDING' || label === 'PAY LATER') label = 'PAY LATER';
+          let row = pmap.get(label);
+          if (!row) {
+            row = { key: label, label, transactions: 0, units: 0, subtotal: 0, tax: 0, total: 0, children: [] };
+            pmap.set(label, row);
+          }
+          row.transactions += 1;
+          row.total += p.amount || 0;
+          row.children.push({
+            key: `pay:${p.id ?? `${p.reference || 'ref'}-${row.children.length}`}`,
+            label: p.reference || '(no reference)',
+            sublabel: p.customerName || undefined,
+            units: 0,
+            subtotal: 0,
+            tax: 0,
+            total: p.amount || 0,
+          });
+        });
+      const prows = Array.from(pmap.values());
+      prows.forEach(r => r.children.sort((a, b) => Math.abs(b.total) - Math.abs(a.total)));
+      prows.sort((a, b) => b.total - a.total);
+      return prows;
+    }
+
+    type Acc = GroupRow & { _childMap: Map<string, GroupChild>; _sales: Set<string> };
+    const map = new Map<string, Acc>();
+
+    const getRow = (key: string, label: string): Acc => {
+      let row = map.get(key);
+      if (!row) {
+        row = { key, label, transactions: 0, units: 0, subtotal: 0, tax: 0, total: 0, children: [], _childMap: new Map(), _sales: new Set() };
+        map.set(key, row);
+      }
+      return row;
+    };
+
+    const groupByItem = salesGroupBy === 'item';
+    const groupByCategory = salesGroupBy === 'category';
+    const itemLevel = groupByItem || groupByCategory;
+
+    salesItems.forEach(sale => {
+      const saleId = String(sale.id || sale.journalNumber || Math.random());
+      // Sale-level authoritative figures (include discounts / rounding / charges)
+      const saleSub = sale.subtotal || 0;
+      const saleTax = sale.tax || sale.taxAmount || 0;
+      const saleTotal = sale.total || sale.totalAmount || 0;
+      const qtySum = sale.items.reduce((s, i) => s + Math.abs(i.adjustment || 0), 0);
+
+      if (!itemLevel) {
+        let key = 'other';
+        let label = 'Other';
+        if (salesGroupBy === 'date') {
+          key = format(new Date(sale.timestamp), 'yyyy-MM-dd');
+          label = format(new Date(sale.timestamp), 'MMM d, yyyy');
+        } else if (salesGroupBy === 'user') {
+          const uid = sale.userId || sale.createdBy || (sale as any).cashierId;
+          key = String(uid ?? 'unassigned');
+          label = resolveUserName(uid);
+        } else if (salesGroupBy === 'location') {
+          key = String(sale.locationId ?? 'none');
+          label = resolveLocationName(sale.locationId);
+        } else if (salesGroupBy === 'table') {
+          const tId = (sale as any).tableId;
+          const tName = (sale as any).tableName;
+          key = tId != null ? `id:${tId}` : (tName ? `n:${tName}` : 'none');
+          label = resolveTableName(tId, tName);
+        } else if (salesGroupBy === 'customer') {
+          const cid = (sale as any).customerId;
+          key = String(cid ?? 'walkin');
+          label = resolveCustomerName(cid);
+        }
+        const row = getRow(key, label);
+        row.transactions += 1;
+        row.units += qtySum;
+        row.subtotal += saleSub;
+        row.tax += saleTax;
+        row.total += saleTotal;
+
+        // Third level: the receipt's own line items (amounts allocated from the
+        // sale totals so a receipt's lines add back up to its total).
+        const rLineVals = sale.items.map(i => Math.abs(i.adjustment || 0) * (i.price || 0));
+        const rLineSum = rLineVals.reduce((a, b) => a + b, 0);
+        const receiptItems: GroupChild[] = sale.items.map((item, idx) => {
+          const qty = Math.abs(item.adjustment || 0);
+          const share = rLineSum > 0
+            ? rLineVals[idx] / rLineSum
+            : (qtySum > 0 ? qty / qtySum : 1 / (sale.items.length || 1));
+          return {
+            key: `${saleId}:${item.variantId || item.sku || idx}`,
+            label: item.productName || item.sku || 'Item',
+            units: qty,
+            subtotal: saleSub * share,
+            tax: saleTax * share,
+            total: saleTotal * share,
+          };
+        });
+
+        row.children.push({
+          key: saleId,
+          label: sale.journalNumber || saleId,
+          sublabel: format(new Date(sale.timestamp), 'MMM d, HH:mm'),
+          units: qtySum,
+          subtotal: saleSub,
+          tax: saleTax,
+          total: saleTotal,
+          children: receiptItems.length ? receiptItems : undefined,
+        });
+        return;
+      }
+
+      // Item-level grouping (category / item): allocate the sale's authoritative
+      // subtotal / tax / total across its lines so the numbers reconcile with the
+      // date / user / location views instead of drifting on discounts & rounding.
+      const lineVals = sale.items.map(i => Math.abs(i.adjustment || 0) * (i.price || 0));
+      const lineSum = lineVals.reduce((a, b) => a + b, 0);
+
+      sale.items.forEach((item, idx) => {
+        const qty = Math.abs(item.adjustment || 0);
+        const share = lineSum > 0
+          ? lineVals[idx] / lineSum
+          : (qtySum > 0 ? qty / qtySum : 1 / (sale.items.length || 1));
+        const sub = saleSub * share;
+        const tax = saleTax * share;
+        const total = saleTotal * share;
+
+        let key: string;
+        let label: string;
+        if (groupByItem) {
+          key = item.productName || item.sku || 'Unknown';
+          label = key;
+        } else {
+          const product = products.find(p => p.name === item.productName);
+          label = product?.category || 'Uncategorized';
+          key = label;
+        }
+
+        const row = getRow(key, label);
+        row.units += qty;
+        row.subtotal += sub;
+        row.tax += tax;
+        row.total += total;
+        row._sales.add(saleId);
+
+        if (groupByCategory) {
+          const ck = item.productName || item.sku || 'Unknown';
+          let child = row._childMap.get(ck);
+          if (!child) {
+            child = { key: ck, label: ck, units: 0, subtotal: 0, tax: 0, total: 0 };
+            row._childMap.set(ck, child);
+          }
+          child.units += qty;
+          child.subtotal += sub;
+          child.tax += tax;
+          child.total += total;
+        }
+      });
+    });
+
+    const rows: GroupRow[] = Array.from(map.values()).map(r => ({
+      key: r.key,
+      label: r.label,
+      transactions: itemLevel ? r._sales.size : r.transactions,
+      units: r.units,
+      subtotal: r.subtotal,
+      tax: r.tax,
+      total: r.total,
+      children: groupByItem
+        ? []
+        : (groupByCategory ? Array.from(r._childMap.values()) : r.children).sort((a, b) => b.total - a.total),
+    }));
+
+    if (salesGroupBy === 'date') {
+      rows.sort((a, b) => a.key.localeCompare(b.key));
+    } else {
+      rows.sort((a, b) => b.total - a.total);
+    }
+    return rows;
+  }, [salesItems, salesGroupBy, allUsers, locations, products, customers, tables, combinedPayments, reportLocationId, reportUserId]);
+
+  const groupedSalesTotals = useMemo(() => ({
+    transactions: groupedSales.reduce((s, r) => s + r.transactions, 0),
+    units: groupedSales.reduce((s, r) => s + r.units, 0),
+    subtotal: groupedSales.reduce((s, r) => s + r.subtotal, 0),
+    tax: groupedSales.reduce((s, r) => s + r.tax, 0),
+    total: groupedSales.reduce((s, r) => s + r.total, 0),
+  }), [groupedSales]);
+
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (key: string) => setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+  useEffect(() => { setExpandedGroups({}); }, [salesGroupBy]);
+
+  const handleExportGroupedSales = () => {
+    const rows: string[][] = [];
+    if (salesGroupBy === 'payment') {
+      groupedSales.forEach(r => {
+        rows.push([r.label, String(r.transactions), r.total.toFixed(2)]);
+        r.children.forEach(c => rows.push([`    ${c.label}${c.sublabel ? ` (${c.sublabel})` : ''}`, '', c.total.toFixed(2)]));
+      });
+      exportToCSV(
+        rows,
+        ['Payment Method', 'Payments', 'Amount (KES)'],
+        `Sales_By_Payment_Method_${startDate}_to_${endDate}.csv`
+      );
+      return;
+    }
+    groupedSales.forEach(r => {
+      rows.push([r.label, String(r.transactions), String(r.units), r.subtotal.toFixed(2), r.tax.toFixed(2), r.total.toFixed(2)]);
+      r.children.forEach(c => rows.push([`    ${c.label}`, '', String(c.units), c.subtotal.toFixed(2), c.tax.toFixed(2), c.total.toFixed(2)]));
+    });
+    exportToCSV(
+      rows,
+      [salesGroupByLabels[salesGroupBy], "Transactions", "Units", "Subtotal (KES)", "Tax (KES)", "Total (KES)"],
+      `Sales_By_${salesGroupByLabels[salesGroupBy]}_${startDate}_to_${endDate}.csv`
+    );
+  };
+
   const handleExportReturns = () => {
     const rows = returnsItems.map(r => [
       format(new Date(r.timestamp), 'yyyy-MM-dd HH:mm'),
@@ -1111,6 +1384,7 @@ export default function Reports() {
         <TabsList className="w-full justify-start overflow-x-auto flex-nowrap scrollbar-none h-auto p-1 bg-muted/50">
           <TabsTrigger value="stock" className="whitespace-nowrap min-w-fit">Stock Report</TabsTrigger>
           <TabsTrigger value="sales" className="whitespace-nowrap min-w-fit">Sales Report</TabsTrigger>
+          <TabsTrigger value="grouped-sales" className="whitespace-nowrap min-w-fit">Sales Grouping</TabsTrigger>
           <TabsTrigger value="purchases" className="whitespace-nowrap min-w-fit">Purchases Report</TabsTrigger>
           <TabsTrigger value="returns" className="whitespace-nowrap min-w-fit">Returns</TabsTrigger>
           <TabsTrigger value="payments" className="whitespace-nowrap min-w-fit">Payments Report</TabsTrigger>
@@ -1583,6 +1857,193 @@ export default function Reports() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="grouped-sales" className="space-y-8">
+          {/* Title Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+            <div>
+              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+                Sales <span className="text-amber-600 font-serif italic font-normal">Grouping</span>
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Roll every sale in the selected period up by a dimension of your choosing — then open a row to see what sits inside it.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="rounded-full shadow-sm" onClick={handleExportGroupedSales}>
+                <Download className="w-4 h-4 mr-1.5 text-muted-foreground" /> Export
+              </Button>
+              <Button variant="outline" size="sm" className="rounded-full shadow-sm" onClick={() => printTable('grouped-sales-table', `Sales by ${salesGroupByLabels[salesGroupBy]}`)}>
+                <Printer className="w-4 h-4 mr-1.5 text-muted-foreground" /> Print
+              </Button>
+            </div>
+          </div>
+
+          {/* Controls Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-amber-50/40 dark:bg-card/50 p-3 rounded-2xl border border-amber-200/50 dark:border-border">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-muted-foreground" />
+              <Label className="text-sm font-medium whitespace-nowrap">Group sales by</Label>
+            </div>
+            <Select value={salesGroupBy} onValueChange={(v) => setSalesGroupBy(v as typeof salesGroupBy)}>
+              <SelectTrigger className="w-full sm:w-[200px] bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date">Date</SelectItem>
+                <SelectItem value="user">User</SelectItem>
+                <SelectItem value="category">Category</SelectItem>
+                <SelectItem value="location">Location</SelectItem>
+                <SelectItem value="item">Item</SelectItem>
+                <SelectItem value="table">Table</SelectItem>
+                <SelectItem value="customer">Customer</SelectItem>
+                <SelectItem value="payment">Payment Method</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="text-xs text-muted-foreground sm:ml-auto">
+              Uses the report period, location &amp; user filters above • {groupedSales.length} groups
+            </div>
+          </div>
+
+          {/* Grouped Table */}
+          <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+              <div className="flex items-center gap-3">
+                <h3 className="font-serif text-2xl font-normal text-foreground">Sales by {salesGroupByLabels[salesGroupBy]}</h3>
+                <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
+                  {groupedSales.length} groups
+                </Badge>
+              </div>
+              <div className="text-xs text-muted-foreground font-medium">
+                {salesGroupBy === 'item' ? 'Line items' : salesGroupBy === 'payment' ? 'Receipts per method' : 'Click a row to expand'} • {sym}
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                {(() => {
+                const paymentMode = salesGroupBy === 'payment';
+                const colCount = paymentMode ? 3 : 6;
+                return (
+                <table id="grouped-sales-table" className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
+                      <th className="py-3.5 px-6">{salesGroupByLabels[salesGroupBy]}</th>
+                      <th className="py-3.5 px-4 text-right">{paymentMode ? 'Payments' : 'Transactions'}</th>
+                      {!paymentMode && <th className="py-3.5 px-4 text-right">Units</th>}
+                      {!paymentMode && <th className="py-3.5 px-4 text-right">Subtotal</th>}
+                      {!paymentMode && <th className="py-3.5 px-4 text-right">Tax</th>}
+                      <th className="py-3.5 px-6 text-right">{paymentMode ? 'Amount' : 'Total'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y text-sm">
+                    {groupedSales.length === 0 ? (
+                      <tr><td colSpan={colCount} className="py-8 text-center text-muted-foreground">No sales in the selected period.</td></tr>
+                    ) : groupedSales.map((row) => {
+                      const expandable = row.children.length > 0;
+                      const open = !!expandedGroups[row.key];
+                      return (
+                        <React.Fragment key={row.key}>
+                          <tr
+                            className={`transition-colors ${expandable ? 'cursor-pointer hover:bg-muted/30' : ''} ${open ? 'bg-muted/20' : ''}`}
+                            onClick={() => expandable && toggleGroup(row.key)}
+                          >
+                            <td className="py-4 px-6 font-semibold text-foreground">
+                              <span className="inline-flex items-center gap-1.5">
+                                {expandable
+                                  ? (open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />)
+                                  : <span className="w-4 h-4 inline-block" />}
+                                {row.label}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-right text-muted-foreground">{row.transactions}</td>
+                            {!paymentMode && <td className="py-4 px-4 text-right text-muted-foreground">{row.units}</td>}
+                            {!paymentMode && <td className="py-4 px-4 text-right font-serif text-muted-foreground">{sym}{row.subtotal.toFixed(2)}</td>}
+                            {!paymentMode && <td className="py-4 px-4 text-right font-serif text-muted-foreground">{sym}{row.tax.toFixed(2)}</td>}
+                            <td className="py-4 px-6 text-right font-serif font-semibold text-base text-emerald-600 dark:text-emerald-400">{sym}{row.total.toFixed(2)}</td>
+                          </tr>
+                          {open && row.children.map((child) => {
+                            const childExpandable = !!child.children && child.children.length > 0;
+                            const childOpen = !!expandedGroups[child.key];
+                            return (
+                              <React.Fragment key={child.key}>
+                                <tr
+                                  className={`bg-muted/5 text-xs transition-colors ${childExpandable ? 'cursor-pointer hover:bg-muted/20' : ''}`}
+                                  onClick={() => childExpandable && toggleGroup(child.key)}
+                                >
+                                  <td className="py-2.5 pl-12 pr-6">
+                                    <span className="inline-flex items-center gap-1.5">
+                                      {childExpandable
+                                        ? (childOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />)
+                                        : <span className="w-3.5 h-3.5 inline-block" />}
+                                      <span>
+                                        <span className="font-mono font-medium text-foreground">{child.label}</span>
+                                        {child.sublabel && <span className="block text-[11px] text-muted-foreground truncate max-w-[420px]">{child.sublabel}</span>}
+                                      </span>
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-4 text-right text-muted-foreground">—</td>
+                                  {!paymentMode && <td className="py-2.5 px-4 text-right text-muted-foreground">{child.units}</td>}
+                                  {!paymentMode && <td className="py-2.5 px-4 text-right font-serif text-muted-foreground">{sym}{child.subtotal.toFixed(2)}</td>}
+                                  {!paymentMode && <td className="py-2.5 px-4 text-right font-serif text-muted-foreground">{sym}{child.tax.toFixed(2)}</td>}
+                                  <td className="py-2.5 px-6 text-right font-serif text-muted-foreground">{sym}{child.total.toFixed(2)}</td>
+                                </tr>
+                                {childOpen && child.children!.map((leaf) => (
+                                  <tr key={leaf.key} className="bg-muted/10 text-[11px]">
+                                    <td className="py-2 pl-[4.75rem] pr-6 text-muted-foreground">{leaf.label}</td>
+                                    <td className="py-2 px-4 text-right text-muted-foreground">—</td>
+                                    {!paymentMode && <td className="py-2 px-4 text-right text-muted-foreground">{leaf.units}</td>}
+                                    {!paymentMode && <td className="py-2 px-4 text-right font-serif text-muted-foreground">{sym}{leaf.subtotal.toFixed(2)}</td>}
+                                    {!paymentMode && <td className="py-2 px-4 text-right font-serif text-muted-foreground">{sym}{leaf.tax.toFixed(2)}</td>}
+                                    <td className="py-2 px-6 text-right font-serif text-muted-foreground">{sym}{leaf.total.toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
+                    <tr>
+                      <td className="py-3.5 px-6">TOTALS</td>
+                      <td className="py-3.5 px-4 text-right">{groupedSalesTotals.transactions}</td>
+                      {!paymentMode && <td className="py-3.5 px-4 text-right">{groupedSalesTotals.units}</td>}
+                      {!paymentMode && <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{groupedSalesTotals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
+                      {!paymentMode && <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{groupedSalesTotals.tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
+                      <td className="py-3.5 px-6 text-right font-serif text-base text-emerald-600 dark:text-emerald-400">{sym}{groupedSalesTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+                );
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Grouped Chart */}
+          {groupedSales.length > 0 && (
+            <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
+              <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+                <h3 className="font-serif text-2xl font-normal text-foreground">Total by {salesGroupByLabels[salesGroupBy]}</h3>
+                <div className="text-xs text-muted-foreground font-medium">Top 15 • KES</div>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={groupedSales.slice(0, 15).map(r => ({ name: r.label, total: r.total }))} margin={{ bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis dataKey="name" className="text-xs" interval={0} angle={-25} textAnchor="end" height={70} />
+                      <YAxis className="text-xs" />
+                      <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} />
+                      <Bar dataKey="total" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="returns" className="space-y-8">

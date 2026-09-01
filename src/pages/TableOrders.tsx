@@ -54,6 +54,7 @@ export default function TableOrders() {
     pay: !rights || rights.receiveTableOrderPayment !== 'no',
     transfer: !rights || rights.transferTableOrder !== 'no',
     mergeSplit: !rights || rights.mergeSplitTableOrders !== 'no',
+    reprint: !rights || rights.reprintReceipt !== 'no',
   };
   const {
     tables = [], salesHistory = [], customers = [], settings,
@@ -247,8 +248,15 @@ export default function TableOrders() {
     setTableMergeTo('');
   };
 
-  const printReceipt = (s: Sale) =>
-    pdf.showPdf(`${getBaseUrl()}/api/transactions/sale/${s.id}/receipt`, { title: `Receipt · ${s.journalNumber}` });
+  const printReceipt = async (s: Sale) => {
+    if ((s as any).billPrintedAt && !can.reprint) {
+      toast.error('This bill was already printed. You need the "Reprint Receipt" right to print it again.');
+      return;
+    }
+    await pdf.showPdf(`${getBaseUrl()}/api/transactions/sale/${s.id}/receipt`, { title: `Receipt · ${s.journalNumber}` });
+    // Backend stamped billPrintedAt while rendering — refetch so the board reflects it.
+    await refreshData?.();
+  };
   const openInPos = (s: Sale) => {
     if (!can.edit) { toast.error('You are not allowed to edit table orders'); return; }
     requestPosLoad(Number(s.id));
@@ -277,6 +285,8 @@ export default function TableOrders() {
                 )}
                 <span>{new Date(String(s.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 <span>· {customerName(s)}</span>
+                {s.createdBy && <span>· Served by {s.createdBy}</span>}
+                {(s as any).billPrintedAt && <span className="text-emerald-600 dark:text-emerald-500 font-medium">· Bill printed</span>}
               </div>
             </div>
           </div>
@@ -522,7 +532,7 @@ export default function TableOrders() {
                 </div>
 
                 <div className="mt-2 text-[10px] text-muted-foreground truncate">
-                  {r.cashier ? `${r.cashier} · ` : ''}
+                  {r.cashier ? `Served by ${r.cashier} · ` : ''}
                   {r.last ? new Date(r.last).toLocaleString() : 'No activity'}
                 </div>
               </button>

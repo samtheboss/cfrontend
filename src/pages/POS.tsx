@@ -7,7 +7,7 @@ import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Search, Minus, Plus, Trash2, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift, Utensils, LayoutGrid } from 'lucide-react';
+import { Search, Minus, Plus, Trash2, Ban, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift, Utensils, LayoutGrid } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -71,6 +71,7 @@ export default function POS() {
     createSale,
     createReturn,
     checkReturnableItems,
+    voidPrintedItems,
     addCustomer,
     activeOrders = [],
     holdOrder,
@@ -85,6 +86,23 @@ export default function POS() {
   const { user, logout, getUserRights } = useAuth();
   const rights = user ? getUserRights(user) : null;
   const isAdmin = user?.username?.toLowerCase() === 'admin' || user?.role?.toUpperCase() === 'ADMIN';
+  const canVoidPrinted = !rights || rights.voidPrintedItem !== 'no';
+  // "Can receive payment" = holds at least one payment-taking right (umbrella,
+  // table-order, or any individual POS tender method). If none, the Pending
+  // Payments popup shows a Print Bill button instead of Receive Payment.
+  const canReceivePayment = !rights || [
+    rights.paymentAccess,
+    rights.receiveTableOrderPayment,
+    rights.posReceiveCash,
+    rights.posReceiveBank,
+    rights.posReceiveMobile,
+    rights.posReceiveComplimentary,
+  ].some(v => v !== 'no');
+  // Re-printing a bill that was already printed once needs the Reprint Receipt right.
+  const canReprintReceipt = !rights || rights.reprintReceipt !== 'no';
+  // Adding items to an order whose bill was already printed: 'no' blocks, 'yes' allows,
+  // 'supervised' needs a supervisor password to unlock.
+  const addToPrintedBillRight = rights?.addToPrintedBill ?? 'yes';
   const { sym, computeTax, vatInclusive } = useCurrency();
 
   // Hidden admin gesture: click the "POS" title in the header 5 times within 3s to wipe
@@ -235,6 +253,21 @@ export default function POS() {
   // Removed local state: activeOrders and salesHistory now come from context
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
+  // Void printed KOT item (supervisor-authorised) state
+  const [voidTarget, setVoidTarget] = useState<{ item: CartItem; maxQty: number } | null>(null);
+  const [voidQty, setVoidQty] = useState(1);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidSupUser, setVoidSupUser] = useState('');
+  const [voidSupPass, setVoidSupPass] = useState('');
+
+  // Customer bill (receipt) already-printed state for the loaded order
+  const [currentBillPrinted, setCurrentBillPrinted] = useState(false);
+  const [billEditUnlocked, setBillEditUnlocked] = useState(false);
+  const [billUnlockDialogOpen, setBillUnlockDialogOpen] = useState(false);
+  const [billUnlockSupUser, setBillUnlockSupUser] = useState('');
+  const [billUnlockSupPass, setBillUnlockSupPass] = useState('');
+  const [printingBillId, setPrintingBillId] = useState<string | number | null>(null);
+
   // Receive Payment dialog state
   const [receivePaymentSale, setReceivePaymentSale] = useState<Sale | null>(null);
   const [receivePaymentMethods, setReceivePaymentMethods] = useState<Record<string, { active: boolean; amount: string; reference: string }>>({
@@ -370,6 +403,7 @@ export default function POS() {
   // Receipt Preview States
   const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
   const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
+  const [receiptPreviewLabel, setReceiptPreviewLabel] = useState<string | null>(null);
   const receiptIframeRef = useRef<HTMLIFrameElement>(null);
   const autoPrintIframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -610,6 +644,7 @@ export default function POS() {
   );
 
   const addToCart = (variant: ProductVariant, productName: string, productObj?: Product) => {
+    if (!ensureBillEditable()) return;
     // Force string lookup for map key
     const availableStock = variant.locationStock?.[selectedLocationId?.toString()] || 0;
     const productForPolicy = productObj || products.find(p => p.id?.toString() === variant?.productId?.toString());
@@ -675,6 +710,7 @@ export default function POS() {
   };
 
   const updateQuantity = (cartItemId: string, delta: number) => {
+    if (delta > 0 && !ensureBillEditable()) return;
     setCart(prev => prev.map(item => {
       if (item.cartItemId === cartItemId) {
         if (item.printed && delta < 0) {
@@ -740,9 +776,10 @@ export default function POS() {
     setCart([]);
   };
 
-  const dispatchKOTs = async (dbSaleId: string | number, newItems: typeof cart) => {
+  const dispatchKOTs = async (dbSaleId: string | number, newItems: typeof cart, opts?: { cancel?: boolean }) => {
       const token = sessionStorage.getItem('token');
-      toast.info('Routing KOTs to printers...');
+      const kotEndpoint = opts?.cancel ? 'receipt_kot_cancel' : 'receipt_kot_custom';
+      toast.info(opts?.cancel ? 'Sending cancellation to kitchen...' : 'Routing KOTs to printers...');
 
       // 1. Group new items by printer name
       const printerGroups: Record<string, typeof newItems> = {};
@@ -786,7 +823,7 @@ export default function POS() {
             taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
           }));
 
-          const kotUrl = `${getBaseUrl()}/api/transactions/sale/${dbSaleId}/receipt_kot_custom`;
+          const kotUrl = `${getBaseUrl()}/api/transactions/sale/${dbSaleId}/${kotEndpoint}`;
           const response = await fetch(kotUrl, {
             method: 'POST',
             headers: {
@@ -829,7 +866,7 @@ export default function POS() {
           );
           // Local print service unreachable: re-fetch the KOT and show it in-app (no new tab).
           try {
-              const retryResponse = await fetch(`${getBaseUrl()}/api/transactions/sale/${dbSaleId}/receipt_kot_custom`, {
+              const retryResponse = await fetch(`${getBaseUrl()}/api/transactions/sale/${dbSaleId}/${kotEndpoint}`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -1016,17 +1053,26 @@ export default function POS() {
     setCurrentSaleId(null);
     setCurrentSalePaid(0);
     setCurrentSaleStatus(null);
+    setCurrentBillPrinted(false);
+    setBillEditUnlocked(false);
     setSelectedTable(null);
     setWantTablePicker(false);
     setCartViewKey(k => k + 1);
   };
 
-  const handlePreviewReceipt = (url: string) => {
+  const handlePreviewReceipt = (url: string, label?: string) => {
+    setReceiptPreviewLabel(label || null);
     setReceiptPreviewUrl(url);
     setReceiptPreviewOpen(true);
   };
 
-  const handleReceiptAction = async (url: string) => {
+  const handleReceiptAction = async (url: string, label?: string, opts?: { autoPrint?: boolean }) => {
+    setReceiptPreviewLabel(label || null);
+    // Try a silent send to the local/custom printer first when auto-print is on for
+    // this workstation, or when the caller forces it (e.g. the "Print Bill" button —
+    // it says "print", so it should, and only fall back to the popup if that fails,
+    // exactly like Place And Bill).
+    const autoPrint = opts?.autoPrint ?? !!settings?.autoPrintReceipts;
     try {
       const token = sessionStorage.getItem('token');
       // Fetch the PDF blob using auth token
@@ -1041,9 +1087,8 @@ export default function POS() {
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
 
-      // If auto-print is enabled, we bypass the modal and send directly to the local print server
-      if (settings?.autoPrintReceipts) {
-        toast.info('Sending receipt to printer...');
+      if (autoPrint) {
+        toast.info('Sending to printer...');
         try {
           const localPrinterName = localStorage.getItem('localPrinterName') || 'Receipt Printer';
           const printResponse = await fetch(`http://localhost:9000/print?printer=${encodeURIComponent(localPrinterName)}`, {
@@ -1054,29 +1099,23 @@ export default function POS() {
             body: blob,
           });
           if (printResponse.ok) {
-            toast.success(`Receipt printed successfully via local print service on ${localPrinterName}!`);
+            toast.success(`Printed via local print service on ${localPrinterName}!`);
+            URL.revokeObjectURL(blobUrl);
             return;
-          } else {
-            console.warn('Local print service failed, falling back to browser print...');
           }
+          console.warn('Local print service rejected the job, falling back to preview...');
         } catch (e) {
-          console.warn('Local print service offline, falling back to browser print...', e);
+          console.warn('Local print service offline, falling back to preview...', e);
         }
-
-        // Local print service isn't reachable - fall back to showing the popup so the receipt isn't lost silently
-        if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(receiptPreviewUrl);
-        }
-        setReceiptPreviewUrl(blobUrl);
-        setReceiptPreviewOpen(true);
-      } else {
-        // Cleanup previous blob URL if any
-        if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(receiptPreviewUrl);
-        }
-        setReceiptPreviewUrl(blobUrl);
-        setReceiptPreviewOpen(true);
+        // Direct print failed - show the popup so the document isn't lost silently
       }
+
+      // Cleanup previous blob URL if any, then show the preview popup
+      if (receiptPreviewUrl && receiptPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(receiptPreviewUrl);
+      }
+      setReceiptPreviewUrl(blobUrl);
+      setReceiptPreviewOpen(true);
     } catch (error) {
       console.error('Error loading receipt preview:', error);
       toast.error('Failed to load receipt preview');
@@ -1293,9 +1332,17 @@ export default function POS() {
         toast.success('Sale saved! Payment can be collected later.');
       }
 
-      // 1. Print Customer Bill
-      const receiptUrl = `${getBaseUrl()}/api/transactions/sale/${savedId}/receipt`;
-      handleReceiptAction(receiptUrl);
+      // 1. Print Customer Bill.
+      const hasNewItems = cart.some(item => !item.printed);
+      if (currentBillPrinted && !hasNewItems) {
+        // Re-placing an unchanged order that was already billed — don't re-print or
+        // re-stamp the bill.
+      } else if (currentBillPrinted && !canReprintReceipt) {
+        toast.info('Order placed. Ask a supervisor to re-print the bill.');
+      } else {
+        const receiptUrl = `${getBaseUrl()}/api/transactions/sale/${savedId}/receipt`;
+        handleReceiptAction(receiptUrl);
+      }
 
       // 2. Dispatch Unprinted KOTs
       const newItems = cart.filter(item => !item.printed);
@@ -1620,6 +1667,8 @@ export default function POS() {
     setCurrentSaleId(typeof sale.id === 'number' ? sale.id : parseInt(sale.id.toString()));
     setCurrentSalePaid(Number(sale.amountPaid || 0));
     setCurrentSaleStatus((sale as any).status || 'PAYMENT_PENDING');
+    setCurrentBillPrinted(!!(sale as any).billPrintedAt);
+    setBillEditUnlocked(false);
 
     setOrdersDialogOpen(false);
     setTableOrdersOpen(false);
@@ -1874,6 +1923,119 @@ export default function POS() {
       setReturnItems([]);
     } catch (error) {
       console.error("Return failed", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // --- Adding items to an order whose customer bill was already printed ---
+  // Returns true if the caller may proceed with the add/increase now.
+  const ensureBillEditable = (): boolean => {
+    if (!currentSaleId || !currentBillPrinted || billEditUnlocked) return true;
+    if (addToPrintedBillRight === 'no') {
+      toast.error('The customer bill was already printed — you are not allowed to add items to it.');
+      return false;
+    }
+    if (addToPrintedBillRight === 'supervised') {
+      setBillUnlockDialogOpen(true);
+      return false;
+    }
+    // 'yes' — allow, but flag that the bill is now stale
+    setBillEditUnlocked(true);
+    toast.warning('This bill was already printed. Re-print it after you finish changing the order.');
+    return true;
+  };
+
+  const submitBillUnlock = async () => {
+    if (!billUnlockSupUser.trim() || !billUnlockSupPass) {
+      toast.error('Enter the supervisor username and password.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const token = sessionStorage.getItem('token');
+      const resp = await fetch(`${getBaseUrl()}/api/auth/verify-supervisor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ username: billUnlockSupUser.trim(), password: billUnlockSupPass }),
+      });
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => null);
+        toast.error(j?.message || 'Supervisor authorisation failed');
+        return;
+      }
+      setBillEditUnlocked(true);
+      setBillUnlockDialogOpen(false);
+      setBillUnlockSupUser('');
+      setBillUnlockSupPass('');
+      toast.success('Editing unlocked. Add the items, then re-print the bill.');
+    } catch (e) {
+      toast.error('Could not reach the server to verify the supervisor.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // --- Void an already-printed KOT line (supervisor override) ---
+  const openVoidDialog = (item: CartItem) => {
+    if (!canVoidPrinted) {
+      toast.error("You don't have permission to void printed items.");
+      return;
+    }
+    if (!currentSaleId || currentSaleStatus !== 'PAYMENT_PENDING') {
+      toast.error('Only items on an open (billed) order can be voided.');
+      return;
+    }
+    setVoidTarget({ item, maxQty: item.quantity });
+    setVoidQty(item.quantity);
+    setVoidReason('');
+    setVoidSupUser('');
+    setVoidSupPass('');
+  };
+
+  const submitVoid = async () => {
+    if (!voidTarget || !currentSaleId || !voidPrintedItems) return;
+    const qty = Math.min(Math.max(1, Math.floor(voidQty || 1)), voidTarget.maxQty);
+    if (!voidSupUser.trim() || !voidSupPass) {
+      toast.error('Enter the supervisor username and password.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await voidPrintedItems(Number(currentSaleId), {
+        items: [{
+          variantId: parseInt(voidTarget.item.variantId),
+          sku: voidTarget.item.variantSku,
+          productName: voidTarget.item.productName,
+          adjustment: qty,
+          price: voidTarget.item.price,
+        }],
+        reason: voidReason.trim() || null,
+        supervisorUsername: voidSupUser.trim(),
+        supervisorPassword: voidSupPass,
+      });
+
+      // Shrink / drop the line locally to match the server
+      const targetId = voidTarget.item.cartItemId || voidTarget.item.variantId;
+      setCart(prev => prev.flatMap(ci => {
+        if ((ci.cartItemId || ci.variantId) !== targetId) return [ci];
+        const left = ci.quantity - qty;
+        return left > 0 ? [{ ...ci, quantity: left }] : [];
+      }));
+
+      // Tell the kitchen to stop preparing the voided units
+      try {
+        await dispatchKOTs(currentSaleId, [{ ...voidTarget.item, quantity: qty }] as typeof cart, { cancel: true });
+      } catch (e) {
+        console.warn('Cancellation KOT dispatch failed', e);
+      }
+
+      toast.success(`Voided ${qty} × ${voidTarget.item.productName} — ${res.journalNumber}`);
+      setVoidTarget(null);
+      refreshData?.();
+    } catch (error) {
+      // context already surfaced the message; keep the dialog open
+      console.error('Void failed', error);
     } finally {
       setIsProcessing(false);
     }
@@ -2389,6 +2551,22 @@ export default function POS() {
 
           {/* Cart Items */}
           <div key={cartViewKey} className="flex-1 p-2 overflow-y-auto">
+            {currentSaleId && currentBillPrinted && (
+              <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-[11px] text-amber-800 dark:text-amber-200 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <Printer className="h-3.5 w-3.5 shrink-0" />
+                  {billEditUnlocked
+                    ? 'Bill already printed — re-print it after your changes.'
+                    : 'The customer bill for this order was already printed.'}
+                </span>
+                {!billEditUnlocked && addToPrintedBillRight !== 'no' && (
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] shrink-0"
+                    onClick={() => ensureBillEditable()}>
+                    Unlock to edit
+                  </Button>
+                )}
+              </div>
+            )}
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Receipt className="h-12 w-12 text-muted-foreground mb-4" />
@@ -2451,16 +2629,28 @@ export default function POS() {
                         >
                           <Plus className="h-2.5 w-2.5" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={`h-5 w-5 sm:h-6 sm:w-6 ml-0.5 ${item.printed ? 'text-slate-300 cursor-not-allowed' : 'text-destructive'}`}
-                          onClick={() => removeFromCart(item.cartItemId || item.variantId)}
-                          disabled={!!item.printed}
-                          title={item.printed ? "Printed KOT item - cannot delete" : "Remove item"}
-                        >
-                          <Trash2 className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                        </Button>
+                        {item.printed && currentSaleId && currentSaleStatus === 'PAYMENT_PENDING' && canVoidPrinted ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 sm:h-6 sm:w-6 ml-0.5 text-amber-600 hover:text-destructive"
+                            onClick={() => openVoidDialog(item)}
+                            title="Void this printed item (supervisor approval)"
+                          >
+                            <Ban className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`h-5 w-5 sm:h-6 sm:w-6 ml-0.5 ${item.printed ? 'text-slate-300 cursor-not-allowed' : 'text-destructive'}`}
+                            onClick={() => removeFromCart(item.cartItemId || item.variantId)}
+                            disabled={!!item.printed}
+                            title={item.printed ? "Printed KOT item - cannot delete" : "Remove item"}
+                          >
+                            <Trash2 className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2799,50 +2989,42 @@ export default function POS() {
                   <p>No matching held orders</p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 items-start">
                   {filteredActiveOrders.map(order => (
-                    <div key={order.id} className="border rounded-lg bg-card overflow-hidden">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer gap-2"
+                    <div key={order.id} className="border rounded-md bg-card overflow-hidden">
+                      <div className="px-2.5 py-1.5 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer"
                         onClick={() => toggleExpandOrder(order.id)}>
-                        <div className="flex gap-3 items-center">
-                          <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 shrink-0">
-                            <PauseCircle className="h-4 w-4 sm:h-5 sm:w-5" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm sm:text-base truncate">
-                              {order.customer ? order.customer.name : 'Walk-in Customer'}
-                            </div>
-                            <div className="text-xs sm:text-sm text-muted-foreground flex gap-2">
-                              <span>{format(order.timestamp, 'HH:mm')}</span>
-                              <span>•</span>
-                              <span>{order.items.length} items</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0">
-                          <div className="text-left sm:text-right">
-                            <span className="text-[10px] text-muted-foreground block sm:hidden">Total</span>
-                            <span className="font-semibold text-sm sm:text-base">
+                        {/* Row 1 */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-semibold text-xs md:text-sm truncate min-w-0">
+                            {order.customer ? order.customer.name : 'Walk-in Customer'}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="font-bold text-xs md:text-sm whitespace-nowrap">
                               {sym}{order.items.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2)}
                             </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button size="sm" className="h-7 sm:h-8 text-[11px] sm:text-xs px-2 sm:px-3" onClick={(e) => {
+                            <Button size="sm" className="h-6 px-2 text-[10px] md:text-xs" onClick={(e) => {
                               e.stopPropagation();
                               handleResumeOrder(order);
                             }}>
-                              <PlayCircle className="h-3.5 w-3.5 mr-1" />
+                              <PlayCircle className="h-3 w-3 mr-1" />
                               Resume
                             </Button>
-                            {expandedOrderId === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            {expandedOrderId === order.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                           </div>
+                        </div>
+                        {/* Row 2 */}
+                        <div className="mt-0.5 text-[10px] md:text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap leading-tight">
+                          <span>{format(order.timestamp, 'MMM d, HH:mm')}</span>
+                          <span>•</span>
+                          <span>{order.items.length} items</span>
                         </div>
                       </div>
 
                       {expandedOrderId === order.id && (
-                        <div className="p-4 bg-muted/10 border-t space-y-2">
+                        <div className="px-2.5 py-2 bg-muted/10 border-t space-y-1">
                           {order.items.map((item, idx) => (
-                            <div key={idx} className="flex justify-between text-sm">
+                            <div key={idx} className="flex justify-between text-xs">
                               <div>{item.productName} <span className="text-muted-foreground">x{item.quantity}</span></div>
                               <div>{sym}{(item.price * item.quantity).toFixed(2)}</div>
                             </div>
@@ -2863,35 +3045,24 @@ export default function POS() {
                   <p>No pending payments</p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 items-start">
                   {pendingPaymentSales.map(sale => (
-                    <div key={sale.id} className="border border-amber-200 rounded-lg bg-card overflow-hidden">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 bg-amber-50/60 dark:bg-amber-950/20 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer gap-3"
+                    <div key={sale.id} className="border border-amber-200 rounded-md bg-card overflow-hidden">
+                      <div className="px-2.5 py-1.5 bg-amber-50/60 dark:bg-amber-950/20 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer"
                         onClick={() => toggleExpandOrder(sale.id)}>
-                        <div className="flex gap-3 md:gap-4 items-center">
-                          <div className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
-                            <Wallet className="h-5 w-5" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm md:text-base truncate">
-                              {sale.journalNumber || `Sale #${sale.id?.toString().slice(-6)}`}
-                            </div>
-                            <div className="text-[11px] md:text-sm text-muted-foreground flex items-center gap-1 md:gap-2">
-                              <span>{format(new Date(sale.timestamp), 'MMM d, HH:mm')}</span>
-                              <span>•</span>
-                              <span className="text-amber-600 font-medium">Payment Pending</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between sm:justify-end gap-2 md:gap-4 flex-wrap">
-                          <div className="font-bold text-right text-xs md:text-base shrink-0 text-amber-700">
-                            {sym}{(sale.totalAmount || sale.total || 0).toFixed(2)}
-                          </div>
-                          <div className="flex items-center gap-1 md:gap-1.5">
+                        {/* Row 1: ref + amount + actions */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-semibold text-xs md:text-sm truncate min-w-0">
+                            {sale.journalNumber || `Sale #${sale.id?.toString().slice(-6)}`}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="font-bold text-xs md:text-sm text-amber-700 whitespace-nowrap">
+                              {sym}{(sale.totalAmount || sale.total || 0).toFixed(2)}
+                            </span>
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 px-2 md:h-8 md:px-3 text-[10px] md:text-xs"
+                              className="h-6 px-2 text-[10px] md:text-xs"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleLoadPendingReceipt(sale);
@@ -2900,37 +3071,80 @@ export default function POS() {
                               <ShoppingCart className="h-3 w-3 mr-1" />
                               Load to POS
                             </Button>
-                            <Button
-                              size="sm"
-                              id={`receive-payment-btn-${sale.id}`}
-                              className="h-7 px-2 md:h-8 md:px-3 text-[10px] md:text-xs bg-amber-500 hover:bg-amber-600 text-white"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setReceivePaymentSale(sale);
-                                const due = Number(sale.totalAmount) || 0;
-                                setReceivePaymentMethods({
-                                  cash: { active: false, amount: due.toFixed(2), reference: '' },
-                                  card: { active: false, amount: '', reference: '' },
-                                  mobile: { active: false, amount: '', reference: '' }
-                                });
-                              }}
-                            >
-                              <Wallet className="h-3 w-3 mr-1" />
-                              Receive Payment
-                            </Button>
-                            {expandedOrderId === sale.id ? <ChevronUp className="h-4 w-4 ml-0.5" /> : <ChevronDown className="h-4 w-4 ml-0.5" />}
+                            {canReceivePayment ? (
+                              <Button
+                                size="sm"
+                                id={`receive-payment-btn-${sale.id}`}
+                                className="h-6 px-2 text-[10px] md:text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setReceivePaymentSale(sale);
+                                  const due = Number(sale.totalAmount) || 0;
+                                  setReceivePaymentMethods({
+                                    cash: { active: false, amount: due.toFixed(2), reference: '' },
+                                    card: { active: false, amount: '', reference: '' },
+                                    mobile: { active: false, amount: '', reference: '' }
+                                  });
+                                }}
+                              >
+                                <Wallet className="h-3 w-3 mr-1" />
+                                Receive Payment
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[10px] md:text-xs"
+                                disabled={printingBillId === sale.id}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if ((sale as any).billPrintedAt && !canReprintReceipt) {
+                                    toast.error('This bill was already printed. You need the "Reprint Receipt" right to print it again.');
+                                    return;
+                                  }
+                                  setPrintingBillId(sale.id);
+                                  try {
+                                    await handleReceiptAction(
+                                      `${getBaseUrl()}/api/transactions/sale/${sale.id}/receipt`,
+                                      sale.journalNumber || `Sale #${sale.id?.toString().slice(-6)}`,
+                                      { autoPrint: true }
+                                    );
+                                    // Backend stamped billPrintedAt while rendering the PDF —
+                                    // refetch so the row flips to "Re-print" and can't be double-printed.
+                                    await refreshData?.();
+                                  } finally {
+                                    setPrintingBillId(null);
+                                  }
+                                }}
+                              >
+                                <Printer className="h-3 w-3 mr-1" />
+                                {printingBillId === sale.id
+                                  ? 'Printing…'
+                                  : (sale as any).billPrintedAt ? 'Re-print Bill' : 'Print Bill'}
+                              </Button>
+                            )}
+                            {expandedOrderId === sale.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                           </div>
+                        </div>
+                        {/* Row 2: meta */}
+                        <div className="mt-0.5 text-[10px] md:text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap leading-tight">
+                          <span>{format(new Date(sale.timestamp), 'MMM d, HH:mm')}</span>
+                          <span>•</span>
+                          <span className="text-amber-600 font-medium">Payment Pending</span>
+                          {(sale as any).billPrintedAt && (<><span>•</span><span className="text-emerald-600 font-medium">Bill printed</span></>)}
+                          {sale.tableName && (<><span>•</span><span className="font-medium text-foreground">Table {sale.tableName}</span></>)}
+                          {sale.createdBy && (<><span>•</span><span>Served by {sale.createdBy}</span></>)}
                         </div>
                       </div>
 
                       {expandedOrderId === sale.id && (
-                        <div className="p-4 bg-muted/10 border-t space-y-2">
-                          <div className="text-xs font-semibold text-muted-foreground mb-2 flex justify-between">
+                        <div className="px-2.5 py-2 bg-muted/10 border-t space-y-1">
+                          <div className="text-[10px] font-semibold text-muted-foreground mb-0.5 flex justify-between">
                             <span>ITEM</span>
                             <span>SUBTOTAL</span>
                           </div>
                           {sale.items.map((item, idx) => (
-                            <div key={idx} className="flex justify-between text-sm">
+                            <div key={idx} className="flex justify-between text-xs">
                               <div>
                                 {item.productName}
                                 <span className="text-muted-foreground ml-2">
@@ -2940,7 +3154,7 @@ export default function POS() {
                               <div>{sym}{(item.price * Math.abs(item.adjustment || (item as any).quantity || 0)).toFixed(2)}</div>
                             </div>
                           ))}
-                          <div className="border-t pt-2 mt-2 flex justify-between font-medium">
+                          <div className="border-t pt-1.5 mt-1 flex justify-between font-medium text-xs">
                             <span>Total Due</span>
                             <span className="text-amber-600">{sym}{(sale.totalAmount || sale.total || 0).toFixed(2)}</span>
                           </div>
@@ -2959,67 +3173,64 @@ export default function POS() {
                   <p>No matching sales history</p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 items-start">
                   {filteredSalesHistory.map(sale => (
-                    <div key={sale.id} className="border rounded-lg bg-card overflow-hidden">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer gap-3"
+                    <div key={sale.id} className="border rounded-md bg-card overflow-hidden">
+                      <div className="px-2.5 py-1.5 bg-muted/20 hover:bg-muted/50 transition-colors cursor-pointer"
                         onClick={() => toggleExpandOrder(sale.id)}>
-                        <div className="flex gap-3 md:gap-4 items-center">
-                          <div className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-green-100 flex items-center justify-center text-green-600 shrink-0">
-                            <FileText className="h-5 w-5" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm md:text-base truncate">
-                              Sale #{sale.id.toString().slice(-6)}
-                            </div>
-                            <div className="text-[11px] md:text-sm text-muted-foreground flex items-center gap-1 md:gap-2">
-                              <span>{format(sale.timestamp, 'MMM d, HH:mm')}</span>
-                              <span>•</span>
-                              <span className="capitalize truncate">{sale.paymentMethod}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between sm:justify-end gap-2 md:gap-4 flex-wrap">
-                          <div className="font-bold text-right text-xs md:text-base shrink-0">
-                            {sym}{(sale.total || (sale as any).totalAmount || 0).toFixed(2)}
-                          </div>
-                          <div className="flex items-center gap-1 md:gap-1.5 flex-wrap justify-end">
+                        {/* Row 1: ref + amount + actions */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-semibold text-xs md:text-sm truncate min-w-0">
+                            {sale.journalNumber || `Sale #${sale.id.toString().slice(-6)}`}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="font-bold text-xs md:text-sm whitespace-nowrap">
+                              {sym}{(sale.total || (sale as any).totalAmount || 0).toFixed(2)}
+                            </span>
                             {rights?.reprintReceipt !== 'no' && (
-                              <Button size="sm" variant="outline" className="h-7 w-7 md:h-8 md:w-8 p-0" onClick={(e) => {
+                              <Button size="sm" variant="outline" className="h-6 w-6 p-0" onClick={(e) => {
                                 e.stopPropagation();
-                                handleReceiptAction(`${getBaseUrl()}/api/transactions/sale/${sale.id}/receipt`);
+                                handleReceiptAction(`${getBaseUrl()}/api/transactions/sale/${sale.id}/receipt`, sale.journalNumber || `Sale #${sale.id.toString().slice(-6)}`);
                               }} title="View/Print Receipt">
-                                <Receipt className="h-3.5 w-3.5" />
+                                <Receipt className="h-3 w-3" />
                               </Button>
                             )}
-                            <Button size="sm" variant="outline" className="h-7 px-1.5 md:h-8 md:px-2 text-[10px] md:text-xs" onClick={(e) => {
+                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[10px] md:text-xs" onClick={(e) => {
                               e.stopPropagation();
                               handleReorder(sale);
                             }}>
                               Re-order
                             </Button>
                             {rights?.returnOrder !== 'no' && (
-                              <Button size="sm" variant="destructive" className="h-7 px-1.5 md:h-8 md:px-2 text-[10px] md:text-xs" onClick={(e) => {
+                              <Button size="sm" variant="destructive" className="h-6 px-1.5 text-[10px] md:text-xs" onClick={(e) => {
                                 e.stopPropagation();
                                 handleOpenReturn(sale);
                               }}>
-                                <RotateCcw className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
+                                <RotateCcw className="h-3 w-3 mr-0.5" />
                                 Return
                               </Button>
                             )}
-                            {expandedOrderId === sale.id ? <ChevronUp className="h-4 w-4 ml-0.5" /> : <ChevronDown className="h-4 w-4 ml-0.5" />}
+                            {expandedOrderId === sale.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                           </div>
+                        </div>
+                        {/* Row 2: meta */}
+                        <div className="mt-0.5 text-[10px] md:text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap leading-tight">
+                          <span>{format(sale.timestamp, 'MMM d, HH:mm')}</span>
+                          <span>•</span>
+                          <span className="capitalize truncate">{sale.paymentMethod}</span>
+                          {sale.tableName && (<><span>•</span><span className="font-medium text-foreground">Table {sale.tableName}</span></>)}
+                          {sale.createdBy && (<><span>•</span><span className="truncate">Served by {sale.createdBy}</span></>)}
                         </div>
                       </div>
 
                       {expandedOrderId === sale.id && (
-                        <div className="p-4 bg-muted/10 border-t space-y-2">
-                          <div className="text-xs font-semibold text-muted-foreground mb-2 flex justify-between">
+                        <div className="px-2.5 py-2 bg-muted/10 border-t space-y-1">
+                          <div className="text-[10px] font-semibold text-muted-foreground mb-0.5 flex justify-between">
                             <span>ITEM</span>
                             <span>SUBTOTAL</span>
                           </div>
                           {sale.items.map((item, idx) => (
-                            <div key={idx} className="flex justify-between text-sm">
+                            <div key={idx} className="flex justify-between text-xs">
                               <div>
                                 {item.productName}
                                 <span className="text-muted-foreground ml-2">
@@ -3029,7 +3240,7 @@ export default function POS() {
                               <div>{sym}{(item.price * Math.abs(item.adjustment || item.quantity || 0)).toFixed(2)}</div>
                             </div>
                           ))}
-                          <div className="border-t pt-2 mt-2 flex justify-between font-medium">
+                          <div className="border-t pt-1.5 mt-1 flex justify-between font-medium text-xs">
                             <span>Total</span>
                             <span>{sym}{(sale.total || (sale as any).totalAmount || 0).toFixed(2)}</span>
                           </div>
@@ -3041,6 +3252,117 @@ export default function POS() {
               )}
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* Void Printed KOT Item Dialog (supervisor override) */}
+      <Dialog open={!!voidTarget} onOpenChange={(o) => { if (!o) setVoidTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Ban className="h-5 w-5 text-amber-600" />
+              Void printed item
+            </DialogTitle>
+            <DialogDescription>
+              This item was already sent to the kitchen and its stock deducted. Voiding it
+              removes it from the bill, restores stock, prints a cancellation slip, and is
+              recorded as a cancelled return receipt. Needs a supervisor (admin / manager).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-2 space-y-4">
+            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              <div className="font-medium">{voidTarget?.item.productName}</div>
+              <div className="text-muted-foreground text-xs">
+                On the bill: {voidTarget?.maxQty} × {sym}{(voidTarget?.item.price || 0).toFixed(2)}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="voidQty">Quantity to void</Label>
+              <Input
+                id="voidQty"
+                type="number"
+                min={1}
+                max={voidTarget?.maxQty ?? 1}
+                value={voidQty}
+                onChange={(e) => setVoidQty(parseInt(e.target.value) || 1)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="voidReason">Reason (optional)</Label>
+              <Input
+                id="voidReason"
+                placeholder="e.g. wrong item fired, customer changed mind"
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="voidSupUser">Supervisor username</Label>
+                <Input
+                  id="voidSupUser"
+                  autoComplete="off"
+                  value={voidSupUser}
+                  onChange={(e) => setVoidSupUser(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="voidSupPass">Password</Label>
+                <Input
+                  id="voidSupPass"
+                  type="password"
+                  autoComplete="off"
+                  value={voidSupPass}
+                  onChange={(e) => setVoidSupPass(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidTarget(null)} disabled={isProcessing}>Cancel</Button>
+            <Button variant="destructive" onClick={submitVoid} disabled={isProcessing}>
+              {isProcessing ? 'Voiding…' : 'Void item'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unlock editing of a bill-printed order (supervisor) */}
+      <Dialog open={billUnlockDialogOpen} onOpenChange={(o) => { if (!o) setBillUnlockDialogOpen(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Printer className="h-5 w-5 text-amber-600" />
+              Supervisor approval
+            </DialogTitle>
+            <DialogDescription>
+              This order's customer bill was already printed. A supervisor (admin / manager)
+              must approve adding items. The bill will be marked for re-printing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="billSupUser">Supervisor username</Label>
+              <Input id="billSupUser" autoComplete="off" value={billUnlockSupUser}
+                onChange={(e) => setBillUnlockSupUser(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="billSupPass">Password</Label>
+              <Input id="billSupPass" type="password" autoComplete="off" value={billUnlockSupPass}
+                onChange={(e) => setBillUnlockSupPass(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBillUnlockDialogOpen(false)} disabled={isProcessing}>Cancel</Button>
+            <Button onClick={submitBillUnlock} disabled={isProcessing}>
+              {isProcessing ? 'Checking…' : 'Unlock editing'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -3260,7 +3582,7 @@ export default function POS() {
           <DialogHeader className="p-4 border-b">
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5" />
-              Receipt Preview
+              Receipt Preview{receiptPreviewLabel ? ` — ${receiptPreviewLabel}` : ''}
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 w-full bg-muted">

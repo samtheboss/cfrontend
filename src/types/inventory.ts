@@ -260,6 +260,8 @@ export interface Sale extends InventoryTransaction {
   amountPaid: number;
   changeAmount: number;
   discountAmount?: number;
+  billPrintedAt?: string | null; // set when the customer bill was printed; cleared when items change
+  billPrintCount?: number;
   customerPhone?: string;
   customerEmail?: string;
   shippingLocation?: string;

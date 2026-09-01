@@ -82,6 +82,8 @@ interface InventoryContextType {
     createSale: (saleData: any) => Promise<{ id: number; journalNumber: string }>;
     createReturn: (returnData: any) => Promise<{ id: number; journalNumber: string }>;
     checkReturnableItems: (saleId: number) => Promise<any[]>;
+    /** Supervisor-authorised void of already-printed KOT lines on an open order. */
+    voidPrintedItems: (saleId: number, payload: any) => Promise<{ id: number; journalNumber: string }>;
     activeOrders: ActiveOrder[];
     /** Returns false when the system-configured hold limit is reached (order not added). */
     holdOrder: (order: ActiveOrder) => boolean;
@@ -763,6 +765,21 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                         return response.data;
                     } catch (error: any) {
                         toast.error(error.message || 'Failed to process return');
+                        throw error;
+                    }
+                },
+                voidPrintedItems: async (saleId: number, payload: any) => {
+                    try {
+                        const response = await apiFetch<ApiResponse<{ id: number; journalNumber: string }>>(
+                            `/api/transactions/sale/${saleId}/void-items`, {
+                            method: 'POST',
+                            body: JSON.stringify(payload),
+                        });
+                        await fetchInventoryData();
+                        toast.success(`Items voided — ${response.data.journalNumber}. Stock restored.`);
+                        return response.data;
+                    } catch (error: any) {
+                        toast.error(error.message || 'Failed to void items');
                         throw error;
                     }
                 },

@@ -37,6 +37,8 @@ export interface UserRights {
   editOrder: RightValue;
   deleteOrder: RightValue;
   returnOrder: RightValue;
+  voidPrintedItem: RightValue; // Void an already-printed KOT line off an open bill (still needs supervisor approval)
+  addToPrintedBill: RightValue; // Add items to an order whose customer bill was already printed ('supervised' = needs a supervisor password)
   reprintReceipt: RightValue;
   paymentAccess: RightValue; // Receive Order Payment
 
@@ -160,6 +162,8 @@ export const defaultRights: UserRights = {
   editOrder: 'no',
   deleteOrder: 'no',
   returnOrder: 'no',
+  voidPrintedItem: 'no',
+  addToPrintedBill: 'no',
   reprintReceipt: 'no',
   paymentAccess: 'no',
   viewTableOrders: 'no',
@@ -248,6 +252,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editOrder: 'yes',
       deleteOrder: 'yes',
       returnOrder: 'yes',
+      voidPrintedItem: 'yes',
+      addToPrintedBill: 'yes',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
       viewTableOrders: 'yes',
@@ -330,6 +336,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editOrder: 'yes',
       deleteOrder: 'supervised',
       returnOrder: 'supervised',
+      voidPrintedItem: 'yes',
+      addToPrintedBill: 'yes',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
       viewTableOrders: 'yes',
@@ -412,6 +420,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editOrder: 'supervised',
       deleteOrder: 'no',
       returnOrder: 'no',
+      voidPrintedItem: 'no',
+      addToPrintedBill: 'no',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
       viewTableOrders: 'yes',
@@ -499,6 +509,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       editOrder: 'no',
       deleteOrder: 'no',
       returnOrder: 'no',
+      voidPrintedItem: 'no',
+      addToPrintedBill: 'no',
       reprintReceipt: 'no',
       paymentAccess: 'no',
       viewTableOrders: 'no',
@@ -624,6 +636,8 @@ export const rightLabels: Record<keyof UserRights, string> = {
   editOrder: 'Edit Order',
   deleteOrder: 'Delete Order',
   returnOrder: 'Return Order',
+  voidPrintedItem: 'Void Printed KOT Item',
+  addToPrintedBill: 'Add Items to a Printed Bill',
   reprintReceipt: 'Reprint Receipt',
   paymentAccess: 'Receive Order Payment',
   viewTableOrders: 'Table Orders: View Board',
@@ -706,6 +720,8 @@ export const rightDescriptions: Partial<Record<keyof UserRights, string>> = {
   editOrder: 'Modify existing active orders',
   deleteOrder: 'Cancel or delete an order',
   returnOrder: 'Process returns and refunds for orders',
+  voidPrintedItem: 'Remove an already-printed KOT line from an open bill (restores stock, still requires a supervisor password)',
+  addToPrintedBill: "Add items to an order after its customer bill was printed. 'no' blocks it, 'supervised' asks for a supervisor password. The bill is marked un-printed so it gets re-printed.",
   reprintReceipt: 'Print duplicate receipts for past orders',
   paymentAccess: 'Ability to finalize an order and receive payment',
   viewTableOrders: 'Open the Table Orders board and see open bills per table',
@@ -743,7 +759,7 @@ export const rightDescriptions: Partial<Record<keyof UserRights, string>> = {
 
 export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Dashboard': ['viewDashboard', 'exportDashboard'],
-  'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'reprintReceipt', 'paymentAccess', 'viewRetailPrice', 'viewWholesalePrice', 'viewSpecialPrice', 'viewTradePrice', 'viewCostPrice', 'viewItemStock'],
+  'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'voidPrintedItem', 'addToPrintedBill', 'reprintReceipt', 'paymentAccess', 'viewRetailPrice', 'viewWholesalePrice', 'viewSpecialPrice', 'viewTradePrice', 'viewCostPrice', 'viewItemStock'],
   'Table Orders': ['viewTableOrders', 'editTableOrder', 'receiveTableOrderPayment', 'transferTableOrder', 'mergeSplitTableOrders'],
   'Invoicing & Accounts': ['viewInvoicing', 'createInvoice', 'invoiceReceivePayment', 'invoiceReturn', 'viewCustomerAccounts', 'manageCustomerLedger', 'customerReceivePayment'],
   'Customers': ['viewCustomers', 'createCustomer', 'editCustomer', 'deleteCustomer'],

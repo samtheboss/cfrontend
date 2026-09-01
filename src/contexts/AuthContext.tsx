@@ -326,6 +326,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         createOrder: 'yes',
         editOrder: 'yes',
         deleteOrder: 'yes',
+        returnOrder: 'yes',
+        voidPrintedItem: 'yes',
+        addToPrintedBill: 'yes',
         reprintReceipt: 'yes',
         paymentAccess: 'yes',
         viewTableOrders: 'yes',
@@ -374,6 +377,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const moduleRights = [
       { key: 'viewDashboard', path: '/stats' },
       { key: 'viewOrders', path: '/pos' },
+      { key: 'viewTableOrders', path: '/table-orders' },
       { key: 'viewAccommodation', path: '/accommodation' },
       { key: 'viewProperties', path: '/properties' },
       { key: 'viewOnlineOrders', path: '/orders' },
