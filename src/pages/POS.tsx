@@ -779,6 +779,28 @@ export default function POS() {
   };
 
   /**
+   * "Cancel": drop the local working cart and fully detach from any loaded DB order
+   * WITHOUT modifying that order. The loaded order stays exactly as it is on the board;
+   * the next item added starts a brand-new sale (fresh id + idempotency key).
+   */
+  const cancelWorkingOrder = (opts?: { silent?: boolean }) => {
+    const hadLoadedOrder = !!currentSaleId;
+    clearCart();
+    setCurrentSaleId(null);
+    setCurrentSaleStatus(null);
+    setCurrentSalePaid(0);
+    setCurrentBillPrinted(false);
+    setBillEditUnlocked(false);
+    setSelectedTable(null);
+    setWantTablePicker(false);
+    setSelectedCustomer(contextCustomers?.find(c => c.name?.toUpperCase() === 'CASH-SALES ACCOUNT') || null);
+    setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    if (hadLoadedOrder && !opts?.silent) {
+      toast.info('Cleared. The order you loaded is unchanged — reopen it from Pending Payments or the table board.');
+    }
+  };
+
+  /**
    * Robustly resolve the product-category name for a cart line (for KOT printer routing).
    * `allVariants` only holds FINISHED_GOOD products, so it can't be trusted here — scan the
    * full product list for whichever product actually owns this variant.
@@ -2516,13 +2538,7 @@ export default function POS() {
               </h2>
               {cart.length > 0 && (
                 <Button variant="ghost" size="sm" className="text-destructive h-8 px-2"
-                  onClick={() => {
-                    if (currentSaleId && (currentBillPrinted || cart.some(i => i.printed))) {
-                      toast.error('This order already has a printed KOT or bill. Void the items or process a return instead.');
-                      return;
-                    }
-                    clearCart();
-                  }}>
+                  onClick={() => cancelWorkingOrder()}>
                   Clear
                 </Button>
               )}
@@ -2740,10 +2756,11 @@ export default function POS() {
           onClick={() => {
             if (cart.length > 0) {
               handleHoldOrder();
+              setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
             } else {
-              clearCart();
+              // No held/loaded work to preserve — fully detach so nothing is left dangling.
+              cancelWorkingOrder({ silent: true });
             }
-            setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
             toast.info('New order started');
           }}
           className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all bg-cyan-500 hover:bg-cyan-600 text-white active:brightness-90"
@@ -2752,19 +2769,11 @@ export default function POS() {
           New
         </button>
 
-        {/* Cancel */}
+        {/* Cancel — detaches from a loaded order without changing it in the DB */}
         <button
           id="pos-cancel-btn"
           disabled={cart.length === 0}
-          onClick={() => {
-            // A KOT-fired / billed order has affected stock and lives on the table board —
-            // it can't just be wiped from the screen. Use Void / Return instead.
-            if (currentSaleId && (currentBillPrinted || cart.some(i => i.printed))) {
-              toast.error('This order already has a printed KOT or bill. Void the items or process a return — it can’t be cancelled here.');
-              return;
-            }
-            clearCart();
-          }}
+          onClick={() => cancelWorkingOrder()}
           className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-red-500 hover:bg-red-600 text-white active:brightness-90"
         >
           <Trash2 className="h-5 w-5" />
