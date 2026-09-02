@@ -416,7 +416,8 @@ export default function POS() {
 
   // Get all variants with product info (Active only)
   const allVariants = products
-    .filter(p => p.isActive !== false && p.type === 'FINISHED_GOOD')
+    // include products with no `type` set (legacy rows) — only RAW_MATERIAL is excluded
+    .filter(p => p.isActive !== false && p.type !== 'RAW_MATERIAL')
     .flatMap(product =>
       product.variants
         .filter(v => v.isActive !== false)
@@ -686,6 +687,7 @@ export default function POS() {
         maxStock: availableStock,
         hasRecipe: variant.hasRecipe,
         allowNegative,
+        category: (productObj || product || productForPolicy)?.category,
         taxRate: product?.taxRate ?? 16.0,
         taxType: product?.taxType ?? 'A'
       }];
@@ -776,42 +778,63 @@ export default function POS() {
     setCart([]);
   };
 
+  /**
+   * Robustly resolve the product-category name for a cart line (for KOT printer routing).
+   * `allVariants` only holds FINISHED_GOOD products, so it can't be trusted here — scan the
+   * full product list for whichever product actually owns this variant.
+   */
+  const resolveItemCategory = (item: { variantId?: string; category?: string }): string | undefined => {
+    if (item.category && item.category.trim()) return item.category.trim();
+    const vid = item.variantId?.toString();
+    if (!vid) return undefined;
+    const owner = products.find(p => (p.variants || []).some(v => v.id?.toString() === vid));
+    if (owner?.category && owner.category.trim()) return owner.category.trim();
+    // legacy: some rows carry a product id in variantId
+    const asProduct = products.find(p => p.id?.toString() === vid);
+    return asProduct?.category?.trim() || undefined;
+  };
+
   const dispatchKOTs = async (dbSaleId: string | number, newItems: typeof cart, opts?: { cancel?: boolean }) => {
       const token = sessionStorage.getItem('token');
       const kotEndpoint = opts?.cancel ? 'receipt_kot_cancel' : 'receipt_kot_custom';
       toast.info(opts?.cancel ? 'Sending cancellation to kitchen...' : 'Routing KOTs to printers...');
 
-      // 1. Group new items by printer name
+      // 1. Group new items by printer name (and remember which categories landed there)
       const printerGroups: Record<string, typeof newItems> = {};
+      const printerCategories: Record<string, string[]> = {};
       const fallbackPrinter = localStorage.getItem('localPrinterName') || 'Receipt Printer';
 
       for (const item of newItems) {
-        // Resolve category
-        const variant = allVariants?.find(v => v.id?.toString() === item.variantId?.toString());
-        const prod = products.find(p => p.id?.toString() === variant?.productId?.toString() || p.id?.toString() === item.variantId?.toString());
-        const categoryName = prod?.category;
+        const categoryName = resolveItemCategory(item);
+        if (!categoryName) {
+          console.warn('KOT routing: no category resolved for', item.productName, '(variantId', item.variantId, ') — using fallback printer', fallbackPrinter);
+        }
 
         const printer = (categoryName && posPrinterMappings[categoryName]) ? posPrinterMappings[categoryName] : fallbackPrinter;
 
         if (!printerGroups[printer]) {
           printerGroups[printer] = [];
+          printerCategories[printer] = [];
         }
         printerGroups[printer].push(item);
+        if (categoryName && !printerCategories[printer].includes(categoryName)) {
+          printerCategories[printer].push(categoryName);
+        }
       }
 
       console.log('--- KOT Printer Routing ---');
       Object.entries(printerGroups).forEach(([printerName, items]) => {
-          const itemSummaries = items.map(i => {
-              const variant = allVariants?.find(v => v.id?.toString() === i.variantId?.toString());
-              const prod = products.find(p => p.id?.toString() === variant?.productId?.toString() || p.id?.toString() === i.variantId?.toString());
-              return { name: i.productName, category: prod?.category, mappedPrinter: printerName };
-          });
+          const itemSummaries = items.map(i => ({
+              name: i.productName, category: resolveItemCategory(i), mappedPrinter: printerName,
+          }));
           console.log(`=> Dispatched to Printer: [${printerName}]`, itemSummaries);
       });
       console.log('---------------------------');
 
       // 2. For each printer group, request custom KOT and print
       for (const [printerName, itemsForPrinter] of Object.entries(printerGroups)) {
+        const stationLabel = (printerCategories[printerName] || []).join(' / ');
+        const catQS = stationLabel ? `?category=${encodeURIComponent(stationLabel)}` : '';
         try {
           const payloadItems = itemsForPrinter.map(item => ({
             variantId: parseInt(item.variantId),
@@ -823,7 +846,7 @@ export default function POS() {
             taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
           }));
 
-          const kotUrl = `${getBaseUrl()}/api/transactions/sale/${dbSaleId}/${kotEndpoint}`;
+          const kotUrl = `${getBaseUrl()}/api/transactions/sale/${dbSaleId}/${kotEndpoint}${catQS}`;
           const response = await fetch(kotUrl, {
             method: 'POST',
             headers: {
@@ -866,7 +889,7 @@ export default function POS() {
           );
           // Local print service unreachable: re-fetch the KOT and show it in-app (no new tab).
           try {
-              const retryResponse = await fetch(`${getBaseUrl()}/api/transactions/sale/${dbSaleId}/${kotEndpoint}`, {
+              const retryResponse = await fetch(`${getBaseUrl()}/api/transactions/sale/${dbSaleId}/${kotEndpoint}${catQS}`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -1205,13 +1228,13 @@ export default function POS() {
         return;
       }
       if (currentSaleId && currentSalePaid > 0) {
-        // Order already carries a partial payment: persist any item changes (staying
-        // PAYMENT_PENDING, payments left intact), then post the new payment so the
-        // backend adds it on top of what was already paid.
-        const { amountPaid: _ap, changeAmount: _ca, payments: _pm, ...itemsPayload } = saleData;
+        // Order already carries a partial payment: just take the balance. Receiving a
+        // payment must never touch the order's line items, so the PUT carries no `items`
+        // (the backend leaves them alone when none are sent).
+        const { amountPaid: _ap, changeAmount: _ca, payments: _pm, items: _it, ...metaPayload } = saleData;
         const putRes = await apiFetch<any>(`/api/transactions/${currentSaleId}`, {
           method: 'PUT',
-          body: JSON.stringify({ ...itemsPayload, payments: [], status: 'PAYMENT_PENDING' })
+          body: JSON.stringify({ ...metaPayload, payments: [], status: 'PAYMENT_PENDING' })
         });
         const putSale = putRes.data || putRes;
         const rpRes = await apiFetch<any>(`/api/transactions/sale/${putSale.journalNumber}/receive-payment`, {
@@ -1654,6 +1677,7 @@ export default function POS() {
         attributes: item.attributes || {},
         price: item.price || 0,
         maxStock: variant ? variant.stock : 0,
+        category: resolveItemCategory({ variantId: item.variantId?.toString() }),
         printed: true
       };
     });
@@ -2159,7 +2183,17 @@ export default function POS() {
                     Change Table
                   </Button>
                   {rights?.viewTableOrders !== 'no' && (
-                    <Button variant="outline" className="h-9" onClick={() => setTableOrdersOpen(true)}>
+                    <Button
+                      variant="outline"
+                      className="h-9"
+                      onClick={() => {
+                        if (rights?.viewTableOrders === 'no') {
+                          toast.error('You do not have permission to open Table Orders.');
+                          return;
+                        }
+                        navigate('/table-orders');
+                      }}
+                    >
                       <Utensils className="h-4 w-4 mr-2" />
                       Table Orders
                     </Button>
@@ -2481,7 +2515,14 @@ export default function POS() {
                 Current Sale
               </h2>
               {cart.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={clearCart} className="text-destructive h-8 px-2">
+                <Button variant="ghost" size="sm" className="text-destructive h-8 px-2"
+                  onClick={() => {
+                    if (currentSaleId && (currentBillPrinted || cart.some(i => i.printed))) {
+                      toast.error('This order already has a printed KOT or bill. Void the items or process a return instead.');
+                      return;
+                    }
+                    clearCart();
+                  }}>
                   Clear
                 </Button>
               )}
@@ -2715,7 +2756,15 @@ export default function POS() {
         <button
           id="pos-cancel-btn"
           disabled={cart.length === 0}
-          onClick={clearCart}
+          onClick={() => {
+            // A KOT-fired / billed order has affected stock and lives on the table board —
+            // it can't just be wiped from the screen. Use Void / Return instead.
+            if (currentSaleId && (currentBillPrinted || cart.some(i => i.printed))) {
+              toast.error('This order already has a printed KOT or bill. Void the items or process a return — it can’t be cancelled here.');
+              return;
+            }
+            clearCart();
+          }}
           className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-red-500 hover:bg-red-600 text-white active:brightness-90"
         >
           <Trash2 className="h-5 w-5" />

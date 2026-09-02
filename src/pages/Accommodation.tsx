@@ -440,6 +440,7 @@ export default function Accommodation() {
   const [filterStartDate, setFilterStartDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [filterEndDate, setFilterEndDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [bookingFilterStatus, setBookingFilterStatus] = useState<string>('All');
+  const [bookingDateField, setBookingDateField] = useState<'created' | 'approved' | 'checkin' | 'checkout'>('approved');
   const filteredBookings = useMemo(() => {
     return bookings.filter(b => {
       const room = rooms.find(r => String(r.id) === String(b.roomId));
@@ -450,23 +451,26 @@ export default function Accommodation() {
 
       const createDate = b.dateCreate ? b.dateCreate.substring(0, 10) : '';
       const approvedDate = b.dateApproved ? b.dateApproved.substring(0, 10) : '';
-      
+      const checkInDate = b.checkInDate ? b.checkInDate.substring(0, 10) : '';
+      const checkOutDate = b.checkOutDate ? b.checkOutDate.substring(0, 10) : '';
+
       let matchesDate = true;
       if (filterStartDate || filterEndDate) {
-        const createMatches =
-          (!filterStartDate || (createDate !== '' && createDate >= filterStartDate)) &&
-          (!filterEndDate || (createDate !== '' && createDate <= filterEndDate));
-        const approvedMatches =
-          (!filterStartDate || (approvedDate !== '' && approvedDate >= filterStartDate)) &&
-          (!filterEndDate || (approvedDate !== '' && approvedDate <= filterEndDate));
-        matchesDate = createMatches || approvedMatches;
+        const target =
+          bookingDateField === 'approved' ? approvedDate :
+          bookingDateField === 'checkin' ? checkInDate :
+          bookingDateField === 'checkout' ? checkOutDate :
+          createDate;
+        matchesDate =
+          (!filterStartDate || (target !== '' && target >= filterStartDate)) &&
+          (!filterEndDate || (target !== '' && target <= filterEndDate));
       }
 
       const matchesStatus = bookingFilterStatus === 'All' || b.status === bookingFilterStatus;
 
       return matchesSearch && matchesDate && matchesStatus;
     }).sort((a, b) => b.transactionNumber.localeCompare(a.transactionNumber));
-  }, [bookings, rooms, bookingSearch, filterStartDate, filterEndDate, bookingFilterStatus]);
+  }, [bookings, rooms, bookingSearch, filterStartDate, filterEndDate, bookingFilterStatus, bookingDateField]);
 
   // --- Statistics (Filtered) ---
   const stats = useMemo(() => {
@@ -1876,30 +1880,41 @@ export default function Accommodation() {
 
             {/* Filter Toolbar */}
             <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="relative w-80">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+                <div className="relative w-52 shrink-0">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
                     placeholder="Search guest, room..."
                     value={bookingSearch}
                     onChange={e => setBookingSearch(e.target.value)}
-                    className="pl-9 bg-white dark:bg-slate-950 border-slate-200 rounded-xl"
+                    className="h-9 pl-8 text-xs bg-white dark:bg-slate-950 border-slate-200 rounded-xl"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 bg-slate-50 dark:bg-slate-900/60 p-1 px-2.5 rounded-xl border border-slate-200">
-                  <span className="text-xs font-semibold text-slate-500">From:</span>
+                <div className="flex flex-nowrap items-center gap-1 bg-slate-50 dark:bg-slate-900/60 h-9 px-2 rounded-xl border border-slate-200 shrink-0">
+                  <Select value={bookingDateField} onValueChange={(v) => setBookingDateField(v as typeof bookingDateField)}>
+                    <SelectTrigger className="h-7 w-[96px] bg-transparent border-none text-xs font-semibold focus:ring-0 p-0 gap-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="created">Created</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                      <SelectItem value="checkin">Check-In</SelectItem>
+                      <SelectItem value="checkout">Check-Out</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
                   <Input
                     type="date"
                     value={filterStartDate}
                     onChange={e => setFilterStartDate(e.target.value)}
-                    className="h-7 w-32 bg-transparent border-none text-xs font-semibold focus-visible:ring-0 p-0"
+                    className="h-7 w-[128px] bg-transparent border-none text-xs font-semibold focus-visible:ring-0 px-1"
                   />
-                  <span className="text-xs font-semibold text-slate-500">To:</span>
+                  <span className="text-xs font-semibold text-slate-400">–</span>
                   <Input
                     type="date"
                     value={filterEndDate}
                     onChange={e => setFilterEndDate(e.target.value)}
-                    className="h-7 w-32 bg-transparent border-none text-xs font-semibold focus-visible:ring-0 p-0"
+                    className="h-7 w-[128px] bg-transparent border-none text-xs font-semibold focus-visible:ring-0 px-1"
                   />
                   {(filterStartDate || filterEndDate) && (
                     <Button
@@ -1909,15 +1924,16 @@ export default function Accommodation() {
                         setFilterStartDate('');
                         setFilterEndDate('');
                       }}
-                      className="h-5 px-1.5 text-[10px] text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+                      className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+                      title="Clear dates"
                     >
-                      Clear
+                      <X className="h-3.5 w-3.5" />
                     </Button>
                   )}
                 </div>
 
                 <Select value={bookingFilterStatus} onValueChange={setBookingFilterStatus}>
-                  <SelectTrigger className="w-[150px] bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 rounded-xl h-10">
+                  <SelectTrigger className="w-[130px] shrink-0 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 rounded-xl h-9 text-xs">
                     <SelectValue placeholder="All Statuses" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1928,18 +1944,18 @@ export default function Accommodation() {
                     <SelectItem value="CHECKED OUT">CHECKED OUT</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button variant="outline" size="sm" className="border-emerald-350 text-emerald-700 bg-emerald-50/40 hover:bg-emerald-50 rounded-xl h-10 px-4 font-semibold gap-1.5">
-                  <FileSpreadsheet className="h-4 w-4" /> Print (.xlsx)
+                <Button variant="outline" size="sm" title="Print (.xlsx)" className="border-emerald-350 text-emerald-700 bg-emerald-50/40 hover:bg-emerald-50 rounded-xl h-9 w-9 p-0 shrink-0">
+                  <FileSpreadsheet className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" className="border-blue-350 text-blue-700 bg-blue-50/40 hover:bg-blue-50 rounded-xl h-10 px-4 font-semibold gap-1.5">
-                  <FileText className="h-4 w-4" /> Print (.pdf)
+                <Button variant="outline" size="sm" title="Print (.pdf)" className="border-blue-350 text-blue-700 bg-blue-50/40 hover:bg-blue-50 rounded-xl h-9 w-9 p-0 shrink-0">
+                  <FileText className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={refreshBookings} className="border-slate-300 text-slate-700 dark:text-slate-200 bg-slate-50/60 hover:bg-slate-100 dark:bg-slate-800 rounded-xl h-10 px-4 font-semibold gap-1.5" title="Refresh Bookings">
-                  <RefreshCw className="h-4 w-4" /> Refresh
+                <Button variant="outline" size="sm" onClick={refreshBookings} title="Refresh Bookings" className="border-slate-300 text-slate-700 dark:text-slate-200 bg-slate-50/60 hover:bg-slate-100 dark:bg-slate-800 rounded-xl h-9 w-9 p-0 shrink-0">
+                  <RefreshCw className="h-4 w-4" />
                 </Button>
               </div>
-              <Button onClick={() => handleOpenAddBooking()} className="bg-primary hover:bg-primary/95 text-white font-medium px-5 rounded-xl shadow-md transition-all">
-                <Plus className="h-4 w-4 mr-2" />
+              <Button onClick={() => handleOpenAddBooking()} className="shrink-0 bg-primary hover:bg-primary/95 text-white font-medium px-4 h-9 rounded-xl shadow-md transition-all">
+                <Plus className="h-4 w-4 mr-1.5" />
                 New Booking
               </Button>
             </div>

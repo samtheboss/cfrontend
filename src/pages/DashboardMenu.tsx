@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { InstallPrompt } from '@/components/pwa/InstallPrompt';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInventory } from '@/contexts/InventoryContext';
 import { Input } from '@/components/ui/input';
@@ -411,6 +412,8 @@ export default function DashboardMenu() {
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
+
+            <InstallPrompt />
           </div>
         </div>
 

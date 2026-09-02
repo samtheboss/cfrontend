@@ -234,6 +234,9 @@ export interface SystemSettings {
   enableTableManagement: boolean;
   /** Max orders a cashier can keep on hold in the POS. <= 0 or undefined = unlimited. */
   maxHeldOrders?: number;
+  /** Printed on the customer receipt below the totals. */
+  receiptPaymentDetails?: string;
+  receiptFooter?: string;
 }
 
 export interface EcommerceSettings {
@@ -321,6 +324,8 @@ export interface CartItem {
   hasRecipe?: boolean;
   /** Effective negative-stock permission for this line, resolved when added to the cart. */
   allowNegative?: boolean;
+  /** Product category name, resolved at add time — used to route the KOT to the right printer. */
+  category?: string;
 }
 
 export interface ActiveOrder {
