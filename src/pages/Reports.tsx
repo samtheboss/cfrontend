@@ -252,6 +252,8 @@ export default function Reports() {
   const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
   const [paymentSourceFilter, setPaymentSourceFilter] = useState<'all' | 'POS' | 'ACCOMMODATION'>('all');
   const [paymentSearchQuery, setPaymentSearchQuery] = useState('');
+  // "payment" = key the report on when money was received; "sale" = on the order date.
+  const [paymentDateBasis, setPaymentDateBasis] = useState<'payment' | 'sale'>('payment');
   const [stockSearchQuery, setStockSearchQuery] = useState('');
   const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'in' | 'low' | 'out'>('all');
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
@@ -353,7 +355,7 @@ export default function Reports() {
       try {
         const start = buildStartDate();
         const end = buildEndDate();
-        let url = `/api/reports/payments?startDate=${formatLocalISO(start)}&endDate=${formatLocalISO(end)}`;
+        let url = `/api/reports/payments?startDate=${formatLocalISO(start)}&endDate=${formatLocalISO(end)}&dateBasis=${paymentDateBasis}`;
         if (reportLocationId && reportLocationId !== 'all') url += `&locationId=${reportLocationId}`;
         if (reportUserId && reportUserId !== 'all') url += `&userId=${reportUserId}`;
         const res = await apiFetch<any>(url);
@@ -365,7 +367,7 @@ export default function Reports() {
       }
     };
     fetchPayments();
-  }, [startDate, endDate, startTime, endTime, reportLocationId, reportUserId]);
+  }, [startDate, endDate, startTime, endTime, reportLocationId, reportUserId, paymentDateBasis]);
 
   const filteredCombinedPayments = useMemo(() => {
     return combinedPayments.filter(p => {
@@ -603,7 +605,7 @@ export default function Reports() {
     const start = buildStartDate();
     const end = buildEndDate();
 
-    let urlPay = `/api/reports/payments?startDate=${formatLocalISO(start)}&endDate=${formatLocalISO(end)}`;
+    let urlPay = `/api/reports/payments?startDate=${formatLocalISO(start)}&endDate=${formatLocalISO(end)}&dateBasis=${paymentDateBasis}`;
     if (reportLocationId && reportLocationId !== 'all') urlPay += `&locationId=${reportLocationId}`;
     if (reportUserId && reportUserId !== 'all') urlPay += `&userId=${reportUserId}`;
 
@@ -1208,14 +1210,17 @@ export default function Reports() {
 
   const handleExportPayments = () => {
     const rows = filteredCombinedPayments.map(p => [
-      format(new Date(p.date), 'yyyy-MM-dd HH:mm'),
+      p.paymentDate ? format(new Date(p.paymentDate), 'yyyy-MM-dd HH:mm') : '',
+      p.saleDate ? format(new Date(p.saleDate), 'yyyy-MM-dd HH:mm') : '',
       p.source || 'POS',
       p.customerName || 'Unknown',
       p.reference || '',
+      p.receivedBy || p.createdBy || '',
       p.method || 'CASH',
       p.amount.toFixed(2)
     ]);
-    exportToCSV(rows, ["Date", "Source", "Customer", "Reference", "Method", "Amount (KES)"], `Payments_${startDate}_to_${endDate}.csv`);
+    exportToCSV(rows, ["Payment Date", "Sale Date", "Source", "Customer", "Reference", "Received By", "Method", "Amount (KES)"],
+      `Payments_by_${paymentDateBasis}_date_${startDate}_to_${endDate}.csv`);
   };
 
   const handleExportFastMoving = () => {
@@ -2251,6 +2256,21 @@ export default function Reports() {
                 Accommodation
               </button>
             </div>
+            {/* Date basis: payment date vs sale date */}
+            <div className="flex items-center bg-background p-1 rounded-full border shadow-inner shrink-0" title="A payment collected days after the sale shows on whichever date you pick">
+              <button
+                onClick={() => setPaymentDateBasis('payment')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${paymentDateBasis === 'payment' ? 'bg-emerald-700 text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                By payment date
+              </button>
+              <button
+                onClick={() => setPaymentDateBasis('sale')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${paymentDateBasis === 'sale' ? 'bg-emerald-700 text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                By sale date
+              </button>
+            </div>
             <div className="relative flex-1 w-full">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -2329,15 +2349,16 @@ export default function Reports() {
                       <th className="py-3.5 px-4">Source</th>
                       <th className="py-3.5 px-4">Customer</th>
                       <th className="py-3.5 px-4">Reference</th>
+                      <th className="py-3.5 px-4">Received by</th>
                       <th className="py-3.5 px-4">Method</th>
                       <th className="py-3.5 px-6 text-right">Amount</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
                     {isPaymentsLoading ? (
-                      <tr><td colSpan={6} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-amber-600" /></td></tr>
+                      <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-amber-600" /></td></tr>
                     ) : filteredCombinedPayments.length === 0 ? (
-                      <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">No transactions found in the ledger.</td></tr>
+                      <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">No transactions found in the ledger.</td></tr>
                     ) : filteredCombinedPayments.map((p, idx) => {
                       const methodStyle = getCardStyle(p.method || 'Cash', idx);
                       const isNegative = p.amount < 0 || (p.reference && p.reference.includes('RETURN'));
@@ -2346,6 +2367,12 @@ export default function Reports() {
                           <td className="py-4 px-6 whitespace-nowrap">
                             <span className="font-semibold text-foreground">{format(new Date(p.date), 'MMM d')}</span>
                             <span className="text-xs text-muted-foreground ml-2">{format(new Date(p.date), 'HH:mm')}</span>
+                            {p.saleDate && new Date(p.saleDate).toDateString() !== new Date(p.date).toDateString() && (
+                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                                {paymentDateBasis === 'payment' ? 'Sale: ' : 'Paid: '}
+                                {format(new Date(paymentDateBasis === 'payment' ? p.saleDate : (p.paymentDate || p.saleDate)), 'MMM d')}
+                              </div>
+                            )}
                           </td>
                           <td className="py-4 px-4 whitespace-nowrap">
                             <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase ${p.source === 'POS' ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200' : 'bg-orange-100 text-orange-900 dark:bg-orange-900/60 dark:text-orange-200'}`}>
@@ -2354,6 +2381,7 @@ export default function Reports() {
                           </td>
                           <td className="py-4 px-4 font-medium text-foreground">{p.customerName || '-'}</td>
                           <td className="py-4 px-4 font-mono text-xs text-muted-foreground max-w-[200px] truncate">{p.reference || '-'}</td>
+                          <td className="py-4 px-4 text-xs text-foreground whitespace-nowrap">{p.receivedBy || p.createdBy || '-'}</td>
                           <td className="py-4 px-4 whitespace-nowrap">
                             <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${methodStyle.badgeBg}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${methodStyle.dot}`} />
@@ -2373,7 +2401,7 @@ export default function Reports() {
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={5}>TOTALS</td>
+                      <td className="py-3.5 px-6" colSpan={6}>TOTALS</td>
                       <td className="py-3.5 px-6 text-right font-serif text-base">
                         {(() => {
                           const total = filteredCombinedPayments.reduce((sum, p) => sum + p.amount, 0);

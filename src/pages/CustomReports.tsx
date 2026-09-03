@@ -295,7 +295,8 @@ export default function CustomReports() {
                           const endDateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}T23:59`;
                           setExecutingTemplate(template);
                           setExecParams({
-                            ...((template.params?.includes('dateRange')) && { startDate: startDateStr, endDate: endDateStr })
+                            ...((template.params?.includes('dateRange')) && { startDate: startDateStr, endDate: endDateStr }),
+                            ...((template.params?.includes('dateBasis')) && { dateBasis: 'payment' })
                           });
                         }}
                       >
@@ -396,6 +397,18 @@ export default function CustomReports() {
                     <Label className="text-xs">End Date</Label>
                     <Input type="datetime-local" value={execParams.endDate || ''} onChange={e => setExecParams(prev => ({ ...prev, endDate: e.target.value }))} className="h-9" />
                   </div>
+                </div>
+              )}
+              {executingTemplate?.params?.includes('dateBasis') && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Date basis</Label>
+                  <Select value={execParams.dateBasis || 'payment'} onValueChange={val => setExecParams(prev => ({ ...prev, dateBasis: val }))}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="payment">Payment date (when money was received)</SelectItem>
+                      <SelectItem value="sale">Sale date (order date)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
               {executingTemplate?.params?.includes('location') && (

@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
@@ -68,6 +69,7 @@ export default function Products() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [activeView, setActiveView] = useState<'list' | 'form' | 'categories'>('list');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [categorySearch, setCategorySearch] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryImage, setNewCategoryImage] = useState('');
@@ -481,6 +483,16 @@ export default function Products() {
     setEditingId(null);
     setVariantRecipes({});
   };
+
+  // Deep-link: /products?new=1 (e.g. "Quick add" from Purchasing) opens the create form.
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      resetForm();
+      setActiveView('form');
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleEditProduct = (product: Product) => {
     setEditingId(product.id);

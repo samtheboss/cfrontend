@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
@@ -47,6 +48,7 @@ interface POItem {
 }
 
 export default function Purchasing() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { sym, computeTax, vatInclusive } = useCurrency();
   const { products, locations, suppliers, addSupplier, updateSupplier, refreshData } = useInventory();
@@ -756,17 +758,27 @@ export default function Purchasing() {
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-semibold">Items</p>
-                <Button size="sm" className="h-7 text-xs" onClick={() => { setProductSearchQuery(''); setIsProductSearchOpen(true); }}>
-                  <Plus className="h-3 w-3 mr-1" /> Add Item
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => navigate('/products?new=1')}>
+                    <Package className="h-3 w-3 mr-1" /> Quick Add Item
+                  </Button>
+                  <Button size="sm" className="h-7 text-xs" onClick={() => { setProductSearchQuery(''); setIsProductSearchOpen(true); }}>
+                    <Plus className="h-3 w-3 mr-1" /> Select Item
+                  </Button>
+                </div>
               </div>
               {poItems.length === 0 ? (
                 <div className="text-center py-5 border border-dashed rounded-md">
                   <Package className="h-8 w-8 mx-auto text-muted-foreground opacity-20 mb-2" />
                   <p className="text-muted-foreground text-xs">No items added yet</p>
-                  <Button variant="outline" size="sm" className="mt-2 h-7 text-xs" onClick={() => { setProductSearchQuery(''); setIsProductSearchOpen(true); }}>
-                    <Search className="h-3 w-3 mr-1" /> Search & Add
-                  </Button>
+                  <div className="mt-2 flex items-center justify-center gap-1.5">
+                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { setProductSearchQuery(''); setIsProductSearchOpen(true); }}>
+                      <Search className="h-3 w-3 mr-1" /> Select Item
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => navigate('/products?new=1')}>
+                      <Plus className="h-3 w-3 mr-1" /> Quick Add Item
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -837,22 +849,32 @@ export default function Purchasing() {
         <Dialog open={isProductSearchOpen} onOpenChange={setIsProductSearchOpen}>
           <DialogContent className="max-w-lg max-h-[70vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Select Product</DialogTitle>
-              <DialogDescription>Search and select a product to add to the purchase order.</DialogDescription>
+              <DialogTitle>Select Item</DialogTitle>
+              <DialogDescription>Search an existing product, or create a new one in the product master.</DialogDescription>
             </DialogHeader>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, SKU or barcode..."
-                className="pl-9"
-                value={productSearchQuery}
-                onChange={e => setProductSearchQuery(e.target.value)}
-                autoFocus
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, SKU or barcode..."
+                  className="pl-9"
+                  value={productSearchQuery}
+                  onChange={e => setProductSearchQuery(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <Button variant="outline" size="sm" className="shrink-0" onClick={() => { setIsProductSearchOpen(false); navigate('/products?new=1'); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> New product
+              </Button>
             </div>
             <div className="flex-1 overflow-y-auto space-y-1 min-h-0 max-h-[45vh]">
               {filteredVariants.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8 text-sm">No products found</p>
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground text-sm">No products found</p>
+                  <Button variant="link" size="sm" className="text-xs" onClick={() => { setIsProductSearchOpen(false); navigate('/products?new=1'); }}>
+                    Create "{productSearchQuery || 'a new product'}" in the product master
+                  </Button>
+                </div>
               ) : (
                 filteredVariants.map(v => {
                   const alreadyAdded = poItems.some(i => String(i.variantId) === String(v.id));
