@@ -163,6 +163,8 @@ export interface PurchaseOrder extends InventoryTransaction {
   paymentStatus: 'PENDING' | 'PAID' | 'PARTIAL';
   paymentMethod?: string;
   referenceNumber?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
 }
 
 export interface InventoryTransaction {

@@ -252,6 +252,7 @@ export default function Reports() {
   const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
   const [paymentSourceFilter, setPaymentSourceFilter] = useState<'all' | 'POS' | 'ACCOMMODATION'>('all');
   const [paymentSearchQuery, setPaymentSearchQuery] = useState('');
+  const [paymentReceiptFilter, setPaymentReceiptFilter] = useState('');
   // "payment" = key the report on when money was received; "sale" = on the order date.
   const [paymentDateBasis, setPaymentDateBasis] = useState<'payment' | 'sale'>('payment');
   const [stockSearchQuery, setStockSearchQuery] = useState('');
@@ -378,9 +379,11 @@ export default function Reports() {
         (p.reference && p.reference.toLowerCase().includes(paymentSearchQuery.toLowerCase())) ||
         (p.customerName && p.customerName.toLowerCase().includes(paymentSearchQuery.toLowerCase())) ||
         (p.method && p.method.toLowerCase().includes(paymentSearchQuery.toLowerCase()));
-      return matchLocation && matchUser && matchSource && matchSearch;
+      const matchReceipt = !paymentReceiptFilter ||
+        (p.reference && p.reference.toLowerCase().includes(paymentReceiptFilter.trim().toLowerCase()));
+      return matchLocation && matchUser && matchSource && matchSearch && matchReceipt;
     });
-  }, [combinedPayments, reportLocationId, reportUserId, paymentSourceFilter, paymentSearchQuery]);
+  }, [combinedPayments, reportLocationId, reportUserId, paymentSourceFilter, paymentSearchQuery, paymentReceiptFilter]);
 
   const paymentStats = useMemo(() => {
     const stats: Record<string, number> = {};
@@ -2271,6 +2274,25 @@ export default function Reports() {
                 By sale date
               </button>
             </div>
+            <div className="relative w-full sm:w-52 shrink-0">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">#</span>
+              <Input
+                placeholder="Receipt / journal no..."
+                value={paymentReceiptFilter}
+                onChange={(e) => setPaymentReceiptFilter(e.target.value)}
+                className="pl-8 pr-8 rounded-full border-amber-300/60 focus-visible:ring-amber-500 bg-background/90 h-10 text-sm shadow-sm"
+              />
+              {paymentReceiptFilter && (
+                <button
+                  type="button"
+                  onClick={() => setPaymentReceiptFilter('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                  aria-label="Clear receipt filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             <div className="relative flex-1 w-full">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -2285,8 +2307,51 @@ export default function Reports() {
             </Button>
           </div>
 
+          {paymentSourceFilter !== 'ACCOMMODATION' && (
+            <p className="text-[11px] text-muted-foreground -mt-1 px-1">
+              Unpaid balances on partly-paid receipts show as a <span className="font-semibold text-amber-700 dark:text-amber-400">PAY LATER</span> line, so the POS
+              total here ties out to the Sales Report{paymentDateBasis === 'payment' ? ' when you switch to “By sale date”.' : ' for the same dates.'}
+            </p>
+          )}
+
           {/* Summary Cards Grid (All Light Colors, Compact Single Row) */}
           <div className="flex flex-col sm:flex-row gap-3 overflow-x-auto w-full pb-1">
+            {(() => {
+              const grandTotal = filteredCombinedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+              return (
+                <div className="flex-1 min-w-[160px] p-3.5 rounded-2xl border-2 shadow-sm transition-all hover:shadow-md bg-gradient-to-br from-emerald-50/90 to-teal-100/70 border-emerald-300 dark:from-emerald-950/50 dark:to-teal-900/40 dark:border-emerald-700 text-emerald-950 dark:text-emerald-100 flex flex-col justify-between space-y-3">
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-emerald-100/80 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span>Total {paymentSourceFilter === 'all' ? '' : paymentSourceFilter === 'POS' ? 'POS' : 'Accom.'}</span>
+                    </div>
+                    <div className="p-1.5 rounded-full bg-emerald-200/60 text-emerald-800 dark:bg-emerald-800/50 dark:text-emerald-200 shrink-0">
+                      <DollarSign className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="my-1">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-[10px] font-bold uppercase opacity-70">KES</span>
+                      <span className={`font-normal font-serif tracking-tight truncate ${grandTotal < 0 ? 'text-rose-600 dark:text-rose-400' : ''} text-xl lg:text-2xl`}>
+                        {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-medium opacity-75 mt-0.5 truncate">
+                      {filteredCombinedPayments.length} {filteredCombinedPayments.length === 1 ? 'entry' : 'entries'} · {paymentDateBasis === 'payment' ? 'by payment date' : 'by sale date'}
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 pt-1">
+                    <div className="h-1 w-full rounded-full overflow-hidden bg-emerald-200 dark:bg-emerald-800">
+                      <div className="h-full rounded-full bg-emerald-600 dark:bg-emerald-400 w-full" />
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-semibold opacity-75">
+                      <span>All methods</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             {Object.entries(paymentStats).map(([method, amount], idx) => {
               const totalPaymentsSum = Object.values(paymentStats).reduce((sum, val) => sum + val, 0);
               const percentage = totalPaymentsSum > 0 ? Math.round((amount / totalPaymentsSum) * 100) : 0;

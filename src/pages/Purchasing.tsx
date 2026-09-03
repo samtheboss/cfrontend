@@ -5,7 +5,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { Supplier, PurchaseOrder } from '@/types/inventory';
 import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
-import { Plus, Truck, Trash2, Package, FileText, CheckCircle2, Clock, Search, ArrowLeft, Banknote, CreditCard, Smartphone, ChevronsUpDown, Check, ClipboardList, RotateCcw } from 'lucide-react';
+import { Plus, Truck, Trash2, Package, FileText, CheckCircle2, Clock, Search, ArrowLeft, Banknote, CreditCard, Smartphone, ChevronsUpDown, Check, ClipboardList, RotateCcw, Paperclip, X, ExternalLink } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from '@/components/ui/badge';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getBaseUrl } from '@/lib/api';
 import { toast } from 'sonner';
 import { useCurrency } from '@/hooks/useCurrency';
 import { cn } from '@/lib/utils';
@@ -73,6 +73,9 @@ export default function Purchasing() {
       credit_note: { active: false, amount: '', reference: '' }
     });
   const [poItems, setPOItems] = useState<POItem[]>([]);
+  const [poAttachmentUrl, setPoAttachmentUrl] = useState('');
+  const [poAttachmentName, setPoAttachmentName] = useState('');
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPaymentDetailOpen, setIsPaymentDetailOpen] = useState(false);
   const [isSavingSupplier, setIsSavingSupplier] = useState(false);
@@ -307,6 +310,8 @@ export default function Purchasing() {
       credit_note: { active: false, amount: '', reference: '' }
     });
     setPOItems([]);
+    setPoAttachmentUrl('');
+    setPoAttachmentName('');
     setIsCreatingPO(true);
   };
 
@@ -318,6 +323,8 @@ export default function Purchasing() {
     setPOInvoiceNumber(po.invoiceNumber || '');
     setPODateReceived(po.dateReceived ? String(po.dateReceived).substring(0, 10) : '');
     setPOPaymentStatus(po.paymentStatus || 'PENDING');
+    setPoAttachmentUrl(po.attachmentUrl || '');
+    setPoAttachmentName(po.attachmentName || '');
     
     // Parse paymentMethod
     const defaultMethods = {
@@ -383,6 +390,78 @@ export default function Purchasing() {
     setEditingPOId(null);
     setIsCreatingPO(false);
     setSupplierBalance(null);
+  };
+
+  // Validate + upload a receipt file; returns the stored url + original name, or null.
+  const uploadReceiptFile = async (file: File): Promise<{ url: string; name: string } | null> => {
+    const isImage = file.type.startsWith('image/');
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isImage && !isPdf) {
+      toast.error('Attach an image or a PDF file');
+      return null;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('File is too large (max 15 MB)');
+      return null;
+    }
+    setIsUploadingReceipt(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await apiFetch<{ url: string }>('/api/upload', { method: 'POST', body: formData });
+      return { url: res.url, name: file.name };
+    } catch {
+      toast.error('Failed to upload receipt');
+      return null;
+    } finally {
+      setIsUploadingReceipt(false);
+    }
+  };
+
+  // Attach on the new/edit PO form — saved with the order.
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    const result = await uploadReceiptFile(file);
+    if (result) {
+      setPoAttachmentUrl(result.url);
+      setPoAttachmentName(result.name);
+      toast.success('Receipt attached');
+    }
+  };
+
+  // Attach/replace/remove on an already-posted PO (receipts often arrive later).
+  const saveViewingAttachment = async (url: string, name: string) => {
+    if (!viewingPO) return;
+    try {
+      await apiFetch(`/api/purchase-orders/${viewingPO.id}/attachment`, {
+        method: 'PUT',
+        body: JSON.stringify({ attachmentUrl: url || null, attachmentName: name || null }),
+      });
+      setViewingPO((prev: any) => (prev ? { ...prev, attachmentUrl: url, attachmentName: name } : prev));
+      setPurchaseOrders(prev => prev.map(p => (String(p.id) === String(viewingPO.id) ? { ...p, attachmentUrl: url, attachmentName: name } : p)));
+      toast.success(url ? 'Receipt updated' : 'Receipt removed');
+    } catch {
+      toast.error('Failed to update receipt');
+    }
+  };
+
+  const handleViewingReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !viewingPO) return;
+    const result = await uploadReceiptFile(file);
+    if (result) await saveViewingAttachment(result.url, result.name);
+  };
+
+  const attachmentIsPdf = (name?: string, url?: string) =>
+    /\.pdf($|\?)/i.test(name || '') || /\.pdf($|\?)/i.test(url || '');
+
+  const openAttachment = (url?: string) => {
+    if (!url) return;
+    const full = url.startsWith('http') ? url : `${getBaseUrl()}${url}`;
+    window.open(full, '_blank', 'noopener,noreferrer');
   };
 
   const addItemToPO = (variant: typeof allVariants[0]) => {
@@ -486,6 +565,8 @@ export default function Purchasing() {
         userId: user?.id || null,
         invoiceNumber: poInvoiceNumber || null,
         dateReceived: poDateReceived || null,
+        attachmentUrl: poAttachmentUrl || null,
+        attachmentName: poAttachmentName || null,
         paymentStatus: paymentStatusToUse,
         paymentMethod: JSON.stringify(activePayments),
         items: poItems.map(item => ({
@@ -746,9 +827,36 @@ export default function Purchasing() {
                   <Input className="h-9 text-sm" type="date" value={poDateReceived} onChange={e => setPODateReceived(e.target.value)} />
                 </div>
               </div>
-              <div className="mt-3 space-y-1">
-                <Label className="text-xs">Notes</Label>
-                <Input className="h-9 text-sm" placeholder="Optional notes..." value={poNotes} onChange={e => setPONotes(e.target.value)} />
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Notes</Label>
+                  <Input className="h-9 text-sm" placeholder="Optional notes..." value={poNotes} onChange={e => setPONotes(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Receipt / Invoice Attachment</Label>
+                  {poAttachmentUrl ? (
+                    <div className="flex h-9 items-center gap-2 rounded-md border bg-muted/30 px-2.5">
+                      {attachmentIsPdf(poAttachmentName, poAttachmentUrl)
+                        ? <FileText className="h-4 w-4 shrink-0 text-red-500" />
+                        : <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                      <button type="button" onClick={() => openAttachment(poAttachmentUrl)} className="min-w-0 flex-1 truncate text-left text-xs font-medium hover:underline">
+                        {poAttachmentName || 'View attachment'}
+                      </button>
+                      <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={() => { setPoAttachmentUrl(''); setPoAttachmentName(''); }}>
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <label className={cn(
+                      "flex h-9 cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 text-xs text-muted-foreground hover:bg-muted/40",
+                      isUploadingReceipt && "pointer-events-none opacity-60"
+                    )}>
+                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{isUploadingReceipt ? 'Uploading…' : 'Attach a photo or PDF'}</span>
+                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleReceiptUpload} />
+                    </label>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1032,7 +1140,10 @@ export default function Purchasing() {
                         {po.status === 'COMPLETED' ? <CheckCircle2 className="h-4 w-4 md:h-5 md:w-5" /> : <Clock className="h-4 w-4 md:h-5 md:w-5" />}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-semibold text-sm md:text-base truncate">{po.journalNumber || `PO-${String(po.id).padStart(5, '0')}`}</h3>
+                        <h3 className="font-semibold text-sm md:text-base truncate flex items-center gap-1.5">
+                          {po.journalNumber || `PO-${String(po.id).padStart(5, '0')}`}
+                          {po.attachmentUrl && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Receipt attached" />}
+                        </h3>
                         <p className="text-xs md:text-sm text-muted-foreground truncate">
                           {po.supplier?.name || 'Unknown Supplier'} • {formatDate(po.timestamp)}
                           {po.paymentMethod && formatPaymentMethod(po.paymentMethod) && ` • ${formatPaymentMethod(po.paymentMethod)}`}
@@ -1221,6 +1332,52 @@ export default function Purchasing() {
                   <p className="mt-0.5">{viewingPO.notes}</p>
                 </div>
               )}
+
+              <div className="bg-muted/40 p-3 rounded-lg text-sm">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-muted-foreground text-xs">Receipt / Invoice</p>
+                  <div className="flex items-center gap-1.5">
+                    <label className={cn(
+                      "cursor-pointer text-[11px] font-medium text-primary hover:underline",
+                      isUploadingReceipt && "pointer-events-none opacity-60"
+                    )}>
+                      {isUploadingReceipt ? 'Uploading…' : viewingPO.attachmentUrl ? 'Replace' : 'Attach'}
+                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleViewingReceiptUpload} />
+                    </label>
+                    {viewingPO.attachmentUrl && !isUploadingReceipt && (
+                      <button
+                        onClick={() => saveViewingAttachment('', '')}
+                        className="text-[11px] font-medium text-muted-foreground hover:text-destructive hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {!viewingPO.attachmentUrl ? (
+                  <p className="text-xs text-muted-foreground">No receipt attached — attach a photo or PDF of the supplier receipt.</p>
+                ) : attachmentIsPdf(viewingPO.attachmentName, viewingPO.attachmentUrl) ? (
+                  <button
+                    onClick={() => openAttachment(viewingPO.attachmentUrl)}
+                    className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                  >
+                    <FileText className="h-4 w-4 text-red-500" />
+                    <span className="truncate max-w-[240px]">{viewingPO.attachmentName || 'View PDF receipt'}</span>
+                    <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                ) : (
+                  <button onClick={() => openAttachment(viewingPO.attachmentUrl)} className="group block">
+                    <img
+                      src={viewingPO.attachmentUrl.startsWith('http') ? viewingPO.attachmentUrl : `${getBaseUrl()}${viewingPO.attachmentUrl}`}
+                      alt={viewingPO.attachmentName || 'Receipt'}
+                      className="max-h-48 rounded-md border object-contain transition-opacity group-hover:opacity-90"
+                    />
+                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground group-hover:underline">
+                      <ExternalLink className="h-3 w-3" /> Open full size
+                    </span>
+                  </button>
+                )}
+              </div>
 
               
               {poReturns.length > 0 && (
