@@ -646,7 +646,7 @@ export default function Accommodation() {
 
   // MPESA STK Push States
   const [isPollingMpesa, setIsPollingMpesa] = useState(false);
-  const [mpesaStatus, setMpesaStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'CANCELLED' | 'FAILED'>('IDLE');
+  const [mpesaStatus, setMpesaStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'CANCELLED' | 'FAILED' | 'TIMEOUT'>('IDLE');
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
   const [mpesaPhone, setMpesaPhone] = useState('');
   const [useStkPush, setUseStkPush] = useState(true);
@@ -894,9 +894,17 @@ export default function Accommodation() {
     setIsBookingDialogOpen(true);
   };
 
-  const pollMpesaStatus = async (requestId: string, sessionId?: number) => {
+  const pollMpesaStatus = async (requestId: string, sessionId?: number, deadline?: number) => {
     if (stopPollingRef.current) return;
     if (sessionId !== undefined && sessionId !== pollSessionRef.current) return;
+
+    const dl = deadline ?? Date.now() + 45_000;
+    if (Date.now() >= dl) {
+      setIsPollingMpesa(false);
+      setMpesaStatus('TIMEOUT');
+      toast.info('M-Pesa is taking longer than usual. Use "Check Again" once the guest approves the prompt.');
+      return;
+    }
 
     try {
       const data = await apiFetch<any>(`/api/mpesa/stkpush/status/${requestId}`);
@@ -926,13 +934,13 @@ export default function Accommodation() {
         toast.error('M-Pesa payment was cancelled.');
       } else {
         if (!stopPollingRef.current && (sessionId === undefined || sessionId === pollSessionRef.current)) {
-          setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current), 3000);
+          setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current, dl), 3000);
         }
       }
     } catch (err: any) {
       console.error('Error polling MPESA status:', err);
       if (!stopPollingRef.current && (sessionId === undefined || sessionId === pollSessionRef.current)) {
-        setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current), 3000);
+        setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current, dl), 3000);
       }
     }
   };
@@ -1448,9 +1456,17 @@ export default function Accommodation() {
     }
   };
 
-  const pollCheckoutMpesaStatus = async (requestId: string, sessionId?: number) => {
+  const pollCheckoutMpesaStatus = async (requestId: string, sessionId?: number, deadline?: number) => {
     if (stopPollingRef.current) return;
     if (sessionId !== undefined && sessionId !== pollSessionRef.current) return;
+
+    const dl = deadline ?? Date.now() + 45_000;
+    if (Date.now() >= dl) {
+      setIsPollingMpesa(false);
+      setMpesaStatus('TIMEOUT');
+      toast.info('M-Pesa is taking longer than usual. Use "Check Again" once the guest approves the prompt.');
+      return;
+    }
 
     try {
       const data = await apiFetch<any>(`/api/mpesa/stkpush/status/${requestId}`);
@@ -1476,13 +1492,13 @@ export default function Accommodation() {
         toast.error('M-Pesa payment was cancelled.');
       } else {
         if (!stopPollingRef.current && (sessionId === undefined || sessionId === pollSessionRef.current)) {
-          setTimeout(() => pollCheckoutMpesaStatus(requestId, sessionId || pollSessionRef.current), 3000);
+          setTimeout(() => pollCheckoutMpesaStatus(requestId, sessionId || pollSessionRef.current, dl), 3000);
         }
       }
     } catch (err: any) {
       console.error('Error polling MPESA status:', err);
       if (!stopPollingRef.current && (sessionId === undefined || sessionId === pollSessionRef.current)) {
-        setTimeout(() => pollCheckoutMpesaStatus(requestId, sessionId || pollSessionRef.current), 3000);
+        setTimeout(() => pollCheckoutMpesaStatus(requestId, sessionId || pollSessionRef.current, dl), 3000);
       }
     }
   };
@@ -2879,7 +2895,7 @@ export default function Accommodation() {
                             {(isPollingMpesa || mpesaStatus !== 'IDLE') && (
                               <div className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse bg-blue-50 dark:bg-blue-950/20' :
                                   mpesaStatus === 'SUCCESS' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20' :
-                                    mpesaStatus === 'CANCELLED' ? 'text-amber-600 bg-amber-50 dark:bg-amber-950/20' :
+                                    mpesaStatus === 'CANCELLED' || mpesaStatus === 'TIMEOUT' ? 'text-amber-600 bg-amber-50 dark:bg-amber-950/20' :
                                       'text-rose-600 bg-rose-50 dark:bg-rose-950/20'
                                 }`}>
                                 <span>
@@ -2887,6 +2903,7 @@ export default function Accommodation() {
                                   {mpesaStatus === 'SUCCESS' && 'Confirmed!'}
                                   {mpesaStatus === 'CANCELLED' && 'Cancelled'}
                                   {mpesaStatus === 'FAILED' && 'Failed'}
+                                  {mpesaStatus === 'TIMEOUT' && 'Still waiting - tap Check Again'}
                                 </span>
                                 {mpesaStatus !== 'SUCCESS' && (
                                   <Button

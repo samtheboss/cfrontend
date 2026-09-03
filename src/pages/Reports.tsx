@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye, RefreshCw, Loader2, Upload, Trash, Calendar, Users, MapPin, Tag, Edit, Download, Search, CreditCard, Wallet, Clock, Hourglass, CheckCircle2, Printer, ChevronRight, ChevronDown, Layers } from 'lucide-react';
+import { TrendingUp, Package, DollarSign, AlertTriangle, Filter, Eye, RefreshCw, Loader2, Upload, Trash, Calendar, Users, MapPin, Tag, Edit, Download, Search, CreditCard, Wallet, Clock, Hourglass, CheckCircle2, Printer, ChevronRight, ChevronDown, Layers, Check, ChevronsUpDown } from 'lucide-react';
 import { format, isAfter, isBefore, isEqual, compareAsc } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,9 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { MultiSelect, Option } from '@/components/ui/multi-select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -122,8 +125,12 @@ export default function Reports() {
     document.body.removeChild(link);
   };
 
-  // All Sales (Primary Data Source)
-  const sales = useMemo(() => transactions.filter(t => t.type === 'SALE'), [transactions]);
+  // All Sales (Primary Data Source). Cancelled/voided sales are excluded so the sales
+  // totals tie out to the Payments Report (which also drops cancelled orders).
+  const sales = useMemo(
+    () => transactions.filter(t => t.type === 'SALE' && (t as any).status !== 'CANCELLED'),
+    [transactions]
+  );
 
   // Active Inventory Data
   const activeProducts = useMemo(() => products.filter(p => p.isActive !== false), [products]);
@@ -593,6 +600,7 @@ export default function Reports() {
   const [selectedProductId, setSelectedProductId] = useState<string>(''); // Product ID
   const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>([]); // Variant IDs
   const [selectedLocationId, setSelectedLocationId] = useState<string>('all');
+  const [productPickerOpen, setProductPickerOpen] = useState(false); // Stock Movement product search popup
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
@@ -2697,14 +2705,48 @@ export default function Reports() {
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-muted-foreground">Product</Label>
-              <Select value={selectedProductId} onValueChange={(val) => { setSelectedProductId(val); setSelectedVariantIds([]); }}>
-                <SelectTrigger className="rounded-full bg-background h-9 text-xs">
-                  <SelectValue placeholder="Select Product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {productOptions.map(opt => (<SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>))}
-                </SelectContent>
-              </Select>
+              <Popover open={productPickerOpen} onOpenChange={setProductPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={productPickerOpen}
+                    className="w-full justify-between rounded-full bg-background h-9 text-xs font-normal"
+                  >
+                    <span className="truncate">
+                      {selectedProductId
+                        ? (productOptions.find(o => o.id === selectedProductId)?.label ?? 'Select Product')
+                        : <span className="text-muted-foreground">Select Product</span>}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search item..." className="h-9 text-xs" />
+                    <CommandList>
+                      <CommandEmpty>No item found.</CommandEmpty>
+                      <CommandGroup>
+                        {productOptions.map(opt => (
+                          <CommandItem
+                            key={opt.id}
+                            value={`${opt.label} ${opt.id}`}
+                            onSelect={() => {
+                              setSelectedProductId(opt.id === selectedProductId ? '' : opt.id);
+                              setSelectedVariantIds([]);
+                              setProductPickerOpen(false);
+                            }}
+                            className="text-xs"
+                          >
+                            <Check className={cn('mr-2 h-3.5 w-3.5', selectedProductId === opt.id ? 'opacity-100' : 'opacity-0')} />
+                            <span className="truncate">{opt.label}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-muted-foreground">Variant(s)</Label>

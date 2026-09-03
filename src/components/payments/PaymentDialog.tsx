@@ -35,8 +35,10 @@ interface PaymentDialogProps {
   totalDue?: number;
   totalAmount?: number; // alias for totalDue
   defaultPhone?: string;
-  onConfirm?: (payments: PaymentDetails[]) => Promise<void>;
-  onSubmit?: (payments: PaymentDetails[]) => Promise<void>; // alias for onConfirm
+  // May return the journal/invoice number of the order just posted, so any consumed
+  // M-Pesa transactions can be stamped with what consumed them.
+  onConfirm?: (payments: PaymentDetails[]) => Promise<void | string | { journalNumber?: string }>;
+  onSubmit?: (payments: PaymentDetails[]) => Promise<void | string | { journalNumber?: string }>; // alias for onConfirm
   isProcessing?: boolean;
   onCancel?: () => void;
   extraActions?: React.ReactNode;
@@ -131,7 +133,7 @@ export function PaymentDialog({
   const [mpesaPhone, setMpesaPhone] = useState(defaultPhone || '');
   const [useStkPush, setUseStkPush] = useState(true);
   const [isPollingMpesa, setIsPollingMpesa] = useState(false);
-  const [mpesaStatus, setMpesaStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'>('IDLE');
+  const [mpesaStatus, setMpesaStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED' | 'TIMEOUT'>('IDLE');
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
   const [completedMpesaPayments, setCompletedMpesaPayments] = useState<{ amount: number, reference: string }[]>([]);
 
@@ -145,31 +147,44 @@ export function PaymentDialog({
   const [glAccounts, setGlAccounts] = useState<any[]>([]);
   const [moduleDefaults, setModuleDefaults] = useState<any[]>([]);
 
-  const fetchDbTransactions = async () => {
+  // Look up a payment by amount / phone / reference. Never lists everything - a blank
+  // term returns nothing so an unrelated past payment can't be picked by accident.
+  const searchDbTransactions = async (term: string) => {
+    const q = (term || '').trim();
+    if (!q) {
+      setDbTransactions([]);
+      return;
+    }
     setIsLoadingDb(true);
     try {
-      const res = await apiFetch<any[]>('/api/mpesa/transactions');
+      const res = await apiFetch<any[]>(`/api/mpesa/transactions?search=${encodeURIComponent(q)}`);
       setDbTransactions(Array.isArray(res) ? res : []);
-
-      // Automatically search by remaining amount
-      const alreadyEntered = Object.entries(paymentMethods)
-        .filter(([k]) => k !== 'mobile')
-        .reduce((s, [, v]) => s + (v.active && v.amount ? parseFloat(v.amount) || 0 : 0), 0);
-      const completedTotal = completedMpesaPayments.reduce((sum, p) => sum + p.amount, 0);
-      const remaining = Math.max(0, activeTotalDue - alreadyEntered - completedTotal);
-      if (remaining > 0.01) {
-        setDbSearch(remaining.toFixed(2));
-      } else {
-        setDbSearch('');
-      }
-
-      setIsDbModalOpen(true);
     } catch (err: any) {
-      toast.error('Failed to load M-Pesa transactions: ' + err.message);
+      toast.error('Failed to search M-Pesa transactions: ' + err.message);
+      setDbTransactions([]);
     } finally {
       setIsLoadingDb(false);
     }
   };
+
+  const openDbModal = () => {
+    const alreadyEntered = Object.entries(paymentMethods)
+      .filter(([k]) => k !== 'mobile')
+      .reduce((s, [, v]) => s + (v.active && v.amount ? parseFloat(v.amount) || 0 : 0), 0);
+    const completedTotal = completedMpesaPayments.reduce((sum, p) => sum + p.amount, 0);
+    const remaining = Math.max(0, activeTotalDue - alreadyEntered - completedTotal);
+    // Prefill with the outstanding amount so the common case is one tap.
+    setDbSearch(remaining > 0.01 ? remaining.toFixed(2) : '');
+    setDbTransactions([]);
+    setIsDbModalOpen(true);
+  };
+
+  // Debounced server search whenever the term changes while the picker is open.
+  useEffect(() => {
+    if (!isDbModalOpen) return;
+    const h = setTimeout(() => searchDbTransactions(dbSearch), 350);
+    return () => clearTimeout(h);
+  }, [dbSearch, isDbModalOpen]);
 
   const selectDbTransaction = (t: any) => {
     if (completedMpesaPayments.some(p => p.reference === t.reference)) {
@@ -335,8 +350,15 @@ export function PaymentDialog({
     });
   };
 
-  async function pollMpesaStatus(requestId: string, sessionId?: number) {
+  async function pollMpesaStatus(requestId: string, sessionId?: number, deadline?: number) {
     if (sessionId && sessionId !== pollSessionRef.current) return;
+    const dl = deadline ?? Date.now() + 45_000;
+    if (Date.now() >= dl) {
+      setIsPollingMpesa(false);
+      setMpesaStatus('TIMEOUT');
+      toast.info('M-Pesa is taking longer than usual. Tap "Check Again" once the customer approves the prompt.');
+      return;
+    }
     try {
       const data = await apiFetch<any>(`/api/mpesa/stkpush/status/${requestId}`);
       if (data.status === 'COMPLETED' || data.resultCode === "0") {
@@ -366,13 +388,13 @@ export function PaymentDialog({
         toast.error(`Payment cancelled by user`);
       } else {
         if (!sessionId || sessionId === pollSessionRef.current) {
-          setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current), 3000);
+          setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current, dl), 3000);
         }
       }
     } catch (error) {
       console.error("Error polling M-Pesa status:", error);
       if (!sessionId || sessionId === pollSessionRef.current) {
-        setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current), 5000);
+        setTimeout(() => pollMpesaStatus(requestId, sessionId || pollSessionRef.current, dl), 5000);
       }
     }
   }
@@ -460,10 +482,9 @@ export function PaymentDialog({
       }
     }
 
-    // Calculate net cash (deduct change/overpayment so change is not captured in GL accounts)
-    const overpayment = Math.max(0, totalEntered - activeTotalDue);
-    const netCash = Math.max(0, enteredCash - overpayment);
-
+    // The gross cash tendered is sent as-is; the backend strips any change from the
+    // recorded CASH line and from amountPaid so change never lands in a GL/deposit
+    // account or the payments report. Non-cash overpayment is already blocked above.
     const finalPayments: PaymentDetails[] = [];
     if (enteredCash > 0) finalPayments.push({ method: 'cash', amount: enteredCash, reference: paymentMethods.cash.reference, glAccountId: paymentMethods.cash.accountId ? parseInt(paymentMethods.cash.accountId) : undefined });
     if (enteredCard > 0) finalPayments.push({ method: 'card', amount: enteredCard, reference: paymentMethods.card.reference, glAccountId: paymentMethods.card.accountId ? parseInt(paymentMethods.card.accountId) : undefined });
@@ -477,9 +498,12 @@ export function PaymentDialog({
 
     try {
       setIsSubmitting(true);
-      await activeOnConfirm(finalPayments);
+      const confirmResult = await activeOnConfirm(finalPayments);
+      const consumedJournalNumber = typeof confirmResult === 'string'
+        ? confirmResult
+        : (confirmResult && typeof confirmResult === 'object' ? confirmResult.journalNumber : undefined);
 
-      // Mark used M-Pesa transactions as consumed in DB
+      // Mark used M-Pesa transactions as consumed in DB, stamping the order that consumed them
       const mpesaRefs = finalPayments
         .filter(p => p.method === 'mobile' && p.reference && p.reference !== 'MPESA-STK')
         .map(p => p.reference);
@@ -487,7 +511,7 @@ export function PaymentDialog({
         try {
           await apiFetch('/api/mpesa/transactions/consume', {
             method: 'POST',
-            body: JSON.stringify({ references: mpesaRefs })
+            body: JSON.stringify({ references: mpesaRefs, journalNumber: consumedJournalNumber })
           });
         } catch (err) {
           console.error('Failed to update M-Pesa transaction status:', err);
@@ -675,7 +699,7 @@ export function PaymentDialog({
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={fetchDbTransactions}
+                        onClick={openDbModal}
                         disabled={isLoadingDb}
                         className="h-6 px-2 text-[11px] bg-white dark:bg-slate-900 gap-1 border-emerald-300 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50"
                       >
@@ -691,17 +715,18 @@ export function PaymentDialog({
                   <div className="space-y-2 py-2">
                     <div className={`flex items-center justify-center gap-2 text-xs font-medium ${mpesaStatus === 'PENDING' ? 'text-blue-600 animate-pulse' :
                       mpesaStatus === 'SUCCESS' ? 'text-green-600' :
-                        mpesaStatus === 'CANCELLED' ? 'text-amber-600' :
+                        mpesaStatus === 'CANCELLED' || mpesaStatus === 'TIMEOUT' ? 'text-amber-600' :
                           'text-red-600'
                       }`}>
                       {mpesaStatus === 'PENDING' && <RefreshCw className="h-3 w-3 animate-spin" />}
                       {mpesaStatus === 'SUCCESS' && <Check className="h-3 w-3" />}
-                      {mpesaStatus === 'FAILED' && <AlertCircle className="h-3 w-3" />}
+                      {(mpesaStatus === 'FAILED' || mpesaStatus === 'TIMEOUT') && <AlertCircle className="h-3 w-3" />}
                       <span>
                         {mpesaStatus === 'PENDING' && 'Waiting for M-Pesa confirmation...'}
                         {mpesaStatus === 'SUCCESS' && 'Payment Successful!'}
                         {mpesaStatus === 'CANCELLED' && 'Payment Cancelled.'}
                         {mpesaStatus === 'FAILED' && 'Payment Failed.'}
+                        {mpesaStatus === 'TIMEOUT' && 'Still waiting - use Check Again.'}
                       </span>
                       {mpesaStatus !== 'SUCCESS' && (
                         <Button
@@ -788,7 +813,7 @@ export function PaymentDialog({
               Select M-Pesa Transaction from DB
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Choose an existing M-Pesa or STK push transaction from the database.
+              Search by amount or phone number to find the customer's payment.
             </DialogDescription>
           </DialogHeader>
 
@@ -796,10 +821,11 @@ export function PaymentDialog({
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search amount, ref, phone..."
+                placeholder="Amount or phone number..."
                 value={dbSearch}
                 onChange={(e) => setDbSearch(e.target.value)}
                 className="pl-8 h-9 text-sm"
+                autoFocus
               />
             </div>
             {dbSearch && (
@@ -811,18 +837,6 @@ export function PaymentDialog({
 
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[50vh]">
             {dbTransactions
-              .filter(t => {
-                if (!dbSearch) return true;
-                const q = dbSearch.toLowerCase().trim();
-                const refMatch = t.reference?.toLowerCase().includes(q);
-                const phoneMatch = t.phone?.includes(q);
-                const senderMatch = t.sender?.toLowerCase().includes(q);
-                const amountMatch = t.amount && (
-                  String(t.amount).includes(q) ||
-                  Math.abs(parseFloat(String(t.amount)) - parseFloat(q)) < 0.05
-                );
-                return refMatch || phoneMatch || senderMatch || amountMatch;
-              })
               .map((t, idx) => {
                 const isAlreadyAdded = completedMpesaPayments.some(p => p.reference === t.reference);
                 return (
@@ -861,9 +875,14 @@ export function PaymentDialog({
                   </div>
                 );
               })}
+            {isLoadingDb && (
+              <div className="text-center py-6 text-xs text-muted-foreground">Searching...</div>
+            )}
             {dbTransactions.length === 0 && !isLoadingDb && (
               <div className="text-center py-6 text-xs text-muted-foreground">
-                No M-Pesa transactions found in the database.
+                {dbSearch.trim()
+                  ? 'No matching M-Pesa payment found.'
+                  : 'Enter an amount or phone number to find a payment.'}
               </div>
             )}
           </div>

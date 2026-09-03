@@ -1259,8 +1259,13 @@ export default function POS() {
           body: JSON.stringify({ ...metaPayload, payments: [], status: 'PAYMENT_PENDING' })
         });
         const putSale = putRes.data || putRes;
+        // Deterministic key so re-running checkout after an error (the PUT + receive-payment
+        // pair is not atomic) can't bank this balance twice.
+        const idemKey = `bal-${currentSaleId}-${currentSalePaid.toFixed(2)}-${totalPaid.toFixed(2)}`
+          + `-${payments.map(p => `${p.method}:${p.amount}`).join('|')}`;
         const rpRes = await apiFetch<any>(`/api/transactions/sale/${putSale.journalNumber}/receive-payment`, {
           method: 'POST',
+          headers: { 'Idempotency-Key': idemKey },
           body: JSON.stringify(payments)
         });
         saved = rpRes.data || rpRes;
@@ -1297,6 +1302,7 @@ export default function POS() {
       setCheckoutOpen(false);
       refreshData();
       setPostActionPromptOpen(true);
+      return saved?.journalNumber as string | undefined;
     } catch (error) {
       // Error already shown by createSale
     } finally {
@@ -1424,10 +1430,18 @@ export default function POS() {
       reference: p.reference
     }));
 
+    // Deterministic key: a retry of this exact tender (lost response, double tap,
+    // dialog re-submit after an error) collapses to a no-op on the backend, while a
+    // genuinely different follow-up payment still goes through.
+    const idemKey = `rp-${receivePaymentSale.id}-${Number(receivePaymentSale.amountPaid || 0).toFixed(2)}`
+      + `-${payments.map(p => `${p.method}:${p.amount}`).join('|')}`;
+
+    const journalNumber = receivePaymentSale.journalNumber as string | undefined;
     setIsReceivingPayment(true);
     try {
       await apiFetch<any>(`/api/transactions/sale/${receivePaymentSale.journalNumber}/receive-payment`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': idemKey },
         body: JSON.stringify(payments),
       });
       toast.success('Payment received! Sale completed.');
@@ -1436,6 +1450,7 @@ export default function POS() {
       setReceivePaymentSale(null);
       refreshData();
       setPostActionPromptOpen(true);
+      return journalNumber;
     } catch (error: any) {
       throw error; // Let PaymentDialog catch and display it
     } finally {
@@ -3625,12 +3640,15 @@ export default function POS() {
             setReceivePaymentSale(null);
           }
         }}
-        totalAmount={Number(receivePaymentSale?.totalAmount || 0)}
+        totalAmount={Math.max(0, Number(receivePaymentSale?.totalAmount || 0) - Number(receivePaymentSale?.amountPaid || 0))}
+        allowPartialPayment={Number(receivePaymentSale?.amountPaid || 0) > 0}
         onSubmit={handleReceivePayment}
         isProcessing={isReceivingPayment}
         onCancel={() => setReceivePaymentSale(null)}
         title="Receive Payment"
-        description={`Record payment for order #${receivePaymentSale?.journalNumber}`}
+        description={Number(receivePaymentSale?.amountPaid || 0) > 0
+          ? `${sym}${Number(receivePaymentSale?.amountPaid || 0).toFixed(2)} already paid on #${receivePaymentSale?.journalNumber} — balance ${sym}${Math.max(0, Number(receivePaymentSale?.totalAmount || 0) - Number(receivePaymentSale?.amountPaid || 0)).toFixed(2)}`
+          : `Record payment for order #${receivePaymentSale?.journalNumber}`}
         submitText="Confirm Payment"
       />
 
