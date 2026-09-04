@@ -192,6 +192,7 @@ export default function TableOrders() {
     const payments = finalPayments.map(p => ({
       method: p.method.toUpperCase(), amount: p.amount, reference: p.reference,
     }));
+    const journalNumber = payingSale.journalNumber as string | undefined;
     setIsPaying(true);
     try {
       await apiFetch(`/api/transactions/sale/${payingSale.journalNumber}/receive-payment`, {
@@ -200,6 +201,7 @@ export default function TableOrders() {
       toast.success('Payment received');
       setPayingSale(null);
       await refreshData();
+      return journalNumber;
     } catch (e: any) {
       throw e;
     } finally {

@@ -503,10 +503,12 @@ export function PaymentDialog({
         ? confirmResult
         : (confirmResult && typeof confirmResult === 'object' ? confirmResult.journalNumber : undefined);
 
-      // Mark used M-Pesa transactions as consumed in DB, stamping the order that consumed them
-      const mpesaRefs = finalPayments
-        .filter(p => p.method === 'mobile' && p.reference && p.reference !== 'MPESA-STK')
-        .map(p => p.reference);
+      // Only reconcile M-Pesa payments that actually came from the DB (picked via
+      // "Select from DB" or confirmed by an STK push) - a manually typed reference must
+      // never hit the M-Pesa tables.
+      const mpesaRefs = completedMpesaPayments
+        .map(p => p.reference)
+        .filter(r => r && r !== 'MPESA-STK');
       if (mpesaRefs.length > 0) {
         try {
           await apiFetch('/api/mpesa/transactions/consume', {
