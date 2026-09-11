@@ -49,6 +49,12 @@ export interface UserRights {
   transferTableOrder: RightValue;     // Move an order to another table
   mergeSplitTableOrders: RightValue;  // Merge tables / merge bills / split a bill
 
+  // Shift Management (Window: SHIFTS)
+  openShift: RightValue;          // Start a manual shift
+  closeShift: RightValue;         // Close a manual shift (cash count / variance)
+  viewShiftHistory: RightValue;   // Open the Shift Management page
+  manageShiftSettings: RightValue; // Toggle/mode/scope and automatic schedules in Settings
+
   // Invoicing & Customer Accounts (Windows: INVOICING / CUSTOMER_ACCOUNTS)
   viewInvoicing: RightValue;          // Open the Invoicing window
   createInvoice: RightValue;          // Create a cash sale or credit sale invoice
@@ -171,6 +177,10 @@ export const defaultRights: UserRights = {
   receiveTableOrderPayment: 'no',
   transferTableOrder: 'no',
   mergeSplitTableOrders: 'no',
+  openShift: 'no',
+  closeShift: 'no',
+  viewShiftHistory: 'no',
+  manageShiftSettings: 'no',
   viewInvoicing: 'no',
   createInvoice: 'no',
   invoiceReceivePayment: 'no',
@@ -261,6 +271,10 @@ export const hardcodedUserGroups: UserGroup[] = [
       receiveTableOrderPayment: 'yes',
       transferTableOrder: 'yes',
       mergeSplitTableOrders: 'yes',
+      openShift: 'yes',
+      closeShift: 'yes',
+      viewShiftHistory: 'yes',
+      manageShiftSettings: 'yes',
       viewInvoicing: 'yes',
       createInvoice: 'yes',
       invoiceReceivePayment: 'yes',
@@ -345,6 +359,10 @@ export const hardcodedUserGroups: UserGroup[] = [
       receiveTableOrderPayment: 'yes',
       transferTableOrder: 'yes',
       mergeSplitTableOrders: 'yes',
+      openShift: 'yes',
+      closeShift: 'yes',
+      viewShiftHistory: 'yes',
+      manageShiftSettings: 'yes',
       viewInvoicing: 'yes',
       createInvoice: 'yes',
       invoiceReceivePayment: 'yes',
@@ -429,6 +447,10 @@ export const hardcodedUserGroups: UserGroup[] = [
       receiveTableOrderPayment: 'yes',
       transferTableOrder: 'no',
       mergeSplitTableOrders: 'no',
+      openShift: 'yes',
+      closeShift: 'yes',
+      viewShiftHistory: 'no',
+      manageShiftSettings: 'no',
       viewInvoicing: 'yes',
       createInvoice: 'yes',
       invoiceReceivePayment: 'yes',
@@ -518,6 +540,10 @@ export const hardcodedUserGroups: UserGroup[] = [
       receiveTableOrderPayment: 'no',
       transferTableOrder: 'no',
       mergeSplitTableOrders: 'no',
+      openShift: 'no',
+      closeShift: 'no',
+      viewShiftHistory: 'no',
+      manageShiftSettings: 'no',
       viewInvoicing: 'no',
       createInvoice: 'no',
       invoiceReceivePayment: 'no',
@@ -645,6 +671,10 @@ export const rightLabels: Record<keyof UserRights, string> = {
   receiveTableOrderPayment: 'Table Orders: Receive Payment',
   transferTableOrder: 'Table Orders: Transfer Table',
   mergeSplitTableOrders: 'Table Orders: Merge & Split',
+  openShift: 'Shifts: Open Shift',
+  closeShift: 'Shifts: Close Shift',
+  viewShiftHistory: 'Shifts: View History',
+  manageShiftSettings: 'Shifts: Manage Settings & Schedules',
   viewInvoicing: 'Invoicing: Open Window',
   createInvoice: 'Invoicing: Create Cash Sale / Invoice',
   invoiceReceivePayment: 'Invoicing: Receive Payment',
@@ -729,6 +759,10 @@ export const rightDescriptions: Partial<Record<keyof UserRights, string>> = {
   receiveTableOrderPayment: 'Take full or partial payment against a table order',
   transferTableOrder: 'Move an open order from one table to another',
   mergeSplitTableOrders: 'Merge tables, combine several bills into one, or split a bill',
+  openShift: 'Start a manual shift with an opening cash float',
+  closeShift: 'Close a manual shift and count the closing cash drawer',
+  viewShiftHistory: 'Open the Shift Management page and past shift history',
+  manageShiftSettings: 'Toggle shift management, change its mode/scope, and edit automatic schedules',
   viewInvoicing: 'Open the desktop Invoicing window for cash sales and credit invoices',
   createInvoice: 'Create a new cash sale or credit sale invoice',
   invoiceReceivePayment: 'Receive full or partial payment against a pending invoice',
@@ -761,6 +795,7 @@ export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Dashboard': ['viewDashboard', 'exportDashboard'],
   'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'voidPrintedItem', 'addToPrintedBill', 'reprintReceipt', 'paymentAccess', 'viewRetailPrice', 'viewWholesalePrice', 'viewSpecialPrice', 'viewTradePrice', 'viewCostPrice', 'viewItemStock'],
   'Table Orders': ['viewTableOrders', 'editTableOrder', 'receiveTableOrderPayment', 'transferTableOrder', 'mergeSplitTableOrders'],
+  'Shift Management': ['openShift', 'closeShift', 'viewShiftHistory', 'manageShiftSettings'],
   'Invoicing & Accounts': ['viewInvoicing', 'createInvoice', 'invoiceReceivePayment', 'invoiceReturn', 'viewCustomerAccounts', 'manageCustomerLedger', 'customerReceivePayment'],
   'Customers': ['viewCustomers', 'createCustomer', 'editCustomer', 'deleteCustomer'],
   'Products & Services': ['viewProducts', 'createProduct', 'editProduct', 'deleteProduct'],

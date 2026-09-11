@@ -327,6 +327,15 @@ export default function DashboardMenu() {
       category: 'catalog'
     },
     {
+      name: 'Shift Management',
+      description: 'Automatic or manual cashier shifts, cash reconciliation, and history',
+      href: '/shifts',
+      icon: Clock,
+      iconGradientClass: 'from-cyan-600 to-blue-700 shadow-cyan-600/20',
+      requiredRight: 'viewShiftHistory',
+      category: 'management'
+    },
+    {
       name: 'Accounting & GL',
       description: 'Chart of accounts, GL journals, posting profiles, and financial reports',
       href: '/accounting',
@@ -352,6 +361,10 @@ export default function DashboardMenu() {
       if (item.href === '/table-orders' && !settings?.enableTableManagement) {
         return false;
       }
+      // 0b. Shift Management only when the feature is enabled
+      if (item.href === '/shifts' && !settings?.enableShiftManagement) {
+        return false;
+      }
       // 1. Right check
       if (item.requiredRight && rights && rights[item.requiredRight as any] === 'no') {
         return false;
@@ -369,7 +382,7 @@ export default function DashboardMenu() {
       }
       return true;
     });
-  }, [rights, searchQuery, activeCategory, settings?.enableTableManagement]);
+  }, [rights, searchQuery, activeCategory, settings?.enableTableManagement, settings?.enableShiftManagement]);
 
   const handleCardClick = (item: MenuCard) => {
     if (item.isComingSoon) {

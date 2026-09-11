@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Product, ProductVariant, Location, StockAdjustment, StockTransfer, StockTake, Customer, InventoryTransaction, SystemSettings, ActiveOrder, Sale, Category, Promotion, Recipe, Supplier, RestaurantTable } from '@/types/inventory';
+import { CurrentShiftStatus, OpenShiftRequest, CloseShiftRequest } from '@/types/shift';
 import { mockProducts, mockLocations, mockAdjustments, mockCustomers } from '@/data/mockData';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -78,6 +79,12 @@ interface InventoryContextType {
     // Settings
     updateSettings: (settings: SystemSettings) => Promise<void>;
 
+    // Shift management - shared so the always-visible header chip can react from any tab
+    currentShift: CurrentShiftStatus | null;
+    refreshCurrentShift: (locationId?: string) => Promise<void>;
+    openShift: (req: OpenShiftRequest) => Promise<void>;
+    closeShift: (id: number, req: CloseShiftRequest) => Promise<void>;
+
     // Sales & Orders
     createSale: (saleData: any) => Promise<{ id: number; journalNumber: string }>;
     createReturn: (returnData: any) => Promise<{ id: number; journalNumber: string }>;
@@ -147,6 +154,48 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
     // Sales history state
     const [salesHistory, setSalesHistory] = useState<Sale[]>([]);
+
+    // ---- Shift management ----
+    const [currentShift, setCurrentShift] = useState<CurrentShiftStatus | null>(null);
+
+    const refreshCurrentShift = async (locationId?: string) => {
+        try {
+            const loc = locationId ?? (user as any)?.locationId;
+            const params = loc ? `?locationId=${encodeURIComponent(loc)}` : '';
+            const response = await apiFetch<ApiResponse<CurrentShiftStatus>>(`/api/shifts/current${params}`);
+            setCurrentShift(response.data);
+        } catch (error) {
+            // Non-fatal - the header chip just stays hidden/stale until the next refresh.
+        }
+    };
+
+    useEffect(() => {
+        if (isAuthenticated) {
+            refreshCurrentShift();
+        }
+    }, [isAuthenticated, (user as any)?.locationId]);
+
+    const openShift = async (req: OpenShiftRequest) => {
+        try {
+            await apiFetch('/api/shifts/open', { method: 'POST', body: JSON.stringify(req) });
+            await refreshCurrentShift(req.locationId);
+            toast.success('Shift opened');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to open shift');
+            throw error;
+        }
+    };
+
+    const closeShift = async (id: number, req: CloseShiftRequest) => {
+        try {
+            await apiFetch(`/api/shifts/${id}/close`, { method: 'POST', body: JSON.stringify(req) });
+            await refreshCurrentShift();
+            toast.success('Shift closed');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to close shift');
+            throw error;
+        }
+    };
 
     const fetchInventoryData = async (startDate?: string, endDate?: string, locationId?: string, userId?: string) => {
         if (!isAuthenticated) return;
@@ -740,6 +789,10 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                         toast.error('Failed to update settings');
                     }
                 },
+                currentShift,
+                refreshCurrentShift,
+                openShift,
+                closeShift,
                 createSale: async (saleData: any) => {
                     try {
                         const response = await apiFetch<ApiResponse<{ id: number; journalNumber: string }>>('/api/transactions/sale', {
@@ -750,7 +803,13 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
                         toast.success(`Sale ${response.data.journalNumber} completed!`);
                         return response.data;
                     } catch (error: any) {
-                        toast.error(error.message || 'Failed to process sale');
+                        if (error?.status === 409) {
+                            toast.error(error.message || 'Open a shift before taking payments', {
+                                description: 'Use the shift control in the top bar to open one.',
+                            });
+                        } else {
+                            toast.error(error.message || 'Failed to process sale');
+                        }
                         throw error;
                     }
                 },

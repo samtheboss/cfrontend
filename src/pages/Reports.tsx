@@ -258,6 +258,7 @@ export default function Reports() {
   const [combinedPayments, setCombinedPayments] = useState<any[]>([]);
   const [isPaymentsLoading, setIsPaymentsLoading] = useState(false);
   const [paymentSourceFilter, setPaymentSourceFilter] = useState<'all' | 'POS' | 'ACCOMMODATION'>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [paymentSearchQuery, setPaymentSearchQuery] = useState('');
   const [paymentReceiptFilter, setPaymentReceiptFilter] = useState('');
   // "payment" = key the report on when money was received; "sale" = on the order date.
@@ -382,15 +383,19 @@ export default function Reports() {
       const matchLocation = reportLocationId === 'all' || !p.locationId || String(p.locationId) === reportLocationId;
       const matchUser = reportUserId === 'all' || !p.userId || String(p.userId) === reportUserId || String(p.cashierId) === reportUserId || String(p.createdBy) === reportUserId;
       const matchSource = paymentSourceFilter === 'all' || (p.source || 'POS') === paymentSourceFilter;
+      // A pending/balance-due line is always emitted with method "PAY LATER" (see
+      // ReportService.getCombinedPayments) — every other row is money actually received.
+      const isPending = p.method === 'PAY LATER';
+      const matchStatus = paymentStatusFilter === 'all' || (paymentStatusFilter === 'pending' ? isPending : !isPending);
       const matchSearch = !paymentSearchQuery ||
         (p.reference && p.reference.toLowerCase().includes(paymentSearchQuery.toLowerCase())) ||
         (p.customerName && p.customerName.toLowerCase().includes(paymentSearchQuery.toLowerCase())) ||
         (p.method && p.method.toLowerCase().includes(paymentSearchQuery.toLowerCase()));
       const matchReceipt = !paymentReceiptFilter ||
         (p.reference && p.reference.toLowerCase().includes(paymentReceiptFilter.trim().toLowerCase()));
-      return matchLocation && matchUser && matchSource && matchSearch && matchReceipt;
+      return matchLocation && matchUser && matchSource && matchStatus && matchSearch && matchReceipt;
     });
-  }, [combinedPayments, reportLocationId, reportUserId, paymentSourceFilter, paymentSearchQuery, paymentReceiptFilter]);
+  }, [combinedPayments, reportLocationId, reportUserId, paymentSourceFilter, paymentStatusFilter, paymentSearchQuery, paymentReceiptFilter]);
 
   const paymentStats = useMemo(() => {
     const stats: Record<string, number> = {};
@@ -2265,6 +2270,27 @@ export default function Reports() {
                 className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${paymentSourceFilter === 'ACCOMMODATION' ? 'bg-amber-950 text-white dark:bg-amber-600 shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 Accommodation
+              </button>
+            </div>
+            {/* Status: paid (money actually received) vs pending (PAY LATER / balance due) */}
+            <div className="flex items-center bg-background p-1 rounded-full border shadow-inner shrink-0">
+              <button
+                onClick={() => setPaymentStatusFilter('all')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${paymentStatusFilter === 'all' ? 'bg-amber-950 text-white dark:bg-amber-600 shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setPaymentStatusFilter('paid')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${paymentStatusFilter === 'paid' ? 'bg-emerald-700 text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Paid
+              </button>
+              <button
+                onClick={() => setPaymentStatusFilter('pending')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${paymentStatusFilter === 'pending' ? 'bg-amber-600 text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Pending
               </button>
             </div>
             {/* Date basis: payment date vs sale date */}

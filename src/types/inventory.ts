@@ -239,6 +239,12 @@ export interface SystemSettings {
   /** Printed on the customer receipt below the totals. */
   receiptPaymentDetails?: string;
   receiptFooter?: string;
+  /** Global toggle for shift management - affects every transactional module when on. */
+  enableShiftManagement: boolean;
+  shiftMode: 'AUTOMATIC' | 'MANUAL';
+  shiftScope: 'PER_LOCATION' | 'GLOBAL';
+  /** Manual mode only: block POS/Table Orders/Invoicing/Accommodation payments with no shift open. */
+  requireOpenShiftToTransact: boolean;
 }
 
 export interface EcommerceSettings {
@@ -314,6 +320,8 @@ export interface InvoiceListItem {
 }
 
 export interface CartItem {
+  /** Backend TransactionItem id — present only for a line already saved on a loaded order. */
+  id?: string;
   variantId: string;
   productName: string;
   variantSku: string;

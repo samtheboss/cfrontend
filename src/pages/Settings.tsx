@@ -9,13 +9,14 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw, Clock, Plus, Trash2 } from 'lucide-react';
+import { ShiftSchedule } from '@/types/shift';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import ShippingSettings from '@/components/settings/ShippingSettings';
 import EcommerceSettingsUI from '@/components/settings/EcommerceSettingsUI';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { getBaseUrl, setBaseUrl, clearBaseUrl } from '@/lib/api';
+import { getBaseUrl, setBaseUrl, clearBaseUrl, apiFetch } from '@/lib/api';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -56,6 +57,83 @@ function ToggleRow({
 }
 
 const fieldLabel = 'text-xs font-medium text-muted-foreground';
+
+/** Admin editor for the recurring windows Automatic shift mode rotates through. */
+function ShiftScheduleEditor() {
+  const [schedules, setSchedules] = useState<ShiftSchedule[]>([]);
+
+  const load = async () => {
+    try {
+      const res = await apiFetch<{ data: ShiftSchedule[] }>('/api/shifts/schedules');
+      setSchedules(res.data || []);
+    } catch {
+      // non-fatal - editor just stays empty until the next successful load
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const updateLocal = (idx: number, patch: Partial<ShiftSchedule>) => {
+    setSchedules(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
+
+  const save = async (s: ShiftSchedule) => {
+    if (!s.name?.trim()) {
+      toast.error('Give the schedule a name first');
+      return;
+    }
+    try {
+      if (s.id) {
+        await apiFetch(`/api/shifts/schedules/${s.id}`, { method: 'PUT', body: JSON.stringify(s) });
+      } else {
+        await apiFetch('/api/shifts/schedules', { method: 'POST', body: JSON.stringify(s) });
+      }
+      toast.success('Schedule saved');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save schedule');
+    }
+  };
+
+  const remove = async (id: number) => {
+    try {
+      await apiFetch(`/api/shifts/schedules/${id}`, { method: 'DELETE' });
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to delete schedule');
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {schedules.map((s, idx) => (
+        <div key={s.id ?? `new-${idx}`} className="flex flex-wrap items-center gap-2 rounded-md border bg-background p-2">
+          <Input className="h-8 w-28 text-xs" placeholder="e.g. Morning" value={s.name}
+            onChange={(e) => updateLocal(idx, { name: e.target.value })} />
+          <Input className="h-8 w-28 text-xs" type="time" value={(s.startTime || '').slice(0, 5)}
+            onChange={(e) => updateLocal(idx, { startTime: e.target.value })} />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Input className="h-8 w-28 text-xs" type="time" value={(s.endTime || '').slice(0, 5)}
+            onChange={(e) => updateLocal(idx, { endTime: e.target.value })} />
+          <div className="flex items-center gap-1.5">
+            <Switch checked={s.active} onCheckedChange={(v) => updateLocal(idx, { active: v })} />
+            <span className="text-xs text-muted-foreground">Active</span>
+          </div>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => save(schedules[idx])}>Save</Button>
+          {s.id != null && (
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-destructive" onClick={() => remove(s.id!)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      ))}
+      <Button size="sm" variant="outline" className="h-8 text-xs"
+        onClick={() => setSchedules(prev => [...prev, { name: '', startTime: '06:00', endTime: '14:00', active: true }])}>
+        <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Schedule
+      </Button>
+    </div>
+  );
+}
 
 export default function Settings() {
   const { settings, updateSettings, isLoading, categories = [] } = useInventory();
@@ -119,7 +197,11 @@ export default function Settings() {
 
   useEffect(() => {
     if (settings) {
-      setFormData(settings);
+      setFormData({
+        ...settings,
+        shiftMode: settings.shiftMode || 'MANUAL',
+        shiftScope: settings.shiftScope || 'PER_LOCATION',
+      });
     }
   }, [settings]);
 
@@ -325,6 +407,54 @@ export default function Settings() {
                   <p className="text-xs italic text-muted-foreground">No categories available to map.</p>
                 )}
               </div>
+            </SectionCard>
+
+            {/* Shift Management */}
+            <SectionCard icon={Clock} title="Shift Management" desc="Automatic or manual cashier shifts, applied across every module" className="lg:col-span-2">
+              <ToggleRow label="Enable Shift Management" desc="Master switch — when off, nothing else here has any effect anywhere in the system"
+                checked={!!formData.enableShiftManagement} onChange={(v) => updateField('enableShiftManagement', v)} />
+              {formData.enableShiftManagement && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className={fieldLabel}>Shift Mode</Label>
+                      <Select value={formData.shiftMode} onValueChange={(v) => updateField('shiftMode', v)}>
+                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="MANUAL">Manual — staff open &amp; close shifts</SelectItem>
+                          <SelectItem value="AUTOMATIC">Automatic — rotates on a schedule</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className={fieldLabel}>Shift Scope</Label>
+                      <Select value={formData.shiftScope} onValueChange={(v) => updateField('shiftScope', v)}>
+                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PER_LOCATION">Per Location — each branch runs its own shift</SelectItem>
+                          <SelectItem value="GLOBAL">Global — one shift covers every location</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {formData.shiftMode === 'MANUAL' && (
+                    <ToggleRow label="Require Open Shift for Payments" desc="Block POS, Table Orders, Invoicing and Accommodation payments until a shift is opened"
+                      checked={!!formData.requireOpenShiftToTransact} onChange={(v) => updateField('requireOpenShiftToTransact', v)} />
+                  )}
+
+                  {formData.shiftMode === 'AUTOMATIC' && (
+                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                      <h4 className="text-xs font-semibold">Shift Schedules</h4>
+                      <p className="text-xs text-muted-foreground">
+                        Windows the system rotates through automatically. A moment not covered by any schedule still
+                        gets a "Default" shift, so nothing is ever left unstamped.
+                      </p>
+                      <ShiftScheduleEditor />
+                    </div>
+                  )}
+                </>
+              )}
             </SectionCard>
 
             {/* Backup */}

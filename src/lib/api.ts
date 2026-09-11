@@ -45,7 +45,10 @@ export async function apiFetch<T>(
       window.location.href = '/signin';
     }
     const error = await response.json().catch(() => ({ message: 'An error occurred' }));
-    throw new Error(error.message || response.statusText);
+    const err = new Error(error.message || response.statusText) as Error & { status?: number; title?: string };
+    err.status = response.status;
+    err.title = error.title;
+    throw err;
   }
 
   return response.json();

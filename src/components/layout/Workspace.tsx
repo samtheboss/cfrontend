@@ -30,8 +30,10 @@ import {
   Grid,
   Ticket,
   Calculator,
+  Clock,
   MoreHorizontal
 } from 'lucide-react';
+import { ShiftStatusChip } from '@/components/shifts/ShiftStatusChip';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -75,6 +77,7 @@ import CustomReports from '@/pages/CustomReports';
 import Accounting from '@/pages/Accounting';
 import TableOrders from '@/pages/TableOrders';
 import Tables from '@/pages/Tables';
+import Shifts from '@/pages/Shifts';
 import NotFound from '@/pages/NotFound';
 
 interface TabItem {
@@ -91,6 +94,7 @@ const tabMetadata: Record<string, { title: string; icon: any; component: React.C
   '/pos': { title: 'Point of Sale', icon: ShoppingCart, component: POS },
   '/table-orders': { title: 'Table Orders', icon: Grid, component: TableOrders },
   '/tables': { title: 'Tables', icon: Grid, component: Tables },
+  '/shifts': { title: 'Shift Management', icon: Clock, component: Shifts },
   '/invoicing': { title: 'Invoicing', icon: FileText, component: Invoicing },
   '/customer-accounts': { title: 'Customer Accounts', icon: Wallet, component: CustomerAccounts },
   '/adjustments': { title: 'Stock Adjustments', icon: ArrowRightLeft, component: StockAdjustment },
@@ -283,6 +287,8 @@ export function Workspace() {
             );
           })}
         </div>
+
+        <ShiftStatusChip />
 
         {/* Workspace Tab Actions Dropdown */}
         <div className="flex items-center border-l border-slate-800 pl-2">

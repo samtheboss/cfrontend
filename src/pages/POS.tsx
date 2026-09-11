@@ -970,6 +970,7 @@ export default function POS() {
       changeAmount: 0,
       idempotencyKey: currentSaleId ? undefined : `kot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       items: cart.map(item => ({
+        id: item.id,
         variantId: parseInt(item.variantId),
         sku: item.variantSku,
         productName: item.productName,
@@ -1231,6 +1232,7 @@ export default function POS() {
       changeAmount: Math.max(0, totalPaid - total),
       idempotencyKey: idempotencyKey,
       items: cart.map(item => ({
+        id: item.id,
         variantId: item.variantId,
         sku: item.variantSku,
         productName: item.productName,
@@ -1338,6 +1340,7 @@ export default function POS() {
       changeAmount: 0,
       idempotencyKey: idempotencyKey,
       items: cart.map(item => ({
+        id: item.id,
         variantId: item.variantId,
         sku: item.variantSku,
         productName: item.productName,
@@ -1459,14 +1462,16 @@ export default function POS() {
   };
 
   const handleHomeClick = async () => {
-    if (cart.length > 0) {
+    // Only preserve genuinely unsaved work — otherwise this re-PUTs an already-loaded,
+    // unchanged order's full item list right back onto itself on every nav-away.
+    if (cart.length > 0 && cart.some(item => !item.printed)) {
       await handleHoldOrder();
     }
     navigate('/');
   };
 
   const handleLogout = async () => {
-    if (cart.length > 0) {
+    if (cart.length > 0 && cart.some(item => !item.printed)) {
       await handleHoldOrder();
     }
     logout();
@@ -1565,82 +1570,94 @@ export default function POS() {
 
   const handleHoldOrder = async (): Promise<boolean> => {
     if (cart.length === 0) return true;
-
-    // Order was loaded from an existing DB sale (pending payment / KOT): persist the
-    // current cart back onto that same order instead of creating a duplicate held copy.
-    // Keep the order's existing status — a resumed KOT stays PENDING until the cashier
-    // explicitly places the bill (Pay Later / checkout); only orders that were already
-    // PAYMENT_PENDING stay PAYMENT_PENDING.
-    if (currentSaleId) {
-      const keepStatus = currentSaleStatus === 'PENDING' ? 'PENDING' : 'PAYMENT_PENDING';
-      try {
-        const updatePayload = {
-          type: 'SALE',
-          status: keepStatus,
-          locationId: selectedLocationId,
-          customerId: selectedCustomer?.id ? selectedCustomer.id : null,
-          paymentMethod: keepStatus === 'PENDING' ? 'PENDING' : 'PAY_LATER',
-          tableId: selectedTable?.id ?? null,
-          tableName: selectedTable?.code ?? null,
-          payments: [],
-          subtotal,
-          taxAmount: tax,
-          totalAmount: total,
-          items: cart.map(item => ({
-            variantId: item.variantId,
-            sku: item.variantSku,
-            productName: item.productName,
-            adjustment: -item.quantity,
-            price: item.price,
-            taxRate: item.taxRate ?? 16.0,
-            taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
-          })),
-        };
-        await apiFetch(`/api/transactions/${currentSaleId}`, {
-          method: 'PUT',
-          body: JSON.stringify(updatePayload),
-        });
-        toast.success(keepStatus === 'PENDING' ? 'Order saved' : 'Pending order updated');
-        resetPOSState();
-        refreshData();
-        return true;
-      } catch (error: any) {
-        // Loaded order is gone (completed/cancelled/stale) — drop the dead id and fall
-        // through to holding the cart as a fresh local order instead of erroring out.
-        if (String(error?.message || '').toLowerCase().includes('not found')) {
-          setCurrentSaleId(null);
-          setCurrentSaleStatus(null);
-        } else {
-          toast.error(error?.message || 'Failed to update pending order');
-          return false;
+    // Guard against a double-tap/double-click firing this twice concurrently — without
+    // it, two near-simultaneous PUTs for the same not-yet-saved cart item would each see
+    // "no match" and insert it twice (the item-sync is id-based; a duplicate submission of
+    // a line that has no id yet is not itself idempotent, unlike the old delete/reinsert-all).
+    if (isProcessing) return false;
+    setIsProcessing(true);
+    try {
+      // Order was loaded from an existing DB sale (pending payment / KOT): persist the
+      // current cart back onto that same order instead of creating a duplicate held copy.
+      // Keep the order's existing status — a resumed KOT stays PENDING until the cashier
+      // explicitly places the bill (Pay Later / checkout); only orders that were already
+      // PAYMENT_PENDING stay PAYMENT_PENDING.
+      if (currentSaleId) {
+        const keepStatus = currentSaleStatus === 'PENDING' ? 'PENDING' : 'PAYMENT_PENDING';
+        try {
+          const updatePayload = {
+            type: 'SALE',
+            status: keepStatus,
+            locationId: selectedLocationId,
+            customerId: selectedCustomer?.id ? selectedCustomer.id : null,
+            paymentMethod: keepStatus === 'PENDING' ? 'PENDING' : 'PAY_LATER',
+            tableId: selectedTable?.id ?? null,
+            tableName: selectedTable?.code ?? null,
+            payments: [],
+            subtotal,
+            taxAmount: tax,
+            totalAmount: total,
+            items: cart.map(item => ({
+              id: item.id,
+              variantId: item.variantId,
+              sku: item.variantSku,
+              productName: item.productName,
+              adjustment: -item.quantity,
+              price: item.price,
+              taxRate: item.taxRate ?? 16.0,
+              taxAmount: computeTax(item.quantity, item.price, item.taxRate ?? 16.0).tax,
+            })),
+          };
+          await apiFetch(`/api/transactions/${currentSaleId}`, {
+            method: 'PUT',
+            body: JSON.stringify(updatePayload),
+          });
+          toast.success(keepStatus === 'PENDING' ? 'Order saved' : 'Pending order updated');
+          resetPOSState();
+          refreshData();
+          return true;
+        } catch (error: any) {
+          // Loaded order is gone (completed/cancelled/stale) — drop the dead id and fall
+          // through to holding the cart as a fresh local order instead of erroring out.
+          if (String(error?.message || '').toLowerCase().includes('not found')) {
+            setCurrentSaleId(null);
+            setCurrentSaleStatus(null);
+          } else {
+            toast.error(error?.message || 'Failed to update pending order');
+            return false;
+          }
         }
       }
-    }
 
-    const order: ActiveOrder = {
-      id: `hold-${Date.now()}`,
-      customer: selectedCustomer,
-      items: [...cart],
-      userId: user?.id,
-      timestamp: new Date()
-    };
+      const order: ActiveOrder = {
+        id: `hold-${Date.now()}`,
+        customer: selectedCustomer,
+        items: [...cart],
+        userId: user?.id,
+        timestamp: new Date()
+      };
 
-    if (!holdOrder(order)) {
-      toast.error(
-        `Maximum held orders reached (${settings?.maxHeldOrders ?? 10}). Resume or clear a held order first.`
-      );
-      return false;
+      if (!holdOrder(order)) {
+        toast.error(
+          `Maximum held orders reached (${settings?.maxHeldOrders ?? 10}). Resume or clear a held order first.`
+        );
+        return false;
+      }
+      clearCart();
+      setSelectedTable(null);
+      toast.success('Order held successfully');
+      return true;
+    } finally {
+      setIsProcessing(false);
     }
-    clearCart();
-    setSelectedTable(null);
-    toast.success('Order held successfully');
-    return true;
   };
 
   const handleResumeOrder = async (order: ActiveOrder) => {
-    // If the current cart has items, hold it first before resuming (persists to the
-    // existing DB order when one is loaded, otherwise creates a local held order).
-    if (cart.length > 0) {
+    // If the current cart has unsaved work, hold it first before resuming (persists to
+    // the existing DB order when one is loaded, otherwise creates a local held order).
+    // Skip the hold entirely when there's nothing new — otherwise this would re-PUT an
+    // already-loaded, unchanged order's full item list right back onto itself.
+    if (cart.length > 0 && cart.some(item => !item.printed)) {
       const held = await handleHoldOrder();
       if (!held) return;
     }
@@ -1699,8 +1716,11 @@ export default function POS() {
   };
 
   const handleLoadPendingReceipt = async (sale: Sale) => {
-    // Persist / hold the current cart before loading another order
-    if (cart.length > 0) {
+    // Persist any unsaved work in the current cart before loading another order — but
+    // only if there actually is unsaved work. Otherwise this unconditionally re-PUT
+    // whatever was already loaded (even completely unchanged) right back onto itself,
+    // which is how clicking "Open / Add" on Table Orders kept duplicating items.
+    if (cart.length > 0 && cart.some(item => !item.printed)) {
       const held = await handleHoldOrder();
       if (!held) return;
     }
@@ -2757,7 +2777,7 @@ export default function POS() {
         {/* Hold */}
         <button
           id="pos-hold-btn"
-          disabled={cart.length === 0}
+          disabled={cart.length === 0 || isProcessing}
           onClick={handleHoldOrder}
           className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-amber-400 hover:bg-amber-500 text-white active:brightness-90"
         >
@@ -2768,17 +2788,25 @@ export default function POS() {
         {/* New */}
         <button
           id="pos-new-btn"
-          onClick={() => {
-            if (cart.length > 0) {
-              handleHoldOrder();
+          disabled={isProcessing}
+          onClick={async () => {
+            const hasUnsavedWork = cart.some(item => !item.printed);
+            if (cart.length > 0 && hasUnsavedWork) {
+              // There's something not yet persisted (a new line, or a printed line whose
+              // quantity was bumped) — preserve it instead of silently dropping it.
+              await handleHoldOrder();
               setIdempotencyKey(`pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
             } else {
-              // No held/loaded work to preserve — fully detach so nothing is left dangling.
+              // Either an empty cart, or a loaded order the cashier is just walking away
+              // from unchanged — detach without re-sending its (identical) item list to
+              // the backend. A no-op resend here used to be how re-opening and then
+              // hitting New on an already-loaded order would keep re-submitting the same
+              // values.
               cancelWorkingOrder({ silent: true });
             }
             toast.info('New order started');
           }}
-          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all bg-cyan-500 hover:bg-cyan-600 text-white active:brightness-90"
+          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-cyan-500 hover:bg-cyan-600 text-white active:brightness-90"
         >
           <Plus className="h-5 w-5" />
           New

@@ -522,7 +522,13 @@ export function PaymentDialog({
 
       onOpenChange(false);
     } catch (error: any) {
-      toast.error(error.message || "Failed to submit payment");
+      if (error?.status === 409) {
+        toast.error(error.message || 'Open a shift before taking payments', {
+          description: 'Use the shift control in the top bar to open one.',
+        });
+      } else {
+        toast.error(error.message || "Failed to submit payment");
+      }
     } finally {
       setIsSubmitting(false);
     }
