@@ -6,6 +6,7 @@ import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDial
 import { mockCustomers, mockSales } from '@/data/mockData';
 import { Product, ProductVariant, Customer, Sale, CartItem, ActiveOrder } from '@/types/inventory';
 import { apiFetch, getBaseUrl } from '@/lib/api';
+import { shouldHoldBeforeSwitch, decideCheckoutAction } from '@/lib/posSaveDecision';
 import { cn } from '@/lib/utils';
 import { Search, Minus, Plus, Trash2, Ban, CreditCard, Banknote, Smartphone, ShoppingCart, Receipt, User, UserPlus, X, Edit, Home, Clock, FileText, PauseCircle, PlayCircle, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Calendar, Package, RefreshCw, LogOut, Printer, Wallet, Building, Gift, Utensils, LayoutGrid } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -1246,12 +1247,13 @@ export default function POS() {
     setIsProcessing(true);
     try {
       let saved;
-      if (currentSaleId && currentSalePaid >= total - 0.01 && total > 0) {
+      const checkoutAction = decideCheckoutAction({ currentSaleId, currentSalePaid, total });
+      if (checkoutAction === 'ALREADY_PAID') {
         // The order is already fully covered by earlier payments — don't post again.
         toast.error('This order has already been paid in full.');
         return;
       }
-      if (currentSaleId && currentSalePaid > 0) {
+      if (checkoutAction === 'RECEIVE_BALANCE') {
         // Order already carries a partial payment: just take the balance. Receiving a
         // payment must never touch the order's line items, so the PUT carries no `items`
         // (the backend leaves them alone when none are sent).
@@ -1272,7 +1274,7 @@ export default function POS() {
         });
         saved = rpRes.data || rpRes;
         toast.success('Balance received!');
-      } else if (currentSaleId) {
+      } else if (checkoutAction === 'UPDATE_COMPLETE') {
         const updatePayload = {
           ...saleData,
           status: 'COMPLETED'
@@ -1464,14 +1466,14 @@ export default function POS() {
   const handleHomeClick = async () => {
     // Only preserve genuinely unsaved work — otherwise this re-PUTs an already-loaded,
     // unchanged order's full item list right back onto itself on every nav-away.
-    if (cart.length > 0 && cart.some(item => !item.printed)) {
+    if (shouldHoldBeforeSwitch(cart)) {
       await handleHoldOrder();
     }
     navigate('/');
   };
 
   const handleLogout = async () => {
-    if (cart.length > 0 && cart.some(item => !item.printed)) {
+    if (shouldHoldBeforeSwitch(cart)) {
       await handleHoldOrder();
     }
     logout();
@@ -1657,7 +1659,7 @@ export default function POS() {
     // the existing DB order when one is loaded, otherwise creates a local held order).
     // Skip the hold entirely when there's nothing new — otherwise this would re-PUT an
     // already-loaded, unchanged order's full item list right back onto itself.
-    if (cart.length > 0 && cart.some(item => !item.printed)) {
+    if (shouldHoldBeforeSwitch(cart)) {
       const held = await handleHoldOrder();
       if (!held) return;
     }
@@ -1720,7 +1722,7 @@ export default function POS() {
     // only if there actually is unsaved work. Otherwise this unconditionally re-PUT
     // whatever was already loaded (even completely unchanged) right back onto itself,
     // which is how clicking "Open / Add" on Table Orders kept duplicating items.
-    if (cart.length > 0 && cart.some(item => !item.printed)) {
+    if (shouldHoldBeforeSwitch(cart)) {
       const held = await handleHoldOrder();
       if (!held) return;
     }
@@ -2790,8 +2792,7 @@ export default function POS() {
           id="pos-new-btn"
           disabled={isProcessing}
           onClick={async () => {
-            const hasUnsavedWork = cart.some(item => !item.printed);
-            if (cart.length > 0 && hasUnsavedWork) {
+            if (shouldHoldBeforeSwitch(cart)) {
               // There's something not yet persisted (a new line, or a printed line whose
               // quantity was bumped) — preserve it instead of silently dropping it.
               await handleHoldOrder();
