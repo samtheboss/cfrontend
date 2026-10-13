@@ -1195,32 +1195,97 @@ export default function Purchasing() {
           </div>
         </TabsContent>
 
-        <TabsContent value="suppliers" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {suppliers.map(supplier => (
-              <Card key={supplier.id} className="group overflow-hidden hover:shadow-md transition-all">
-                <CardHeader className="bg-primary/5 pb-3">
-                  <div className="flex justify-between items-start">
-                    <CardTitle className="text-lg">{supplier.name}</CardTitle>
-                    <Truck className="h-5 w-5 text-primary opacity-50" />
+        <TabsContent value="suppliers" className="space-y-3">
+          {suppliers.length === 0 ? (
+            <div className="text-center py-16 border-2 border-dashed rounded-xl text-muted-foreground">
+              <Truck className="h-10 w-10 mx-auto opacity-20 mb-3" />
+              <p className="font-medium">No suppliers yet</p>
+              <p className="text-sm mt-1">Add your first supplier to get started.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {suppliers.map(supplier => {
+                const initials = supplier.name
+                  .split(' ')
+                  .slice(0, 2)
+                  .map(w => w[0])
+                  .join('')
+                  .toUpperCase();
+                const colors = [
+                  'from-violet-500 to-purple-600',
+                  'from-blue-500 to-cyan-600',
+                  'from-emerald-500 to-teal-600',
+                  'from-orange-500 to-amber-600',
+                  'from-rose-500 to-pink-600',
+                  'from-indigo-500 to-blue-600',
+                ];
+                const colorClass = colors[Number(supplier.id) % colors.length];
+                return (
+                  <div
+                    key={supplier.id}
+                    className="group relative flex flex-col bg-card border rounded-xl p-0 overflow-hidden hover:shadow-md hover:border-primary/40 transition-all duration-200"
+                  >
+                    {/* Top colour strip + avatar */}
+                    <div className={`h-1.5 w-full bg-gradient-to-r ${colorClass}`} />
+                    <div className="flex items-start gap-3 p-3 pb-2">
+                      <div className={`flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br ${colorClass} flex items-center justify-center text-white text-sm font-bold shadow-sm`}>
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm leading-tight truncate">{supplier.name}</p>
+                        {supplier.contactPerson && (
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">{supplier.contactPerson}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Details */}
+                    <div className="px-3 pb-2 space-y-1 flex-1">
+                      {supplier.email && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="shrink-0 w-3.5 text-center">✉</span>
+                          <span className="truncate">{supplier.email}</span>
+                        </div>
+                      )}
+                      {supplier.phone && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="shrink-0 w-3.5 text-center">📞</span>
+                          <span className="truncate">{supplier.phone}</span>
+                        </div>
+                      )}
+                      {supplier.address && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="shrink-0 w-3.5 text-center">📍</span>
+                          <span className="truncate">{supplier.address}</span>
+                        </div>
+                      )}
+                      {!supplier.email && !supplier.phone && !supplier.address && (
+                        <p className="text-xs text-muted-foreground/60 italic">No contact details</p>
+                      )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30 mt-1">
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${supplier.isActive !== false ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}`}>
+                        {supplier.isActive !== false ? 'Active' : 'Inactive'}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          setEditingSupplier(supplier);
+                          setIsSupplierDialogOpen(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    </div>
                   </div>
-                </CardHeader>
-                <CardContent className="pt-4 space-y-2 text-sm text-muted-foreground">
-                  <p>👤 {supplier.contactPerson}</p>
-                  <p>📧 {supplier.email}</p>
-                  <p>📞 {supplier.phone}</p>
-                  <div className="mt-4 pt-4 border-t flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => {
-                      setEditingSupplier(supplier);
-                      setIsSupplierDialogOpen(true);
-                    }}>
-                      Edit
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

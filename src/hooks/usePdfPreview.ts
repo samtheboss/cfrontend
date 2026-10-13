@@ -99,10 +99,12 @@ export function usePdfPreview() {
   return {
     open,
     setOpen,
+    onOpenChange: setOpen,
     url,
     title,
     iframeRef,
     handlePrint,
+    onPrint: handlePrint,
     showPdf,
     autoPrintOnLoad: !!settings?.autoPrintReceipts,
   };

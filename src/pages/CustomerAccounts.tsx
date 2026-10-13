@@ -1,12 +1,14 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Search, Banknote, CreditCard, Smartphone, FileText,
   ChevronsUpDown, Check, ArrowUpRight, ArrowDownLeft,
-  Wallet, BookOpen, RotateCcw, Receipt, Printer, AlertTriangle
+  Wallet, BookOpen, RotateCcw, Receipt, Printer, AlertTriangle,
+  ArrowRightLeft, LinkIcon, X
 } from 'lucide-react';
+import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +22,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { toast } from 'sonner';
 import { useCurrency } from '@/hooks/useCurrency';
+import { useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -167,8 +170,14 @@ export default function CustomerAccounts() {
   };
   const { sym, fmt } = useCurrency();
   const pdfPreview = usePdfPreview();
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const location = useLocation();
+  const isCurrentPage = location.pathname === '/customer-accounts';
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const incomingAccountId = isCurrentPage ? ((location.state as any)?.accountId || searchParams.get('accountId') || '') : '';
+  const incomingAction = isCurrentPage ? ((location.state as any)?.action || searchParams.get('action') || '') : '';
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(incomingAccountId || '');
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
+  const lastProcessedNavRef = useRef<string>('');
 
   // Aging report
   const [activeView, setActiveView] = useState<'ledger' | 'aging'>('ledger');
@@ -182,6 +191,12 @@ export default function CustomerAccounts() {
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [balance, setBalance] = useState<BalanceSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Filters
+  const [filterText, setFilterText] = useState('');
+  const [filterType, setFilterType] = useState<string>('ALL');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
 
   // Print statement dialog
   const [isStatementDialogOpen, setIsStatementDialogOpen] = useState(false);
@@ -200,6 +215,7 @@ export default function CustomerAccounts() {
 
   // Payment dialog (invoice-based)
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [isPaymentDetailOpen, setIsPaymentDetailOpen] = useState(false);
   const [outstandingInvoices, setOutstandingInvoices] = useState<OutstandingInvoice[]>([]);
   const [unmatchedCredits, setUnmatchedCredits] = useState<UnmatchedCredit[]>([]);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
@@ -211,6 +227,12 @@ export default function CustomerAccounts() {
   const [selectedCreditId, setSelectedCreditId] = useState<number | null>(null);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+
+  // Popup filters
+  const [popupFilterText, setPopupFilterText] = useState('');
+  const [popupFilterType, setPopupFilterType] = useState<string>('ALL');
+  const [popupFilterStartDate, setPopupFilterStartDate] = useState('');
+  const [popupFilterEndDate, setPopupFilterEndDate] = useState('');
 
   // Split payment
   const [usePaymentSplit, setUsePaymentSplit] = useState(false);
@@ -235,6 +257,32 @@ export default function CustomerAccounts() {
     unmatchedCredits.find(c => c.id === selectedCreditId),
     [unmatchedCredits, selectedCreditId]
   );
+
+  const filteredOutstandingInvoices = useMemo(() => {
+    return outstandingInvoices.filter(inv => {
+      if (selectedInvoiceIds.includes(inv.id)) return true; // Always show selected invoices
+
+      if (popupFilterType !== 'ALL' && inv.type !== popupFilterType) return false;
+      
+      if (popupFilterText) {
+        const term = popupFilterText.toLowerCase();
+        const ref = (inv.reference || '').toLowerCase();
+        const notes = (inv.notes || '').toLowerCase();
+        if (!ref.includes(term) && !notes.includes(term)) {
+          return false;
+        }
+      }
+      
+      if (popupFilterStartDate && new Date(inv.timestamp) < new Date(popupFilterStartDate + 'T00:00:00')) {
+        return false;
+      }
+      if (popupFilterEndDate && new Date(inv.timestamp) > new Date(popupFilterEndDate + 'T23:59:59')) {
+        return false;
+      }
+      
+      return true;
+    });
+  }, [outstandingInvoices, popupFilterType, popupFilterText, popupFilterStartDate, popupFilterEndDate]);
 
   useEffect(() => {
     if (selectedCustomerId) {
@@ -297,13 +345,14 @@ export default function CustomerAccounts() {
     }
   };
 
-  const fetchOutstandingData = async () => {
-    if (!selectedCustomerId) return;
+  const fetchOutstandingData = async (cid?: string) => {
+    const targetId = cid || selectedCustomerId;
+    if (!targetId) return;
     setIsLoadingInvoices(true);
     try {
       const [invoicesRes, creditsRes] = await Promise.all([
-        apiFetch<{ data: OutstandingInvoice[] }>(`/api/customer-ledger/${selectedCustomerId}/outstanding-invoices`),
-        apiFetch<{ data: UnmatchedCredit[] }>(`/api/customer-ledger/${selectedCustomerId}/unmatched-credits`),
+        apiFetch<{ data: OutstandingInvoice[] }>(`/api/customer-ledger/${targetId}/outstanding-invoices`),
+        apiFetch<{ data: UnmatchedCredit[] }>(`/api/customer-ledger/${targetId}/unmatched-credits`),
       ]);
       setOutstandingInvoices(invoicesRes.data || []);
       setUnmatchedCredits(creditsRes.data || []);
@@ -315,7 +364,7 @@ export default function CustomerAccounts() {
   };
 
   // Open the Payment dialog fresh - lets the user pick invoice(s) from within the dialog
-  const openPaymentDialog = () => {
+  const openPaymentDialog = (cid?: string) => {
     setSelectedInvoiceIds([]);
     setInvoiceAllocations({});
     setPaymentMode('cash_payment');
@@ -323,6 +372,26 @@ export default function CustomerAccounts() {
     setPaymentNotes('');
     setPaymentMethodSingle('CASH');
     setSelectedCreditId(null);
+    setUsePaymentSplit(false);
+    setPaymentSplits({
+      cash: { active: false, amount: '', reference: '' },
+      card: { active: false, amount: '', reference: '' },
+      mobile: { active: false, amount: '', reference: '' },
+      bank_transfer: { active: false, amount: '', reference: '' },
+    });
+    setIsPaymentDialogOpen(true);
+    fetchOutstandingData(cid);
+  };
+
+  // Open the Payment dialog pre-set to allocate a specific credit/prepayment to invoices
+  const openAllocateCreditDialog = (creditId: number) => {
+    setSelectedInvoiceIds([]);
+    setInvoiceAllocations({});
+    setPaymentMode('apply_credit');
+    setPaymentReference('');
+    setPaymentNotes('');
+    setPaymentMethodSingle('CASH');
+    setSelectedCreditId(creditId);
     setUsePaymentSplit(false);
     setPaymentSplits({
       cash: { active: false, amount: '', reference: '' },
@@ -346,13 +415,6 @@ export default function CustomerAccounts() {
     setPaymentNotes('');
     setPaymentMethodSingle('CASH');
     setSelectedCreditId(null);
-    setUsePaymentSplit(false);
-    setPaymentSplits({
-      cash: { active: false, amount: '', reference: '' },
-      card: { active: false, amount: '', reference: '' },
-      mobile: { active: false, amount: '', reference: '' },
-      bank_transfer: { active: false, amount: '', reference: '' },
-    });
     setIsPaymentDialogOpen(true);
   };
 
@@ -371,6 +433,32 @@ export default function CustomerAccounts() {
     setStatementEndDate(format(new Date(), 'yyyy-MM-dd'));
     setIsStatementDialogOpen(true);
   };
+
+  // Handle incoming selection & actions from navigation (e.g. Accounts Dashboard)
+  useEffect(() => {
+    if (!isCurrentPage) {
+      setIsEntryDialogOpen(false);
+      setIsPaymentDialogOpen(false);
+      setIsStatementDialogOpen(false);
+      return;
+    }
+    if (!incomingAccountId) return;
+    const navTs = (location.state as any)?.ts || '';
+    const navKey = `${incomingAccountId}_${incomingAction}_${navTs || location.key}_${location.search}`;
+    if (lastProcessedNavRef.current === navKey) return;
+    lastProcessedNavRef.current = navKey;
+
+    setSelectedCustomerId(String(incomingAccountId));
+    setActiveView('ledger');
+
+    if (incomingAction === 'payment') {
+      setTimeout(() => openPaymentDialog(String(incomingAccountId)), 200);
+    } else if (incomingAction === 'debit_note') {
+      setTimeout(() => openEntryDialog('DEBIT_NOTE'), 200);
+    } else if (incomingAction === 'credit_note') {
+      setTimeout(() => openEntryDialog('CREDIT_NOTE'), 200);
+    }
+  }, [isCurrentPage, incomingAccountId, incomingAction, location.key, location.search]);
 
   const printStatement = async () => {
     if (!selectedCustomerId) return;
@@ -471,77 +559,78 @@ export default function CustomerAccounts() {
           if (remainingCredit <= 0.001) break;
         }
         toast.success('Credit applied to invoice(s) successfully');
-      } else if (usePaymentSplit) {
-        const activeSplits = Object.entries(paymentSplits)
-          .filter(([_, m]) => m.active && (parseFloat(m.amount) || 0) > 0)
-          .map(([method, m]) => ({
-            method: method.toUpperCase(),
-            amount: parseFloat(m.amount) || 0,
-            reference: m.reference
-          }));
+        setIsPaymentDialogOpen(false);
+        setSelectedInvoiceIds([]);
+        setInvoiceAllocations({});
+        fetchLedgerData(selectedCustomerId);
+      } else if (paymentMode === 'cash_payment') {
+        // Proceed to PaymentDetails dialog
+        setIsPaymentDialogOpen(false);
+        setIsPaymentDetailOpen(true);
+      }
+    } catch (error) {
+      toast.error('Failed to process payment application');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
 
-        if (activeSplits.length === 0) {
-          toast.error('Please add at least one payment with an amount');
-          setIsSubmittingPayment(false);
-          return;
-        }
+  const handleFinalPaymentSubmit = async (details: PaymentDetails[]) => {
+    if (!can.pay) { toast.error('You are not allowed to receive customer payments'); return; }
+    if (!selectedCustomerId || selectedInvoiceIds.length === 0) {
+      toast.error('Please select at least one invoice');
+      return;
+    }
+    const totalAllocated = selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0);
+    const totalPaid = details.reduce((sum, p) => sum + (parseFloat(p.amount.toString()) || 0), 0);
+    
+    if (Math.abs(totalPaid - totalAllocated) > 0.01) {
+      toast.error(`Total payment (${fmt(totalPaid)}) must match the total allocated amount (${fmt(totalAllocated)})`);
+      return;
+    }
 
-        const totalSplit = activeSplits.reduce((sum, s) => sum + s.amount, 0);
-        if (Math.abs(totalSplit - totalAllocated) > 0.01) {
-          toast.error(`Total split payment (${fmt(totalSplit)}) must match the total allocated amount (${fmt(totalAllocated)})`);
-          setIsSubmittingPayment(false);
-          return;
-        }
-
+    setIsSubmittingPayment(true);
+    try {
         for (const id of selectedInvoiceIds) {
           const alloc = parseFloat(invoiceAllocations[id]) || 0;
           if (alloc <= 0) continue;
 
-          for (const split of activeSplits) {
-            const propAmount = (alloc / totalAllocated) * split.amount;
-            if (propAmount > 0.001) {
-              await apiFetch('/api/customer-ledger', {
-                method: 'POST',
-                body: JSON.stringify({
-                  customer: { id: Number(selectedCustomerId) },
-                  type: 'PAYMENT',
-                  amount: parseFloat(propAmount.toFixed(2)),
-                  reference: split.reference || paymentReference || '',
-                  notes: paymentNotes || '',
-                  paymentMethod: split.method,
-                  linkedEntryId: id,
-                }),
-              });
-            }
+          let amountToCover = alloc;
+          for (const split of details) {
+            if (amountToCover <= 0) break;
+            const splitAmount = parseFloat(split.amount.toString()) || 0;
+            if (splitAmount <= 0) continue;
+
+            const applyAmount = Math.min(amountToCover, splitAmount);
+            if (applyAmount <= 0) continue;
+
+            await apiFetch('/api/customer-ledger', {
+              method: 'POST',
+              body: JSON.stringify({
+                customer: { id: Number(selectedCustomerId) },
+                type: 'PAYMENT',
+                amount: applyAmount,
+                reference: split.reference || '',
+                notes: paymentNotes || '',
+                paymentMethod: split.method.toUpperCase(),
+                accountId: split.glAccountId || null,
+                linkedEntryId: id,
+              }),
+            });
+
+            // Adjust remaining amount for this split to be used for next invoice
+            split.amount = splitAmount - applyAmount;
+            amountToCover -= applyAmount;
           }
         }
-        toast.success('Split payments recorded successfully');
-      } else {
-        for (const id of selectedInvoiceIds) {
-          const alloc = parseFloat(invoiceAllocations[id]) || 0;
-          if (alloc <= 0) continue;
-          await apiFetch('/api/customer-ledger', {
-            method: 'POST',
-            body: JSON.stringify({
-              customer: { id: Number(selectedCustomerId) },
-              type: 'PAYMENT',
-              amount: alloc,
-              reference: paymentReference || '',
-              notes: paymentNotes || '',
-              paymentMethod: paymentMethodSingle,
-              linkedEntryId: id,
-            }),
-          });
-        }
-        toast.success('Payments recorded successfully');
-      }
-
-      setIsPaymentDialogOpen(false);
-      setSelectedInvoiceIds([]);
-      setInvoiceAllocations({});
-      fetchLedgerData(selectedCustomerId);
+        toast.success('Payment recorded and allocated successfully');
+        setIsPaymentDetailOpen(false);
+        setSelectedInvoiceIds([]);
+        setInvoiceAllocations({});
+        fetchLedgerData(selectedCustomerId);
     } catch (error) {
-      toast.error('Failed to record payments');
+      toast.error('Failed to record payment');
+      throw error;
     } finally {
       setIsSubmittingPayment(false);
     }
@@ -573,6 +662,31 @@ export default function CustomerAccounts() {
       return { ...entry, runningBalance: running };
     }).reverse();
   }, [ledgerEntries]);
+
+  const filteredEntries = useMemo(() => {
+    return entriesWithRunningBalance.filter(entry => {
+      if (filterType !== 'ALL' && entry.type !== filterType) return false;
+      
+      if (filterText) {
+        const term = filterText.toLowerCase();
+        const ref = (entry.reference || '').toLowerCase();
+        const notes = (entry.notes || '').toLowerCase();
+        const pMethod = (entry.paymentMethod || '').toLowerCase();
+        if (!ref.includes(term) && !notes.includes(term) && !pMethod.includes(term)) {
+          return false;
+        }
+      }
+      
+      if (filterStartDate && new Date(entry.timestamp) < new Date(filterStartDate + 'T00:00:00')) {
+        return false;
+      }
+      if (filterEndDate && new Date(entry.timestamp) > new Date(filterEndDate + 'T23:59:59')) {
+        return false;
+      }
+      
+      return true;
+    });
+  }, [entriesWithRunningBalance, filterType, filterText, filterStartDate, filterEndDate]);
 
   const totalSplitAmount = useMemo(() =>
     Object.values(paymentSplits)
@@ -717,9 +831,15 @@ export default function CustomerAccounts() {
             )}
 
             <Tabs defaultValue="history" className="w-full space-y-4">
-              <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
+              <TabsList className="grid w-full grid-cols-3 max-w-[600px]">
                 <TabsTrigger value="history">Statement / Ledger History</TabsTrigger>
                 <TabsTrigger value="pending">Outstanding Invoices</TabsTrigger>
+                <TabsTrigger value="credits">
+                  Credits & Prepayments
+                  {unmatchedCredits.length > 0 && (
+                    <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[9px] font-bold">{unmatchedCredits.length}</Badge>
+                  )}
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="history" className="space-y-4">
@@ -747,6 +867,66 @@ export default function CustomerAccounts() {
                   </Button>
                 </div>
 
+                {/* Filters */}
+                <div className="flex flex-wrap gap-3 mb-2 p-3 bg-muted/20 border rounded-lg">
+                  <div className="flex-1 min-w-[200px]">
+                    <Label className="text-[10px] uppercase text-muted-foreground font-semibold mb-1 block">Search Details</Label>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Reference, notes, method..."
+                        value={filterText}
+                        onChange={(e) => setFilterText(e.target.value)}
+                        className="pl-9 h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="w-[160px]">
+                    <Label className="text-[10px] uppercase text-muted-foreground font-semibold mb-1 block">Document Type</Label>
+                    <select
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      value={filterType}
+                      onChange={(e) => setFilterType(e.target.value)}
+                    >
+                      <option value="ALL">All Types</option>
+                      <option value="INVOICE">Invoice</option>
+                      <option value="PAYMENT">Payment</option>
+                      <option value="CREDIT_NOTE">Credit Note</option>
+                      <option value="DEBIT_NOTE">Debit Note</option>
+                      <option value="OPENING_BALANCE">Opening Balance</option>
+                      <option value="PREPAYMENT">Prepayment</option>
+                    </select>
+                  </div>
+                  <div className="w-[130px]">
+                    <Label className="text-[10px] uppercase text-muted-foreground font-semibold mb-1 block">From Date</Label>
+                    <Input
+                      type="date"
+                      value={filterStartDate}
+                      onChange={(e) => setFilterStartDate(e.target.value)}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                  <div className="w-[130px]">
+                    <Label className="text-[10px] uppercase text-muted-foreground font-semibold mb-1 block">To Date</Label>
+                    <Input
+                      type="date"
+                      value={filterEndDate}
+                      onChange={(e) => setFilterEndDate(e.target.value)}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => { setFilterText(''); setFilterType('ALL'); setFilterStartDate(''); setFilterEndDate(''); }}
+                      className="h-9 text-xs"
+                    >
+                      Clear Filters
+                    </Button>
+                  </div>
+                </div>
+
                 {/* Ledger Table */}
                 <div className="border rounded-lg overflow-hidden">
                   <div className="grid grid-cols-[110px_1fr_1fr_100px_120px] gap-1 px-4 py-2.5 text-xs font-semibold bg-muted uppercase tracking-wider text-muted-foreground border-b">
@@ -758,18 +938,20 @@ export default function CustomerAccounts() {
                   </div>
                   <div className="divide-y max-h-[55vh] overflow-y-auto">
                     {isLoading && <div className="text-center py-8 text-sm text-muted-foreground">Loading...</div>}
-                    {!isLoading && entriesWithRunningBalance.length === 0 && (
+                    {!isLoading && filteredEntries.length === 0 && (
                       <div className="text-center py-12">
                         <FileText className="h-10 w-10 mx-auto text-muted-foreground opacity-20 mb-3" />
-                        <p className="text-sm text-muted-foreground">No ledger entries yet</p>
-                        <p className="text-xs text-muted-foreground mt-1">Use the action buttons above to get started</p>
+                        <p className="text-sm text-muted-foreground">No ledger entries match</p>
+                        <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or record a new transaction</p>
                       </div>
                     )}
-                    {!isLoading && entriesWithRunningBalance.map((entry) => {
+                    {!isLoading && filteredEntries.map((entry) => {
                       const isDebit = ['INVOICE', 'DEBIT_NOTE', 'OPENING_BALANCE', 'CASH_SALE'].includes(entry.type);
                       const config = ENTRY_TYPE_CONFIG[entry.type as EntryType];
                       const badgeClass = config?.badgeClass || INVOICE_BADGE_CLASS;
                       const typeLabel = config?.label || entry.type.replace('_', ' ');
+                      const isAllocatable = ['CREDIT_NOTE', 'PREPAYMENT'].includes(entry.type);
+                      const matchedCredit = isAllocatable ? unmatchedCredits.find(c => c.id === entry.id) : null;
                       return (
                         <div key={entry.id} className="grid grid-cols-[110px_1fr_1fr_100px_120px] gap-1 px-4 py-2.5 text-xs items-center hover:bg-muted/30 transition-colors">
                           <div>
@@ -782,6 +964,16 @@ export default function CustomerAccounts() {
                             {entry.notes && <p className="text-[10px] text-muted-foreground truncate">{entry.notes}</p>}
                             {entry.paymentMethod && (
                               <p className="text-[10px] text-muted-foreground capitalize">{entry.paymentMethod.toLowerCase().replace('_', ' ')}</p>
+                            )}
+                            {matchedCredit && can.pay && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 px-1.5 text-[10px] gap-1 mt-0.5 text-primary hover:text-primary font-semibold"
+                                onClick={(e) => { e.stopPropagation(); openAllocateCreditDialog(entry.id); }}
+                              >
+                                <ArrowRightLeft className="h-3 w-3" /> Allocate to Invoice
+                              </Button>
                             )}
                           </div>
                           <div className="text-muted-foreground">{formatDate(entry.timestamp)}</div>
@@ -904,6 +1096,75 @@ export default function CustomerAccounts() {
                   </div>
                 )}
               </TabsContent>
+
+              {/* Unmatched Credits & Prepayments Tab */}
+              <TabsContent value="credits" className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold">Unallocated Credits & Prepayments</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Credit notes and prepayments that haven't been fully applied to invoices</p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => fetchLedgerData(selectedCustomerId)} className="gap-1.5">
+                    <RotateCcw className="h-3.5 w-3.5" /> Refresh
+                  </Button>
+                </div>
+
+                <div className="space-y-1.5 max-h-[50vh] overflow-y-auto border rounded-lg p-1.5 bg-background">
+                  {unmatchedCredits.length === 0 && (
+                    <div className="text-center py-12">
+                      <Wallet className="h-10 w-10 mx-auto text-muted-foreground opacity-20 mb-3" />
+                      <p className="text-sm text-muted-foreground">No unallocated credits or prepayments</p>
+                      <p className="text-xs text-muted-foreground mt-1">All credits have been fully allocated to invoices</p>
+                    </div>
+                  )}
+                  {unmatchedCredits.map(credit => {
+                    const creditConfig = credit.type === 'CREDIT_NOTE' ? ENTRY_TYPE_CONFIG.CREDIT_NOTE : ENTRY_TYPE_CONFIG.PREPAYMENT;
+                    const CreditIcon = creditConfig.icon;
+                    return (
+                      <div
+                        key={credit.id}
+                        className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/30 transition-all text-xs"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0",
+                            credit.type === 'CREDIT_NOTE' ? 'bg-blue-100 dark:bg-blue-950/30' : 'bg-purple-100 dark:bg-purple-950/30'
+                          )}>
+                            <CreditIcon className={cn("h-4 w-4", creditConfig.color)} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <Badge variant="outline" className={cn("text-[9px] font-semibold", creditConfig.badgeClass)}>
+                                {credit.type === 'CREDIT_NOTE' ? 'Credit Note' : 'Prepayment'}
+                              </Badge>
+                            </div>
+                            <p className="font-semibold truncate mt-0.5">{credit.reference || `#${credit.id}`}</p>
+                            <p className="text-[10px] text-muted-foreground">{formatDateShort(credit.timestamp)}</p>
+                            {credit.paymentMethod && (
+                              <p className="text-[10px] text-muted-foreground capitalize">{credit.paymentMethod.toLowerCase().replace('_', ' ')}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 ml-3">
+                          <div className="text-right">
+                            <p className="font-bold text-sm">{fmt(Number(credit.amount))}</p>
+                            <p className="text-[10px] text-muted-foreground">unallocated</p>
+                          </div>
+                          {can.pay && outstandingInvoices.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-xs h-8 border-primary/30 text-primary hover:bg-primary/5"
+                              onClick={() => openAllocateCreditDialog(credit.id)}
+                            >
+                              <LinkIcon className="h-3 w-3" /> Allocate
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </TabsContent>
             </Tabs>
           </>
         )}
@@ -982,116 +1243,144 @@ export default function CustomerAccounts() {
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
-            {selectedInvoiceIds.length > 0 ? (
-              <div className="space-y-2 border rounded-lg p-3 bg-muted/20 text-xs">
-                <Label className="text-xs font-semibold">Invoices / Debit Notes to Pay</Label>
-                <div className="space-y-1 divide-y divide-muted/30">
-                  {selectedInvoices.map(inv => (
-                    <div key={inv.id} className="flex justify-between items-center py-1.5">
-                      <div className="min-w-0">
-                        <span className="font-semibold text-foreground">
-                          {inv.type === 'OPENING_BALANCE'
-                            ? 'Opening Balance'
-                            : inv.type === 'DEBIT_NOTE'
-                              ? `Debit Note: ${inv.reference || `#${inv.id}`}`
-                              : `Invoice: ${inv.reference || `#${inv.id}`}`}
-                        </span>
-                        <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
-                      </div>
-                      <span className="font-bold text-foreground">{fmt(Number(invoiceAllocations[inv.id] || 0))}</span>
-                    </div>
-                  ))}
-                  <div className="flex justify-between items-center pt-2 font-bold text-sm text-foreground">
-                    <span>Total Payment:</span>
-                    <span className="text-green-600">{fmt(
-                      selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0)
-                    )}</span>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Select Invoice(s) to Pay</Label>
+              
+              {/* Popup Filters */}
+              <div className="flex flex-wrap gap-2 mb-2 p-2 bg-muted/10 border rounded-md">
+                <div className="flex-1 min-w-[150px]">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="Search ref or notes..."
+                      value={popupFilterText}
+                      onChange={(e) => setPopupFilterText(e.target.value)}
+                      className="pl-7 h-7 text-xs"
+                    />
                   </div>
                 </div>
+                <div className="w-[120px]">
+                  <select
+                    className="flex h-7 w-full rounded-md border border-input bg-background px-2 py-0.5 text-xs shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    value={popupFilterType}
+                    onChange={(e) => setPopupFilterType(e.target.value)}
+                  >
+                    <option value="ALL">All Types</option>
+                    <option value="INVOICE">Invoice</option>
+                    <option value="DEBIT_NOTE">Debit Note</option>
+                    <option value="OPENING_BALANCE">Opening Balance</option>
+                  </select>
+                </div>
+                <div className="w-[110px]">
+                  <Input
+                    type="date"
+                    value={popupFilterStartDate}
+                    onChange={(e) => setPopupFilterStartDate(e.target.value)}
+                    className="h-7 text-xs px-2"
+                  />
+                </div>
+                <div className="w-[110px]">
+                  <Input
+                    type="date"
+                    value={popupFilterEndDate}
+                    onChange={(e) => setPopupFilterEndDate(e.target.value)}
+                    className="h-7 text-xs px-2"
+                  />
+                </div>
+                <div className="flex items-center">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => { setPopupFilterText(''); setPopupFilterType('ALL'); setPopupFilterStartDate(''); setPopupFilterEndDate(''); }}
+                    className="h-7 text-[10px] px-2"
+                  >
+                    Clear
+                  </Button>
+                </div>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold">Select Invoice(s)</Label>
-                {isLoadingInvoices && <div className="text-center py-4 text-sm text-muted-foreground">Loading invoices...</div>}
-                {!isLoadingInvoices && outstandingInvoices.length === 0 && (
-                  <div className="text-center py-6 border-2 border-dashed rounded-lg">
-                    <p className="text-sm text-muted-foreground">No outstanding invoices</p>
-                  </div>
-                )}
-                {!isLoadingInvoices && outstandingInvoices.length > 0 && (
-                  <div className="space-y-1.5 max-h-[200px] overflow-y-auto border rounded-lg p-1.5">
-                    {outstandingInvoices.map(inv => {
-                      const isSelected = selectedInvoiceIds.includes(inv.id);
-                      const toggleSelect = () => {
-                        if (isSelected) {
-                          setSelectedInvoiceIds(prev => prev.filter(id => id !== inv.id));
-                          setInvoiceAllocations(prev => {
-                            const next = { ...prev };
-                            delete next[inv.id];
-                            return next;
-                          });
-                        } else {
-                          setSelectedInvoiceIds(prev => [...prev, inv.id]);
-                          setInvoiceAllocations(prev => ({
-                            ...prev,
-                            [inv.id]: Number(inv.remaining).toFixed(2)
-                          }));
-                        }
-                      };
-                      return (
-                        <div
-                          key={inv.id}
-                          onClick={toggleSelect}
-                          className={cn(
-                            "flex items-center justify-between p-2 rounded-md cursor-pointer border transition-all text-xs h-12",
-                            isSelected
-                              ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                              : "border-transparent hover:bg-muted/50"
-                          )}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            <div className="pointer-events-none">
-                              <Checkbox checked={isSelected} />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-semibold truncate">
-                                {inv.type === 'OPENING_BALANCE'
-                                  ? 'Opening Balance'
-                                  : inv.type === 'DEBIT_NOTE'
-                                    ? `Debit Note: ${inv.reference || `#${inv.id}`}`
-                                    : `Invoice: ${inv.reference || `#${inv.id}`}`}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
+
+              {isLoadingInvoices && <div className="text-center py-4 text-sm text-muted-foreground">Loading invoices...</div>}
+              {!isLoadingInvoices && filteredOutstandingInvoices.length === 0 && (
+                <div className="text-center py-6 border-2 border-dashed rounded-lg">
+                  <p className="text-sm text-muted-foreground">No matching outstanding invoices found</p>
+                </div>
+              )}
+              {!isLoadingInvoices && filteredOutstandingInvoices.length > 0 && (
+                <div className="space-y-1.5 max-h-[350px] overflow-y-auto border rounded-lg p-1.5">
+                  {filteredOutstandingInvoices.map(inv => {
+                    const isSelected = selectedInvoiceIds.includes(inv.id);
+                    
+                    const toggleSelect = () => {
+                      if (isSelected) {
+                        setSelectedInvoiceIds(prev => prev.filter(id => id !== inv.id));
+                        setInvoiceAllocations(prev => {
+                          const next = { ...prev };
+                          delete next[inv.id];
+                          return next;
+                        });
+                      } else {
+                        setSelectedInvoiceIds(prev => [...prev, inv.id]);
+                        setInvoiceAllocations(prev => ({
+                          ...prev,
+                          [inv.id]: Number(inv.remaining).toFixed(2)
+                        }));
+                      }
+                    };
+                    
+                    return (
+                      <div
+                        key={inv.id}
+                        onClick={toggleSelect}
+                        className={cn(
+                          "flex items-center justify-between p-2 rounded-md cursor-pointer border transition-all text-xs h-12",
+                          isSelected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                            : "border-transparent hover:bg-muted/50"
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="pointer-events-none">
+                            <Checkbox checked={isSelected} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold truncate">
+                              {inv.type === 'OPENING_BALANCE'
+                                ? 'Opening Balance'
+                                : inv.type === 'DEBIT_NOTE'
+                                  ? `Debit Note: ${inv.reference || `#${inv.id}`}`
+                                  : `Invoice: ${inv.reference || `#${inv.id}`}`}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">{formatDateShort(inv.timestamp)}</p>
+                          </div>
+                        </div>
+                        
+                        {isSelected ? (
+                          <div className="flex items-center gap-2 shrink-0 ml-2" onClick={e => e.stopPropagation()}>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={invoiceAllocations[inv.id] || ''}
+                              onChange={e => setInvoiceAllocations(prev => ({ ...prev, [inv.id]: e.target.value }))}
+                              className="w-24 h-8 text-right font-medium text-xs bg-background"
+                            />
+                            <div className="text-right min-w-[50px]">
+                              <p className="font-bold text-[11px]">{fmt(Number(inv.remaining))}</p>
+                              <p className="text-[9px] text-muted-foreground">max</p>
                             </div>
                           </div>
-                          {isSelected ? (
-                            <div className="flex items-center gap-2 shrink-0 ml-2" onClick={e => e.stopPropagation()}>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                placeholder="0.00"
-                                value={invoiceAllocations[inv.id] || ''}
-                                onChange={e => setInvoiceAllocations(prev => ({ ...prev, [inv.id]: e.target.value }))}
-                                className="w-24 h-8 text-right font-medium text-xs"
-                              />
-                              <div className="text-right min-w-[50px]">
-                                <p className="font-bold text-[11px]">{fmt(Number(inv.remaining))}</p>
-                                <p className="text-[9px] text-muted-foreground">max</p>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-right shrink-0 ml-2">
-                              <p className="font-bold">{fmt(Number(inv.remaining))}</p>
-                              <p className="text-[10px] text-muted-foreground">of {fmt(Number(inv.amount))}</p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+                        ) : (
+                          <div className="text-right shrink-0 ml-2">
+                            <p className="font-bold">{fmt(Number(inv.remaining))}</p>
+                            <p className="text-[10px] text-muted-foreground">of {fmt(Number(inv.amount))}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {selectedInvoiceIds.length > 0 && (
               <>
@@ -1111,102 +1400,28 @@ export default function CustomerAccounts() {
                     >
                       <Banknote className="h-3.5 w-3.5" /> Cash / Card / Bank
                     </Button>
-                    {unmatchedCredits.length > 0 && (
-                      <Button
-                        type="button" size="sm" variant={paymentMode === 'apply_credit' ? 'default' : 'outline'}
-                        className="text-xs gap-1" onClick={() => setPaymentMode('apply_credit')}
-                      >
-                        <ArrowDownLeft className="h-3.5 w-3.5" /> Apply Credit / Prepayment
-                      </Button>
-                    )}
+                    <Button
+                      type="button" size="sm" variant={paymentMode === 'apply_credit' ? 'default' : 'outline'}
+                      className="text-xs gap-1" onClick={() => setPaymentMode('apply_credit')}
+                      disabled={unmatchedCredits.length === 0}
+                    >
+                      <ArrowDownLeft className="h-3.5 w-3.5" /> Apply Credit / Prepayment
+                      {unmatchedCredits.length > 0 && (
+                        <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px] font-bold">{unmatchedCredits.length}</Badge>
+                      )}
+                    </Button>
                   </div>
                 </div>
 
                 {paymentMode === 'cash_payment' && (
                   <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox id="use-split-pay" checked={usePaymentSplit} onCheckedChange={(c) => setUsePaymentSplit(c === true)} />
-                      <Label htmlFor="use-split-pay" className="text-xs cursor-pointer">Split payment across multiple methods</Label>
+                    <div className="p-3 bg-muted/20 border rounded-lg flex flex-col items-center justify-center text-center">
+                      <Banknote className="h-8 w-8 text-muted-foreground mb-2 opacity-50" />
+                      <p className="text-sm font-medium">Proceed to complete the payment</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        You will be able to select the payment method (Cash, M-Pesa, Card, Bank Transfer) and financial accounts on the next screen.
+                      </p>
                     </div>
-
-                    {!usePaymentSplit && (
-                      <>
-                        <div className="grid gap-2">
-                          <Label className="text-xs font-semibold">Payment Method</Label>
-                          <div className="grid grid-cols-2 gap-2">
-                            {[
-                              { value: 'CASH', label: 'Cash', icon: Banknote },
-                              { value: 'CARD', label: 'Card', icon: CreditCard },
-                              { value: 'MOBILE', label: 'Mobile', icon: Smartphone },
-                              { value: 'BANK_TRANSFER', label: 'Bank Transfer', icon: FileText },
-                            ].map(m => (
-                              <Button key={m.value} type="button" variant={paymentMethodSingle === m.value ? 'default' : 'outline'} size="sm" className="justify-start gap-1.5 text-xs" onClick={() => setPaymentMethodSingle(m.value)}>
-                                <m.icon className="h-3.5 w-3.5" /> {m.label}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="grid gap-2">
-                          <Label className="text-xs font-semibold">Reference (optional)</Label>
-                          <Input placeholder="e.g. CHQ-001, REF-123" value={paymentReference} onChange={e => setPaymentReference(e.target.value)} className="h-9 text-sm" />
-                        </div>
-                      </>
-                    )}
-
-                    {usePaymentSplit && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-4 text-xs font-medium border-b pb-2">
-                          <div>
-                            <span className="text-muted-foreground">Allocated:</span>{" "}
-                            <span className="font-bold text-sm">{fmt(
-                              selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0)
-                            )}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Receiving Now:</span>{" "}
-                            <span className="font-bold text-sm text-green-600">{fmt(totalSplitAmount)}</span>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {(['cash', 'card', 'mobile', 'bank_transfer'] as const).map(method => {
-                            const handleToggle = (active: boolean) => {
-                              setPaymentSplits(prev => {
-                                const newState = { ...prev };
-                                if (active) {
-                                  const currentPaid = Object.values(prev).reduce((sum, m) => m.active ? sum + (parseFloat(m.amount) || 0) : sum, 0);
-                                  const totalAlloc = selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0);
-                                  const rem = Math.max(0, totalAlloc - currentPaid);
-                                  newState[method] = { ...prev[method], active: true, amount: rem > 0 ? rem.toFixed(2) : '' };
-                                } else {
-                                  newState[method] = { ...prev[method], active: false, amount: '', reference: '' };
-                                }
-                                return newState;
-                              });
-                            };
-                            return (
-                              <div key={method} className="space-y-2 border rounded p-2.5 bg-muted/20">
-                                <div className="flex items-center space-x-2">
-                                  <Checkbox id={`split-pay-${method}`} checked={paymentSplits[method]?.active} onCheckedChange={c => handleToggle(c === true)} />
-                                  <Label htmlFor={`split-pay-${method}`} className="capitalize flex items-center gap-1.5 cursor-pointer text-xs font-medium">
-                                    {method === 'cash' && <Banknote className="h-3.5 w-3.5 text-muted-foreground" />}
-                                    {method === 'card' && <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />}
-                                    {method === 'mobile' && <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />}
-                                    {method === 'bank_transfer' && <FileText className="h-3.5 w-3.5 text-muted-foreground" />}
-                                    {method.replace('_', ' ')}
-                                  </Label>
-                                </div>
-                                {paymentSplits[method]?.active && (
-                                  <div className="grid grid-cols-1 gap-2 pt-1 animate-in fade-in slide-in-from-top-1">
-                                    <Input type="number" placeholder="Amount" value={paymentSplits[method].amount} onChange={e => setPaymentSplits(prev => ({ ...prev, [method]: { ...prev[method], amount: e.target.value } }))} className="h-9 text-sm" />
-                                    <Input type="text" placeholder="Ref # (optional)" value={paymentSplits[method].reference} onChange={e => setPaymentSplits(prev => ({ ...prev, [method]: { ...prev[method], reference: e.target.value } }))} className="h-9 text-sm" />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -1264,7 +1479,7 @@ export default function CustomerAccounts() {
           <DialogFooter className="shrink-0 mt-2 border-t pt-3 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSubmitPayment} disabled={isSubmittingPayment || selectedInvoiceIds.length === 0}>
-              {isSubmittingPayment ? 'Recording...' : 'Confirm Payment'}
+              {isSubmittingPayment ? 'Processing...' : paymentMode === 'cash_payment' ? 'Proceed to Payment' : 'Confirm Allocation'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1360,6 +1575,24 @@ export default function CustomerAccounts() {
       </Dialog>
 
       {/* Shared PDF preview/print popup - used for the statement here */}
+      {/* Payment Details Dialog for actual payments */}
+      <PaymentDialog
+        module="POS" // Uses POS settings for receiving customer payments
+        open={isPaymentDetailOpen}
+        onOpenChange={setIsPaymentDetailOpen}
+        totalAmount={selectedInvoiceIds.reduce((sum, id) => sum + (parseFloat(invoiceAllocations[id]) || 0), 0)}
+        onSubmit={handleFinalPaymentSubmit}
+        isProcessing={isSubmittingPayment}
+        onCancel={() => {
+          setIsPaymentDetailOpen(false);
+          setIsPaymentDialogOpen(true); // Return to allocations
+        }}
+        title="Receive Payment"
+        description={`Allocate payment for ${selectedCustomer?.name}`}
+        submitText="Complete Payment"
+        allowPartialPayment={false} // Total must match allocated
+      />
+
       <PdfPreviewDialog
         open={pdfPreview.open}
         onOpenChange={pdfPreview.setOpen}

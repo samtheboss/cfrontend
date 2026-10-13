@@ -5,11 +5,13 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 
 interface PdfPreviewDialogProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange?: (open: boolean) => void;
+  setOpen?: (open: boolean) => void;
   url: string | null;
   title?: string;
   iframeRef: RefObject<HTMLIFrameElement>;
-  onPrint: () => void;
+  onPrint?: () => void;
+  handlePrint?: () => void;
   autoPrintOnLoad?: boolean;
 }
 
@@ -18,9 +20,22 @@ interface PdfPreviewDialogProps {
  * (not per document) and drive it via the hook's showPdf(), so every invoice/receipt/statement
  * on that page shares the same dialog instead of each getting its own.
  */
-export function PdfPreviewDialog({ open, onOpenChange, url, title = 'Preview', iframeRef, onPrint, autoPrintOnLoad }: PdfPreviewDialogProps) {
+export function PdfPreviewDialog({
+  open,
+  onOpenChange,
+  setOpen,
+  url,
+  title = 'Preview',
+  iframeRef,
+  onPrint,
+  handlePrint,
+  autoPrintOnLoad,
+}: PdfPreviewDialogProps) {
+  const handleOpenChange = onOpenChange || setOpen || (() => {});
+  const handlePrintAction = onPrint || handlePrint || (() => {});
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
         <DialogHeader className="p-4 border-b">
           <DialogTitle className="flex items-center gap-2">
@@ -35,14 +50,14 @@ export function PdfPreviewDialog({ open, onOpenChange, url, title = 'Preview', i
               src={url}
               className="w-full h-full border-none"
               title={title}
-              onLoad={() => { if (autoPrintOnLoad) onPrint(); }}
+              onLoad={() => { if (autoPrintOnLoad) handlePrintAction(); }}
             />
           )}
         </div>
         <DialogFooter className="p-4 border-t bg-card flex justify-between">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>Close</Button>
           {url && (
-            <Button onClick={onPrint}>
+            <Button onClick={handlePrintAction}>
               <Receipt className="h-4 w-4 mr-2" />
               Print
             </Button>

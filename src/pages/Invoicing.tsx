@@ -444,6 +444,10 @@ export default function Invoicing() {
     await pdfPreview.showPdf(`${getBaseUrl()}/api/invoices/${invoiceNumber}/pdf`, { title: 'Invoice Preview' });
   };
 
+  const printReturn = async (journalNumber: string) => {
+    await pdfPreview.showPdf(`${getBaseUrl()}/api/invoices/return/${journalNumber}/pdf`, { title: `Return Note — ${journalNumber}` });
+  };
+
   const submitPayment = async (invoiceNumber: string, payments: PaymentDetails[]) => {
     if (!canView('invoiceReceivePayment')) {
       toast.error('You are not allowed to receive invoice payments');
@@ -575,7 +579,7 @@ export default function Invoicing() {
 
     setIsProcessingReturn(true);
     try {
-      await createReturn({
+      const retResult = await createReturn({
         type: 'RETURN',
         originalSaleId: sale.id,
         idempotencyKey: `ret-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -593,6 +597,9 @@ export default function Invoicing() {
       loadInvoices();
       // Refresh the open invoice detail so the item list / balance reflect the return
       openInvoiceDetail(viewingInvoice!.invoice.invoiceNumber);
+      if (retResult?.journalNumber) {
+        printReturn(retResult.journalNumber);
+      }
     } catch (err) {
       // createReturn already toasts the error
     } finally {
@@ -1058,6 +1065,11 @@ export default function Invoicing() {
                                 <Printer className="h-4 w-4" />
                               </Button>
                             )}
+                            {row.kind === 'return' && (
+                              <Button variant="ghost" size="sm" onClick={() => printReturn(row.docNumber)} title="Print Return Note">
+                                <Printer className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1296,6 +1308,44 @@ export default function Invoicing() {
                   </div>
                 </div>
               </div>
+
+              {/* Associated Returns for this invoice */}
+              {(() => {
+                const invoiceReturns = returns.filter((r: any) => r.originalSaleId === viewingInvoice.sale?.id);
+                if (invoiceReturns.length === 0) return null;
+                return (
+                  <div className="border rounded-lg p-3 bg-muted/20 space-y-2">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Undo2 className="h-3.5 w-3.5 text-destructive" />
+                      Associated Returns ({invoiceReturns.length})
+                    </div>
+                    <div className="space-y-1.5">
+                      {invoiceReturns.map((ret: any) => (
+                        <div key={ret.journalNumber || ret.id} className="flex items-center justify-between p-2 rounded bg-background border text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-semibold">{ret.journalNumber}</span>
+                            <Badge variant="destructive" className="text-[10px] py-0 px-1.5">Return</Badge>
+                            <span className="text-muted-foreground">{ret.timestamp ? String(ret.timestamp).slice(0, 10) : ''}</span>
+                            {ret.refundMode === 'PREPAYMENT' && <span className="text-muted-foreground italic">(Store Credit)</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-destructive">-{fmt(ret.refundAmount ?? ret.totalAmount ?? 0)}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs px-2"
+                              onClick={() => printReturn(ret.journalNumber)}
+                            >
+                              <Printer className="h-3.5 w-3.5 mr-1" />
+                              Print Return Note
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -1364,6 +1414,9 @@ export default function Invoicing() {
           )}
 
           <DialogFooter>
+            <Button variant="outline" onClick={() => viewingReturn && printReturn(viewingReturn.journalNumber)}>
+              <Printer className="h-4 w-4 mr-1" />Print Return Note
+            </Button>
             <Button onClick={() => setViewingReturn(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>

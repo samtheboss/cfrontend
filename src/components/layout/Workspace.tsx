@@ -51,6 +51,7 @@ import Inventory from '@/pages/Inventory';
 import POS from '@/pages/POS';
 import Invoicing from '@/pages/Invoicing';
 import CustomerAccounts from '@/pages/CustomerAccounts';
+import AccountsDashboard from '@/pages/AccountsDashboard';
 import StockAdjustment from '@/pages/StockAdjustment';
 import StockTake from '@/pages/StockTake';
 import StockTransfer from '@/pages/StockTransfer';
@@ -96,6 +97,7 @@ const tabMetadata: Record<string, { title: string; icon: any; component: React.C
   '/tables': { title: 'Tables', icon: Grid, component: Tables },
   '/shifts': { title: 'Shift Management', icon: Clock, component: Shifts },
   '/invoicing': { title: 'Invoicing', icon: FileText, component: Invoicing },
+  '/accounts-dashboard': { title: 'Accounts Dashboard', icon: Wallet, component: AccountsDashboard },
   '/customer-accounts': { title: 'Customer Accounts', icon: Wallet, component: CustomerAccounts },
   '/adjustments': { title: 'Stock Adjustments', icon: ArrowRightLeft, component: StockAdjustment },
   '/stock-take': { title: 'Stock Take', icon: ClipboardList, component: StockTake },

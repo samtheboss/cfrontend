@@ -127,6 +127,15 @@ export default function DashboardMenu() {
       category: 'core'
     },
     {
+      name: 'Accounts Dashboard',
+      description: 'Unified view of all supplier and customer ledger balances',
+      href: '/accounts-dashboard',
+      icon: Wallet,
+      iconGradientClass: 'from-teal-500 to-cyan-600 shadow-teal-500/20',
+      requiredRight: 'viewCustomerAccounts',
+      category: 'core'
+    },
+    {
       name: 'Hotel & Accommodation',
       description: 'Guest room assignments, bookings, and schedules',
       href: '/accommodation',
