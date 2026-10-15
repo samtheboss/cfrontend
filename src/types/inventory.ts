@@ -245,6 +245,8 @@ export interface SystemSettings {
   shiftScope: 'PER_LOCATION' | 'GLOBAL';
   /** Manual mode only: block POS/Table Orders/Invoicing/Accommodation payments with no shift open. */
   requireOpenShiftToTransact: boolean;
+  themeMode?: 'light' | 'dark' | 'system';
+  primaryColor?: string;
 }
 
 export interface EcommerceSettings {
@@ -258,6 +260,8 @@ export interface EcommerceSettings {
   contactEmail: string;
   contactPhone: string;
   footerText: string;
+  themeMode?: 'light' | 'dark' | 'system';
+  primaryColor?: string;
 }
 
 export interface Sale extends InventoryTransaction {

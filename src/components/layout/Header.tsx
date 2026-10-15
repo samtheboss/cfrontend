@@ -1,6 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Bell, Search, User, LogOut, Settings, Grid } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Bell, User, LogOut, Settings, Grid, Sun, Moon, Laptop, Palette, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInventory } from '@/contexts/InventoryContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { Badge } from '@/components/ui/badge';
 
 interface HeaderProps {
@@ -19,9 +19,10 @@ interface HeaderProps {
   onMenuClick?: () => void;
 }
 
-export function Header({ title, onMenuClick }: HeaderProps) {
+export function Header({ title }: HeaderProps) {
   const { user, logout, getGroupById } = useAuth();
   const { locations } = useInventory();
+  const { themeMode, resolvedTheme, setThemeMode } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -49,28 +50,54 @@ export function Header({ title, onMenuClick }: HeaderProps) {
         <h1 className="text-lg md:text-xl font-semibold text-foreground truncate max-w-[150px] sm:max-w-none">{title}</h1>
       </div>
 
-      <div className="flex items-center gap-4">
-        {/* Search */}
-        {/* <div className="relative hidden md:block">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search products, SKUs..."
-            className="w-64 pl-9"
-          />
-        </div> */}
+      <div className="flex items-center gap-2 md:gap-3">
+        {/* Quick Theme Toggle */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="relative rounded-full h-9 w-9" title="Theme Mode">
+              {resolvedTheme === 'dark' ? (
+                <Moon className="h-4 w-4 text-amber-400" />
+              ) : (
+                <Sun className="h-4 w-4 text-amber-600" />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuLabel className="text-xs font-semibold">Theme Mode</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setThemeMode('light')} className="cursor-pointer text-xs">
+              <Sun className="h-3.5 w-3.5 mr-2 text-amber-500" />
+              <span>Light</span>
+              {themeMode === 'light' && <Check className="h-3.5 w-3.5 ml-auto text-primary" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setThemeMode('dark')} className="cursor-pointer text-xs">
+              <Moon className="h-3.5 w-3.5 mr-2 text-blue-400" />
+              <span>Dark</span>
+              {themeMode === 'dark' && <Check className="h-3.5 w-3.5 ml-auto text-primary" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setThemeMode('system')} className="cursor-pointer text-xs">
+              <Laptop className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+              <span>System</span>
+              {themeMode === 'system' && <Check className="h-3.5 w-3.5 ml-auto text-primary" />}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => navigate('/settings')} className="cursor-pointer text-xs text-muted-foreground">
+              <Palette className="h-3.5 w-3.5 mr-2 text-primary" />
+              <span>Theme & Colors...</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
-            3
-          </span>
+        <Button variant="ghost" size="icon" className="relative h-9 w-9">
+          <Bell className="h-4 w-4" />
+          <span className="absolute 1 top-1.5 right-1.5 flex h-2 w-2 items-center justify-center rounded-full bg-destructive" />
         </Button>
 
         {/* User Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full">
+            <Button variant="ghost" size="icon" className="rounded-full h-9 w-9">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary">
                 <User className="h-4 w-4 text-primary-foreground" />
               </div>

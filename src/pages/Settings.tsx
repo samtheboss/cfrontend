@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw, Clock, Plus, Trash2 } from 'lucide-react';
+import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw, Clock, Plus, Trash2, Palette, Sun, Moon, Laptop, Check } from 'lucide-react';
 import { ShiftSchedule } from '@/types/shift';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import ShippingSettings from '@/components/settings/ShippingSettings';
 import EcommerceSettingsUI from '@/components/settings/EcommerceSettingsUI';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getBaseUrl, setBaseUrl, clearBaseUrl, apiFetch } from '@/lib/api';
+import { useTheme } from '@/contexts/ThemeContext';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -137,6 +138,7 @@ function ShiftScheduleEditor() {
 
 export default function Settings() {
   const { settings, updateSettings, isLoading, categories = [] } = useInventory();
+  const { themeMode, setThemeMode, primaryColor, setPrimaryColor, colorPresets } = useTheme();
   const [formData, setFormData] = useState<SystemSettings | null>(null);
   const [localPrinterName, setLocalPrinterName] = useState(() => localStorage.getItem('localPrinterName') || 'Receipt Printer');
   const [printers, setPrinters] = useState<string[]>([]);
@@ -201,6 +203,8 @@ export default function Settings() {
         ...settings,
         shiftMode: settings.shiftMode || 'MANUAL',
         shiftScope: settings.shiftScope || 'PER_LOCATION',
+        themeMode: settings.themeMode || themeMode || 'system',
+        primaryColor: settings.primaryColor || primaryColor || 'warm-amber',
       });
     }
   }, [settings]);
@@ -256,6 +260,9 @@ export default function Settings() {
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="mb-4 h-9">
           <TabsTrigger value="general" className="text-xs">Store</TabsTrigger>
+          <TabsTrigger value="appearance" className="text-xs flex items-center gap-1.5">
+            <Palette className="h-3.5 w-3.5" /> Appearance
+          </TabsTrigger>
           <TabsTrigger value="ecommerce" className="text-xs">eCommerce</TabsTrigger>
           <TabsTrigger value="shipping" className="text-xs">Shipping</TabsTrigger>
         </TabsList>
@@ -503,6 +510,82 @@ export default function Settings() {
                 <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleResetServerUrl}>
                   <RotateCcw className="h-3.5 w-3.5" /> Reset
                 </Button>
+              </div>
+            </SectionCard>
+          </div>
+
+          {/* Sticky save bar */}
+          <div className="sticky bottom-3 z-10 mt-3 flex justify-end">
+            <Button onClick={handleSave} className="shadow-lg">Save all changes</Button>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="appearance" className="pb-4 space-y-4">
+          <div className="grid items-start gap-3 lg:grid-cols-2">
+            {/* Theme Mode */}
+            <SectionCard icon={themeMode === 'dark' ? Moon : themeMode === 'light' ? Sun : Laptop} title="Theme Mode" desc="Choose interface display mode">
+              <div className="grid grid-cols-3 gap-3 pt-1">
+                {[
+                  { id: 'light', label: 'Light', icon: Sun, desc: 'Clean & bright' },
+                  { id: 'dark', label: 'Dark', icon: Moon, desc: 'Low-light friendly' },
+                  { id: 'system', label: 'System', icon: Laptop, desc: 'Follows OS' },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const active = (formData?.themeMode || themeMode) === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        updateField('themeMode', item.id);
+                        setThemeMode(item.id as any);
+                      }}
+                      className={`flex flex-col items-center justify-center p-3.5 rounded-xl border text-center transition-all ${
+                        active
+                          ? 'border-primary bg-primary/10 text-primary shadow-sm ring-2 ring-primary/30'
+                          : 'border-border bg-card hover:bg-muted/50 text-foreground'
+                      }`}
+                    >
+                      <Icon className={`h-5 w-5 mb-1.5 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <span className="text-xs font-semibold">{item.label}</span>
+                      <span className="text-[10px] text-muted-foreground mt-0.5">{item.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </SectionCard>
+
+            {/* Color Scheme */}
+            <SectionCard icon={Palette} title="Primary Color Scheme" desc="Accent colors for buttons, highlights, and borders">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                {colorPresets.map((preset) => {
+                  const active = (formData?.primaryColor || primaryColor) === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        updateField('primaryColor', preset.id);
+                        setPrimaryColor(preset.id);
+                      }}
+                      className={`flex flex-col items-center p-2.5 rounded-xl border transition-all text-left ${
+                        active
+                          ? 'border-primary bg-primary/10 ring-2 ring-primary/30 shadow-sm'
+                          : 'border-border bg-card hover:bg-muted/40'
+                      }`}
+                    >
+                      <div
+                        className="w-7 h-7 rounded-full mb-1.5 shadow-sm flex items-center justify-center border border-black/10"
+                        style={{ backgroundColor: preset.hex }}
+                      >
+                        {active && <Check className="h-3.5 w-3.5 text-white drop-shadow" />}
+                      </div>
+                      <span className="text-[11px] font-medium text-foreground text-center truncate w-full">
+                        {preset.name}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </SectionCard>
           </div>
