@@ -104,6 +104,8 @@ export default function POS() {
   // Adding items to an order whose bill was already printed: 'no' blocks, 'yes' allows,
   // 'supervised' needs a supervisor password to unlock.
   const addToPrintedBillRight = rights?.addToPrintedBill ?? 'yes';
+  const canShowKot = !rights || rights.posShowKot !== 'no';
+  const canPlaceOrder = !rights || rights.posPlaceOrder !== 'no';
   const { sym, computeTax, vatInclusive } = useCurrency();
 
   // Hidden admin gesture: click the "POS" title in the header 5 times within 3s to wipe
@@ -933,6 +935,10 @@ export default function POS() {
   };
 
   const handlePrintKOT = async () => {
+    if (!canShowKot) {
+      toast.error("You don't have permission to print KOT.");
+      return;
+    }
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
@@ -1315,6 +1321,10 @@ export default function POS() {
   };
 
   const handlePayLater = async () => {
+    if (!canPlaceOrder) {
+      toast.error("You don't have permission to place orders.");
+      return;
+    }
     if (cart.length === 0) return;
 
     // In table mode a customer is optional — fall back to the cash-sales account.
@@ -2826,27 +2836,31 @@ export default function POS() {
 
 
 
-        {/* Pay Later */}
-        <button
-          id="pos-pay-later-btn"
-          disabled={cart.length === 0 || isProcessing}
-          onClick={handlePayLater}
-          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-500 hover:bg-blue-600 text-white active:brightness-90"
-        >
-          <Wallet className="h-5 w-5" />
-          Place And Bill
-        </button>
+        {/* Place and Order (Pay Later) */}
+        {canPlaceOrder && (
+          <button
+            id="pos-pay-later-btn"
+            disabled={cart.length === 0 || isProcessing}
+            onClick={handlePayLater}
+            className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-500 hover:bg-blue-600 text-white active:brightness-90"
+          >
+            <Wallet className="h-5 w-5" />
+            Place and Order
+          </button>
+        )}
 
         {/* KOT */}
-        <button
-          id="pos-kot-btn"
-          disabled={cart.length === 0 || isProcessing}
-          onClick={handlePrintKOT}
-          className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-700 hover:bg-blue-800 text-white active:brightness-90"
-        >
-          <FileText className="h-5 w-5" />
-          KOT
-        </button>
+        {canShowKot && (
+          <button
+            id="pos-kot-btn"
+            disabled={cart.length === 0 || isProcessing}
+            onClick={handlePrintKOT}
+            className="flex-1 min-w-[76px] flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all disabled:opacity-40 bg-blue-700 hover:bg-blue-800 text-white active:brightness-90"
+          >
+            <FileText className="h-5 w-5" />
+            KOT
+          </button>
+        )}
 
         {/* Mob Money */}
         {(!rights || rights.posReceiveMobile !== 'no') && (
@@ -2937,16 +2951,18 @@ export default function POS() {
           ? `${sym}${currentSalePaid.toFixed(2)} already paid — balance due ${sym}${Math.max(0, total - currentSalePaid).toFixed(2)}`
           : 'Select payment methods and process the transaction.'}
         extraActions={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handlePayLater}
-            disabled={isProcessing}
-            id="pay-later-btn"
-            className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-600 dark:hover:bg-amber-950"
-          >
-            {isProcessing ? 'Saving...' : '📝 Place And Bill'}
-          </Button>
+          canPlaceOrder ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handlePayLater}
+              disabled={isProcessing}
+              id="pay-later-btn"
+              className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-600 dark:hover:bg-amber-950"
+            >
+              {isProcessing ? 'Saving...' : '📝 Place and Order'}
+            </Button>
+          ) : undefined
         }
       />
 

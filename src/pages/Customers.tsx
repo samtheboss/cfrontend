@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { Customer } from '@/types/inventory';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useCurrency } from '@/hooks/useCurrency';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,24 +23,13 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow
-} from '@/components/ui/table';
-import {
     Users,
     Edit,
     Plus,
     Trash2,
     Search,
-    Mail,
-    Phone,
-    Calendar
+    BookOpen
 } from 'lucide-react';
-import { format } from 'date-fns';
 
 export default function Customers() {
     const { customers, addCustomer, updateCustomer, deleteCustomer } = useInventory();
@@ -57,11 +47,21 @@ export default function Customers() {
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const filteredCustomers = customers.filter(c =>
-        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (c.phone && c.phone.includes(searchQuery))
-    );
+    const navigate = useNavigate();
+    const { fmt } = useCurrency();
+    const [typeFilter, setTypeFilter] = useState('ALL');
+
+    const filteredCustomers = customers.filter(c => {
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch = !q ||
+            c.name.toLowerCase().includes(q) ||
+            (c.email && c.email.toLowerCase().includes(q)) ||
+            (c.phone && c.phone.includes(q)) ||
+            (c.idNumber && c.idNumber.toLowerCase().includes(q));
+
+        const matchesType = typeFilter === 'ALL' || c.customerType === typeFilter;
+        return matchesSearch && matchesType;
+    });
 
     const handleAddCustomer = async () => {
         if (!newCustomer.name || isSubmitting) return;
@@ -91,117 +91,164 @@ export default function Customers() {
 
     return (
         <AppLayout title="Customer Management">
-            <div className="space-y-6">
+            <div className="space-y-4">
                 {/* Header Actions */}
-                <div className="flex items-center justify-between">
-                    <div className="relative w-80">
-                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                            placeholder="Search customers..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-9"
-                        />
+                <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+                    <div className="flex flex-1 items-center gap-2 max-w-md">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                placeholder="Search customers..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="pl-9 h-10"
+                            />
+                        </div>
+                        <Select value={typeFilter} onValueChange={setTypeFilter}>
+                            <SelectTrigger className="w-36 h-10">
+                                <SelectValue placeholder="Type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="ALL">All Types</SelectItem>
+                                <SelectItem value="POS">POS</SelectItem>
+                                <SelectItem value="ROOM">Room</SelectItem>
+                                <SelectItem value="BOTH">Both</SelectItem>
+                                <SelectItem value="TENANT">Tenant</SelectItem>
+                                <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
-                    <Button onClick={() => setIsAddDialogOpen(true)}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Customer
-                    </Button>
+
+                    <div className="flex items-center gap-2">
+                        <div className="text-xs text-muted-foreground hidden md:block mr-2">
+                            Showing <span className="font-semibold text-foreground">{filteredCustomers.length}</span> of {customers.length}
+                        </div>
+                        <Button onClick={() => setIsAddDialogOpen(true)} className="gap-1.5 h-10">
+                            <Plus className="h-4 w-4" />
+                            Add Customer
+                        </Button>
+                    </div>
                 </div>
 
-                {/* Customer Table */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Customers</CardTitle>
-                        <CardDescription>View and manage your customer database.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Customer</TableHead>
-                                    <TableHead>Contact Information</TableHead>
-                                    <TableHead>Joined Date</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {filteredCustomers.map((customer) => (
-                                    <TableRow key={customer.id}>
-                                        <TableCell>
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                                                    <Users className="h-5 w-5 text-primary" />
-                                                </div>
-                                                <p className="font-medium">{customer.name}</p>
+                {/* Customer Cards Grid */}
+                {filteredCustomers.length === 0 ? (
+                    <div className="text-center py-16 border-2 border-dashed rounded-xl text-muted-foreground">
+                        <Users className="h-10 w-10 mx-auto opacity-20 mb-3" />
+                        <p className="font-medium">No customers found</p>
+                        <p className="text-sm mt-1">Try adjusting your search or add a new customer.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        {filteredCustomers.map((customer) => {
+                            const initials = customer.name
+                                .split(' ')
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map(w => w[0])
+                                .join('')
+                                .toUpperCase() || 'C';
+
+                            const colors = [
+                                'from-violet-500 to-purple-600',
+                                'from-blue-500 to-cyan-600',
+                                'from-emerald-500 to-teal-600',
+                                'from-orange-500 to-amber-600',
+                                'from-rose-500 to-pink-600',
+                                'from-indigo-500 to-blue-600',
+                            ];
+                            const colorClass = colors[Math.abs(Number(customer.id) || 0) % colors.length] || colors[0];
+
+                            return (
+                                <div
+                                    key={customer.id}
+                                    className="group relative flex flex-col bg-card border rounded-xl p-0 overflow-hidden hover:shadow-md hover:border-primary/40 transition-all duration-200"
+                                >
+                                    {/* Top colour strip */}
+                                    <div className={`h-1.5 w-full bg-gradient-to-r ${colorClass}`} />
+                                    <div className="flex items-start gap-3 p-3 pb-2">
+                                        <div className={`flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br ${colorClass} flex items-center justify-center text-white text-sm font-bold shadow-sm`}>
+                                            {initials}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-semibold text-sm leading-tight truncate">{customer.name}</p>
+                                            {customer.idNumber && (
+                                                <p className="text-xs text-muted-foreground truncate mt-0.5">ID: {customer.idNumber}</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Details */}
+                                    <div className="px-3 pb-2 space-y-1 flex-1">
+                                        {customer.email && (
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                <span className="shrink-0 w-3.5 text-center">✉</span>
+                                                <span className="truncate">{customer.email}</span>
                                             </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="space-y-1">
-                                                {customer.email && (
-                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                        <Mail className="h-3 w-3" />
-                                                        {customer.email}
-                                                    </div>
-                                                )}
-                                                {customer.phone && (
-                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                        <Phone className="h-3 w-3" />
-                                                        {customer.phone}
-                                                    </div>
-                                                )}
-                                                {customer.idNumber && (
-                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                        <span className="text-[10px] font-bold uppercase">ID:</span>
-                                                        {customer.idNumber}
-                                                    </div>
-                                                )}
-                                                {customer.customerType && (
-                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                        <span className="text-[10px] font-bold uppercase">Type:</span>
-                                                        {customer.customerType}
-                                                    </div>
-                                                )}
+                                        )}
+                                        {customer.phone && (
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                <span className="shrink-0 w-3.5 text-center">📞</span>
+                                                <span className="truncate">{customer.phone}</span>
                                             </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                <Calendar className="h-3 w-3" />
-                                                {format(new Date(customer.createdAt), 'PP')}
+                                        )}
+                                        {customer.creditLimit !== undefined && customer.creditLimit !== null && (
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                <span className="shrink-0 w-3.5 text-center">💳</span>
+                                                <span className="truncate">Limit: {fmt(customer.creditLimit)}</span>
                                             </div>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => setEditingCustomer({ ...customer })}
-                                                >
-                                                    <Edit className="h-4 w-4" />
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => deleteCustomer(customer.id)}
-                                                    className="text-destructive hover:text-destructive"
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                                {filteredCustomers.length === 0 && (
-                                    <TableRow>
-                                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                                            No customers found.
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
+                                        )}
+                                        {!customer.email && !customer.phone && !customer.idNumber && !customer.creditLimit && (
+                                            <p className="text-xs text-muted-foreground/60 italic">No contact details</p>
+                                        )}
+                                    </div>
+
+                                    {/* Footer */}
+                                    <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30 mt-1">
+                                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                            customer.customerType === 'WHOLESALE'
+                                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
+                                                : customer.customerType === 'TENANT' || customer.customerType === 'ROOM'
+                                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400'
+                                                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                        }`}>
+                                            {customer.customerType || 'RETAIL'}
+                                        </span>
+                                        <div className="flex items-center gap-1">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs px-2 gap-1 bg-background hover:bg-primary hover:text-primary-foreground transition-colors"
+                                                onClick={() => navigate(`/customer-accounts?accountId=${customer.id}`)}
+                                                title="Open customer ledger"
+                                            >
+                                                <BookOpen className="h-3 w-3" />
+                                                Ledger
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 text-xs px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                onClick={() => setEditingCustomer({ ...customer })}
+                                                title="Edit customer"
+                                            >
+                                                Edit
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 text-xs px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                                onClick={() => deleteCustomer(customer.id)}
+                                                title="Delete customer"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
 
                 {/* Add Customer Dialog */}
                 <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>

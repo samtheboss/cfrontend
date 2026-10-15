@@ -6,8 +6,12 @@ import {
   Search, Banknote, CreditCard, Smartphone, FileText,
   ChevronsUpDown, Check, ArrowUpRight, ArrowDownLeft,
   Wallet, BookOpen, RotateCcw, Receipt, Printer, AlertTriangle,
-  ArrowRightLeft, LinkIcon, X
+  ArrowRightLeft, LinkIcon, X, Users, Plus, Trash2, Edit
 } from 'lucide-react';
+import { Customer } from '@/types/inventory';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
 import { PaymentDialog, PaymentDetails } from '@/components/payments/PaymentDialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -160,13 +164,16 @@ const ENTRY_TYPE_CONFIG: Record<EntryType, { label: string; description: string;
 const INVOICE_BADGE_CLASS = 'border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/20';
 
 export default function CustomerAccounts() {
-  const { customers } = useInventory();
+  const { customers, addCustomer, updateCustomer, deleteCustomer } = useInventory();
   const { user, getUserRights } = useAuth();
   const rights = user ? getUserRights(user) : null;
   const can = {
-    view: !rights || rights.viewCustomerAccounts !== 'no',
+    view: !rights || rights.viewCustomerAccounts !== 'no' || rights.viewCustomers !== 'no',
     ledger: !rights || rights.manageCustomerLedger !== 'no',
     pay: !rights || rights.customerReceivePayment !== 'no',
+    createCustomer: !rights || rights.createCustomer !== 'no',
+    editCustomer: !rights || rights.editCustomer !== 'no',
+    deleteCustomer: !rights || rights.deleteCustomer !== 'no',
   };
   const { sym, fmt } = useCurrency();
   const pdfPreview = usePdfPreview();
@@ -179,8 +186,31 @@ export default function CustomerAccounts() {
   const [isCustomerPopoverOpen, setIsCustomerPopoverOpen] = useState(false);
   const lastProcessedNavRef = useRef<string>('');
 
+  // Active view: customers, ledger, or aging
+  const [activeView, setActiveView] = useState<'customers' | 'ledger' | 'aging'>(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'customers' || tabParam === 'ledger' || tabParam === 'aging') {
+      return tabParam;
+    }
+    return incomingAccountId ? 'ledger' : 'customers';
+  });
+
+  // Customer List Directory state
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [customerTypeFilter, setCustomerTypeFilter] = useState('ALL');
+  const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    idNumber: '',
+    customerType: 'BOTH',
+    creditLimit: '',
+  });
+
   // Aging report
-  const [activeView, setActiveView] = useState<'ledger' | 'aging'>('ledger');
   const [agingRows, setAgingRows] = useState<AgingSummaryRow[]>([]);
   const [isLoadingAging, setIsLoadingAging] = useState(false);
   const [agingDrillDown, setAgingDrillDown] = useState<{ customerId: number; customerName: string; bucketLabel: string } | null>(null);
@@ -460,6 +490,68 @@ export default function CustomerAccounts() {
     }
   }, [isCurrentPage, incomingAccountId, incomingAction, location.key, location.search]);
 
+  // Customer directory helpers & actions
+  const filteredCustomerCards = useMemo(() => {
+    return customers.filter(c => {
+      const q = customerSearchQuery.toLowerCase().trim();
+      const matchesSearch = !q ||
+        c.name.toLowerCase().includes(q) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.idNumber && c.idNumber.toLowerCase().includes(q));
+
+      const matchesType =
+        customerTypeFilter === 'ALL' ||
+        c.customerType === customerTypeFilter;
+
+      return matchesSearch && matchesType;
+    });
+  }, [customers, customerSearchQuery, customerTypeFilter]);
+
+  const handleAddCustomerSubmit = async () => {
+    if (!newCustomer.name || isSubmittingCustomer) return;
+    setIsSubmittingCustomer(true);
+    try {
+      await addCustomer({
+        name: newCustomer.name,
+        email: newCustomer.email,
+        phone: newCustomer.phone,
+        idNumber: newCustomer.idNumber,
+        customerType: newCustomer.customerType,
+        creditLimit: newCustomer.creditLimit ? Number(newCustomer.creditLimit) : undefined,
+      });
+      setNewCustomer({ name: '', email: '', phone: '', idNumber: '', customerType: 'BOTH', creditLimit: '' });
+      setIsAddCustomerOpen(false);
+    } finally {
+      setIsSubmittingCustomer(false);
+    }
+  };
+
+  const handleUpdateCustomerSubmit = async () => {
+    if (!editingCustomer || isSubmittingCustomer) return;
+    setIsSubmittingCustomer(true);
+    try {
+      await updateCustomer(editingCustomer);
+      setEditingCustomer(null);
+    } finally {
+      setIsSubmittingCustomer(false);
+    }
+  };
+
+  const handleDeleteCustomer = async (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete customer "${name}"?`)) {
+      await deleteCustomer(id);
+      if (selectedCustomerId === String(id)) {
+        setSelectedCustomerId('');
+      }
+    }
+  };
+
+  const openCustomerLedger = (customerId: string | number) => {
+    setSelectedCustomerId(String(customerId));
+    setActiveView('ledger');
+  };
+
   const printStatement = async () => {
     if (!selectedCustomerId) return;
     setIsPrintingStatement(true);
@@ -718,8 +810,11 @@ export default function CustomerAccounts() {
               Balances, payments, and statements for credit sales
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex rounded-lg border p-0.5 bg-muted/40 shrink-0">
+              <Button variant={activeView === 'customers' ? 'default' : 'ghost'} size="sm" className="gap-1.5" onClick={() => setActiveView('customers')}>
+                <Users className="h-3.5 w-3.5" /> Customers
+              </Button>
               <Button variant={activeView === 'ledger' ? 'default' : 'ghost'} size="sm" className="gap-1.5" onClick={() => setActiveView('ledger')}>
                 <BookOpen className="h-3.5 w-3.5" /> Customer Ledger
               </Button>
@@ -728,46 +823,223 @@ export default function CustomerAccounts() {
               </Button>
             </div>
             {activeView === 'ledger' && (
-          <div className="w-full md:w-96">
-            <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" aria-expanded={isCustomerPopoverOpen} className="w-full justify-between h-11 text-sm">
-                  {selectedCustomer ? selectedCustomer.name : 'Select a customer...'}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <div className="w-full md:w-80">
+                  <Popover open={isCustomerPopoverOpen} onOpenChange={setIsCustomerPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" aria-expanded={isCustomerPopoverOpen} className="w-full justify-between h-10 text-sm">
+                        {selectedCustomer ? selectedCustomer.name : 'Select a customer...'}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search customers..." />
+                        <CommandList>
+                          <CommandEmpty>No customers found.</CommandEmpty>
+                          <CommandGroup>
+                            {customers.map(customer => (
+                              <CommandItem key={customer.id} value={customer.name} onSelect={() => { setSelectedCustomerId(String(customer.id)); setIsCustomerPopoverOpen(false); }}>
+                                <Check className={cn("mr-2 h-4 w-4", String(customer.id) === selectedCustomerId ? "opacity-100" : "opacity-0")} />
+                                <div>
+                                  <p className="font-medium">{customer.name}</p>
+                                  {customer.phone && <p className="text-xs text-muted-foreground">{customer.phone}</p>}
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <Button variant="ghost" size="sm" className="h-10 text-xs px-2.5 gap-1 shrink-0 text-muted-foreground hover:text-foreground" onClick={() => setActiveView('customers')} title="Back to Customer List">
+                  <Users className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">All Customers</span>
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search customers..." />
-                  <CommandList>
-                    <CommandEmpty>No customers found.</CommandEmpty>
-                    <CommandGroup>
-                      {customers.map(customer => (
-                        <CommandItem key={customer.id} value={customer.name} onSelect={() => { setSelectedCustomerId(String(customer.id)); setIsCustomerPopoverOpen(false); }}>
-                          <Check className={cn("mr-2 h-4 w-4", String(customer.id) === selectedCustomerId ? "opacity-100" : "opacity-0")} />
-                          <div>
-                            <p className="font-medium">{customer.name}</p>
-                            {customer.phone && <p className="text-xs text-muted-foreground">{customer.phone}</p>}
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </div>
+              </div>
+            )}
+            {activeView === 'customers' && can.createCustomer && (
+              <Button onClick={() => setIsAddCustomerOpen(true)} className="gap-1.5 h-10 ml-auto sm:ml-0">
+                <Plus className="h-4 w-4" /> Add Customer
+              </Button>
             )}
           </div>
         </div>
 
+        {/* ── Customers Directory Tab ── */}
+        {activeView === 'customers' && (
+          <div className="space-y-4">
+            {/* Filter and Action bar */}
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="flex flex-1 items-center gap-2 max-w-md">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, phone, email, or ID..."
+                    value={customerSearchQuery}
+                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                    className="pl-9 h-10"
+                  />
+                </div>
+                <Select value={customerTypeFilter} onValueChange={setCustomerTypeFilter}>
+                  <SelectTrigger className="w-36 h-10">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All Types</SelectItem>
+                    <SelectItem value="POS">POS</SelectItem>
+                    <SelectItem value="ROOM">Room</SelectItem>
+                    <SelectItem value="BOTH">Both</SelectItem>
+                    <SelectItem value="TENANT">Tenant</SelectItem>
+                    <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="text-xs text-muted-foreground hidden md:block">
+                Showing <span className="font-semibold text-foreground">{filteredCustomerCards.length}</span> of {customers.length} customers
+              </div>
+            </div>
+
+            {/* Customers Cards Grid */}
+            {filteredCustomerCards.length === 0 ? (
+              <div className="text-center py-16 border-2 border-dashed rounded-xl text-muted-foreground">
+                <Users className="h-10 w-10 mx-auto opacity-20 mb-3" />
+                <p className="font-medium">No customers found</p>
+                <p className="text-sm mt-1">Try adjusting your search query or add a new customer.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {filteredCustomerCards.map(customer => {
+                  const initials = customer.name
+                    .split(' ')
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map(w => w[0])
+                    .join('')
+                    .toUpperCase() || 'C';
+
+                  const colors = [
+                    'from-violet-500 to-purple-600',
+                    'from-blue-500 to-cyan-600',
+                    'from-emerald-500 to-teal-600',
+                    'from-orange-500 to-amber-600',
+                    'from-rose-500 to-pink-600',
+                    'from-indigo-500 to-blue-600',
+                  ];
+                  const colorClass = colors[Math.abs(Number(customer.id) || 0) % colors.length] || colors[0];
+
+                  return (
+                    <div
+                      key={customer.id}
+                      className="group relative flex flex-col bg-card border rounded-xl p-0 overflow-hidden hover:shadow-md hover:border-primary/40 transition-all duration-200"
+                    >
+                      {/* Top colour strip */}
+                      <div className={`h-1.5 w-full bg-gradient-to-r ${colorClass}`} />
+                      <div className="flex items-start gap-3 p-3 pb-2">
+                        <div className={`flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br ${colorClass} flex items-center justify-center text-white text-sm font-bold shadow-sm`}>
+                          {initials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-sm leading-tight truncate">{customer.name}</p>
+                          {customer.idNumber && (
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">ID: {customer.idNumber}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Details */}
+                      <div className="px-3 pb-2 space-y-1 flex-1">
+                        {customer.email && (
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="shrink-0 w-3.5 text-center">✉</span>
+                            <span className="truncate">{customer.email}</span>
+                          </div>
+                        )}
+                        {customer.phone && (
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="shrink-0 w-3.5 text-center">📞</span>
+                            <span className="truncate">{customer.phone}</span>
+                          </div>
+                        )}
+                        {customer.creditLimit !== undefined && customer.creditLimit !== null && (
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="shrink-0 w-3.5 text-center">💳</span>
+                            <span className="truncate">Limit: {fmt(customer.creditLimit)}</span>
+                          </div>
+                        )}
+                        {!customer.email && !customer.phone && !customer.idNumber && !customer.creditLimit && (
+                          <p className="text-xs text-muted-foreground/60 italic">No contact details</p>
+                        )}
+                      </div>
+
+                      {/* Footer */}
+                      <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30 mt-1">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          customer.customerType === 'WHOLESALE'
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
+                            : customer.customerType === 'TENANT' || customer.customerType === 'ROOM'
+                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400'
+                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
+                        }`}>
+                          {customer.customerType || 'RETAIL'}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs px-2 gap-1 bg-background hover:bg-primary hover:text-primary-foreground transition-colors"
+                            onClick={() => openCustomerLedger(customer.id)}
+                            title="View customer ledger & balance"
+                          >
+                            <BookOpen className="h-3 w-3" />
+                            Ledger
+                          </Button>
+                          {can.editCustomer && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs px-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => setEditingCustomer(customer)}
+                              title="Edit customer"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {can.deleteCustomer && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => handleDeleteCustomer(customer.id, customer.name)}
+                              title="Delete customer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Customer Ledger Tab ── */}
         {activeView === 'ledger' && (
         <>
         {!selectedCustomerId && (
           <div className="text-center py-20 border-2 border-dashed rounded-xl">
             <Search className="h-12 w-12 mx-auto text-muted-foreground opacity-20 mb-4" />
             <p className="text-lg font-medium text-muted-foreground">Select a Customer</p>
-            <p className="text-sm text-muted-foreground mt-1">Choose a customer above to view their statement</p>
+            <p className="text-sm text-muted-foreground mt-1">Choose a customer above to view their statement, or browse all accounts</p>
+            <Button variant="outline" className="mt-4 gap-2" onClick={() => setActiveView('customers')}>
+              <Users className="h-4 w-4" />
+              Browse Customer List
+            </Button>
           </div>
         )}
 
@@ -1659,6 +1931,177 @@ export default function CustomerAccounts() {
           </div>
           <DialogFooter className="border-t pt-3">
             <Button variant="outline" onClick={() => setAgingDrillDown(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Customer Dialog */}
+      <Dialog open={isAddCustomerOpen} onOpenChange={setIsAddCustomerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Customer</DialogTitle>
+            <DialogDescription>Create a new customer profile for sales and credit accounts.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="cust-name">Full Name *</Label>
+              <Input
+                id="cust-name"
+                value={newCustomer.name}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="John Doe"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cust-email">Email Address</Label>
+              <Input
+                id="cust-email"
+                type="email"
+                value={newCustomer.email}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="john@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cust-phone">Phone Number</Label>
+              <Input
+                id="cust-phone"
+                value={newCustomer.phone}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
+                placeholder="+254 700 000 000"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cust-idNumber">ID Number</Label>
+              <Input
+                id="cust-idNumber"
+                value={newCustomer.idNumber}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, idNumber: e.target.value }))}
+                placeholder="National ID or Passport"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cust-type">Customer Type</Label>
+              <Select
+                value={newCustomer.customerType}
+                onValueChange={(val) => setNewCustomer(prev => ({ ...prev, customerType: val }))}
+              >
+                <SelectTrigger id="cust-type">
+                  <SelectValue placeholder="Select type..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="POS">POS Customer</SelectItem>
+                  <SelectItem value="ROOM">Room Customer</SelectItem>
+                  <SelectItem value="BOTH">Both</SelectItem>
+                  <SelectItem value="TENANT">Tenant</SelectItem>
+                  <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cust-limit">Credit Limit</Label>
+              <Input
+                id="cust-limit"
+                type="number"
+                min="0"
+                step="0.01"
+                value={newCustomer.creditLimit}
+                onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-muted-foreground">Maximum credit balance allowed. Leave blank for no limit.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddCustomerOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddCustomerSubmit} disabled={!newCustomer.name || isSubmittingCustomer}>
+              {isSubmittingCustomer ? 'Adding...' : 'Add Customer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Customer Dialog */}
+      <Dialog open={!!editingCustomer} onOpenChange={() => setEditingCustomer(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Customer</DialogTitle>
+            <DialogDescription>Update customer profile details.</DialogDescription>
+          </DialogHeader>
+          {editingCustomer && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-cust-name">Full Name *</Label>
+                <Input
+                  id="edit-cust-name"
+                  value={editingCustomer.name}
+                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, name: e.target.value } : null)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-cust-email">Email Address</Label>
+                <Input
+                  id="edit-cust-email"
+                  type="email"
+                  value={editingCustomer.email || ''}
+                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, email: e.target.value } : null)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-cust-phone">Phone Number</Label>
+                <Input
+                  id="edit-cust-phone"
+                  value={editingCustomer.phone || ''}
+                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, phone: e.target.value } : null)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-cust-idNumber">ID Number</Label>
+                <Input
+                  id="edit-cust-idNumber"
+                  value={editingCustomer.idNumber || ''}
+                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, idNumber: e.target.value } : null)}
+                  placeholder="National ID or Passport"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-cust-type">Customer Type</Label>
+                <Select
+                  value={editingCustomer.customerType || 'BOTH'}
+                  onValueChange={(val) => setEditingCustomer(prev => prev ? { ...prev, customerType: val } : null)}
+                >
+                  <SelectTrigger id="edit-cust-type">
+                    <SelectValue placeholder="Select type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="POS">POS Customer</SelectItem>
+                    <SelectItem value="ROOM">Room Customer</SelectItem>
+                    <SelectItem value="BOTH">Both</SelectItem>
+                    <SelectItem value="TENANT">Tenant</SelectItem>
+                    <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-cust-limit">Credit Limit</Label>
+                <Input
+                  id="edit-cust-limit"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editingCustomer.creditLimit ?? ''}
+                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, creditLimit: e.target.value ? Number(e.target.value) : undefined } : null)}
+                  placeholder="0.00"
+                />
+                <p className="text-xs text-muted-foreground">Maximum credit balance allowed. Leave blank for no limit.</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingCustomer(null)}>Cancel</Button>
+            <Button onClick={handleUpdateCustomerSubmit} disabled={!editingCustomer?.name || isSubmittingCustomer}>
+              {isSubmittingCustomer ? 'Saving...' : 'Save Changes'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

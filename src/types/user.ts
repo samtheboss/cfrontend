@@ -41,6 +41,8 @@ export interface UserRights {
   addToPrintedBill: RightValue; // Add items to an order whose customer bill was already printed ('supervised' = needs a supervisor password)
   reprintReceipt: RightValue;
   paymentAccess: RightValue; // Receive Order Payment
+  posShowKot: RightValue; // Show KOT button in POS
+  posPlaceOrder: RightValue; // Show Place and Order (Pay Later) button in POS
 
   // Table Orders (restaurant mode - Window: TABLE_ORDERS)
   viewTableOrders: RightValue;        // Open the Table Orders board
@@ -172,6 +174,8 @@ export const defaultRights: UserRights = {
   addToPrintedBill: 'no',
   reprintReceipt: 'no',
   paymentAccess: 'no',
+  posShowKot: 'no',
+  posPlaceOrder: 'no',
   viewTableOrders: 'no',
   editTableOrder: 'no',
   receiveTableOrderPayment: 'no',
@@ -266,6 +270,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       addToPrintedBill: 'yes',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
+      posShowKot: 'yes',
+      posPlaceOrder: 'yes',
       viewTableOrders: 'yes',
       editTableOrder: 'yes',
       receiveTableOrderPayment: 'yes',
@@ -354,6 +360,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       addToPrintedBill: 'yes',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
+      posShowKot: 'yes',
+      posPlaceOrder: 'yes',
       viewTableOrders: 'yes',
       editTableOrder: 'yes',
       receiveTableOrderPayment: 'yes',
@@ -442,6 +450,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       addToPrintedBill: 'no',
       reprintReceipt: 'yes',
       paymentAccess: 'yes',
+      posShowKot: 'yes',
+      posPlaceOrder: 'yes',
       viewTableOrders: 'yes',
       editTableOrder: 'yes',
       receiveTableOrderPayment: 'yes',
@@ -535,6 +545,8 @@ export const hardcodedUserGroups: UserGroup[] = [
       addToPrintedBill: 'no',
       reprintReceipt: 'no',
       paymentAccess: 'no',
+      posShowKot: 'no',
+      posPlaceOrder: 'no',
       viewTableOrders: 'no',
       editTableOrder: 'no',
       receiveTableOrderPayment: 'no',
@@ -666,6 +678,8 @@ export const rightLabels: Record<keyof UserRights, string> = {
   addToPrintedBill: 'Add Items to a Printed Bill',
   reprintReceipt: 'Reprint Receipt',
   paymentAccess: 'Receive Order Payment',
+  posShowKot: 'POS: Show KOT Button',
+  posPlaceOrder: 'POS: Show Place Order Button',
   viewTableOrders: 'Table Orders: View Board',
   editTableOrder: 'Table Orders: Add / Edit Items',
   receiveTableOrderPayment: 'Table Orders: Receive Payment',
@@ -754,6 +768,8 @@ export const rightDescriptions: Partial<Record<keyof UserRights, string>> = {
   addToPrintedBill: "Add items to an order after its customer bill was printed. 'no' blocks it, 'supervised' asks for a supervisor password. The bill is marked un-printed so it gets re-printed.",
   reprintReceipt: 'Print duplicate receipts for past orders',
   paymentAccess: 'Ability to finalize an order and receive payment',
+  posShowKot: 'Show the KOT (Kitchen Order Ticket) button in the POS',
+  posPlaceOrder: 'Show the Place and Order (Pay Later) button in the POS',
   viewTableOrders: 'Open the Table Orders board and see open bills per table',
   editTableOrder: 'Open a table order in the POS and add or change items',
   receiveTableOrderPayment: 'Take full or partial payment against a table order',
@@ -793,7 +809,7 @@ export const rightDescriptions: Partial<Record<keyof UserRights, string>> = {
 
 export const rightCategories: Record<string, (keyof UserRights)[]> = {
   'Dashboard': ['viewDashboard', 'exportDashboard'],
-  'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'editOrder', 'deleteOrder', 'returnOrder', 'voidPrintedItem', 'addToPrintedBill', 'reprintReceipt', 'paymentAccess', 'viewRetailPrice', 'viewWholesalePrice', 'viewSpecialPrice', 'viewTradePrice', 'viewCostPrice', 'viewItemStock'],
+  'Orders & POS': ['viewOrders', 'viewOnlineOrders', 'viewAllOrders', 'viewPastOrders', 'createOrder', 'posPlaceOrder', 'posShowKot', 'editOrder', 'deleteOrder', 'returnOrder', 'voidPrintedItem', 'addToPrintedBill', 'reprintReceipt', 'paymentAccess', 'viewRetailPrice', 'viewWholesalePrice', 'viewSpecialPrice', 'viewTradePrice', 'viewCostPrice', 'viewItemStock'],
   'Table Orders': ['viewTableOrders', 'editTableOrder', 'receiveTableOrderPayment', 'transferTableOrder', 'mergeSplitTableOrders'],
   'Shift Management': ['openShift', 'closeShift', 'viewShiftHistory', 'manageShiftSettings'],
   'Invoicing & Accounts': ['viewInvoicing', 'createInvoice', 'invoiceReceivePayment', 'invoiceReturn', 'viewCustomerAccounts', 'manageCustomerLedger', 'customerReceivePayment'],

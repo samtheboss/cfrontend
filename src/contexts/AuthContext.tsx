@@ -331,6 +331,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addToPrintedBill: 'yes',
         reprintReceipt: 'yes',
         paymentAccess: 'yes',
+        posShowKot: 'yes',
+        posPlaceOrder: 'yes',
         viewTableOrders: 'yes',
         editTableOrder: 'yes',
         receiveTableOrderPayment: 'yes',
