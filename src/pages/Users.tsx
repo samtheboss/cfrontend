@@ -47,8 +47,14 @@ import {
   FolderPlus,
   MapPin,
   Key,
-  Search
+  Search,
+  UserX,
+  UserCheck,
+  Loader2,
+  Globe,
+  Clock
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -206,12 +212,51 @@ function RightsEditor({
 }
 
 export default function Users() {
-  const { user: currentUser, allUsers, allGroups, addUser, updateUser, deleteUser, addGroup, updateGroup, deleteGroup, resetPassword, getUserRights, getGroupById } = useAuth();
+  const { user: currentUser, allUsers, allGroups, addUser, updateUser, deleteUser, toggleUserStatus, addGroup, updateGroup, deleteGroup, resetPassword, getUserRights, getGroupById } = useAuth();
   const { locations } = useInventory();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('users');
 
-  const staffUsers = allUsers.filter(u => u.role !== 'CUSTOMER');
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
+  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+
+  const staffUsers = allUsers.filter(u => u.role !== 'CUSTOMER' && u.userType !== 'CUSTOMER');
+  const ecommerceUsers = allUsers.filter(u => u.role === 'CUSTOMER' || u.userType === 'CUSTOMER');
+
+  const filteredUsers = staffUsers.filter(u => {
+    const q = userSearchQuery.toLowerCase().trim();
+    const matchesSearch = !q ||
+      (u.name && u.name.toLowerCase().includes(q)) ||
+      (u.username && u.username.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      (u.phoneNumber && u.phoneNumber.toLowerCase().includes(q));
+
+    const matchesStatus =
+      userStatusFilter === 'all' ||
+      (userStatusFilter === 'active' && u.isActive !== false) ||
+      (userStatusFilter === 'disabled' && u.isActive === false);
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredEcommerceUsers = ecommerceUsers.filter(u => {
+    const q = userSearchQuery.toLowerCase().trim();
+    const matchesSearch = !q ||
+      (u.name && u.name.toLowerCase().includes(q)) ||
+      (u.username && u.username.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      (u.phoneNumber && u.phoneNumber.toLowerCase().includes(q));
+
+    const matchesStatus =
+      userStatusFilter === 'all' ||
+      (userStatusFilter === 'active' && u.isActive !== false) ||
+      (userStatusFilter === 'disabled' && u.isActive === false);
+
+    return matchesSearch && matchesStatus;
+  });
 
   // User dialogs
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
@@ -266,26 +311,73 @@ export default function Users() {
     }
   };
 
-  const handleUpdateUser = () => {
+  const handleUpdateUser = async () => {
     if (!editingUser) return;
-    updateUser(editingUser.id, {
-      name: editingUser.name,
-      email: editingUser.email,
-      phoneNumber: editingUser.phoneNumber,
-      groupId: editingUser.groupId,
-      locationId: editingUser.locationId,
-    });
-    toast({ title: 'User updated', description: `${editingUser.name} has been updated.` });
-    setEditingUser(null);
+    try {
+      await updateUser(editingUser.id, {
+        name: editingUser.name,
+        email: editingUser.email,
+        phoneNumber: editingUser.phoneNumber,
+        groupId: editingUser.groupId,
+        locationId: editingUser.locationId,
+        isActive: editingUser.isActive !== false,
+      });
+      toast({ title: 'User updated', description: `${editingUser.name} has been updated.` });
+      setEditingUser(null);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update user',
+        variant: 'destructive'
+      });
+    }
   };
 
-  const handleDeleteUser = (user: User) => {
+  const handleToggleStatus = async (user: User) => {
     if (user.id === currentUser?.id) {
-      toast({ title: 'Cannot delete', description: 'You cannot delete your own account.', variant: 'destructive' });
+      toast({ title: 'Cannot disable', description: 'You cannot disable your own account.', variant: 'destructive' });
       return;
     }
-    deleteUser(user.id);
-    toast({ title: 'User deleted', description: `${user.name} has been removed.` });
+    setTogglingUserId(user.id);
+    try {
+      await toggleUserStatus(user.id);
+      toast({
+        title: user.isActive === false ? 'User Enabled' : 'User Disabled',
+        description: `${user.name} has been ${user.isActive === false ? 'activated' : 'disabled'}.`
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update user status.',
+        variant: 'destructive'
+      });
+    } finally {
+      setTogglingUserId(null);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return;
+    if (userToDelete.id === currentUser?.id) {
+      toast({ title: 'Cannot delete', description: 'You cannot delete your own account.', variant: 'destructive' });
+      setUserToDelete(null);
+      return;
+    }
+
+    setIsDeletingUser(true);
+    try {
+      await deleteUser(userToDelete.id);
+      toast({ title: 'User deleted', description: `${userToDelete.name} has been removed.` });
+      setUserToDelete(null);
+    } catch (error: any) {
+      toast({
+        title: 'Account Deactivated',
+        description: error.message || 'The user could not be deleted and was disabled instead.',
+      });
+      setUserToDelete(null);
+    } finally {
+      setIsDeletingUser(false);
+    }
   };
 
   const handleResetPassword = async () => {
@@ -394,7 +486,11 @@ export default function Users() {
           <TabsList>
             <TabsTrigger value="users" className="flex items-center gap-2">
               <UsersIcon className="h-4 w-4" />
-              Users ({staffUsers.length})
+              Staff Users ({staffUsers.length})
+            </TabsTrigger>
+            <TabsTrigger value="ecommerce" className="flex items-center gap-2">
+              <Globe className="h-4 w-4" />
+              Ecommerce Users ({ecommerceUsers.length})
             </TabsTrigger>
             <TabsTrigger value="groups" className="flex items-center gap-2">
               <Shield className="h-4 w-4" />
@@ -411,8 +507,11 @@ export default function Users() {
           {/* Users Tab */}
           <TabsContent value="users">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-lg">All Users</CardTitle>
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg">All Users</CardTitle>
+                  <CardDescription>Manage staff accounts, active login statuses, and permissions</CardDescription>
+                </div>
                 {canCreateUser && (
                   <Button onClick={() => setIsAddUserOpen(true)}>
                     <UserPlus className="h-4 w-4 mr-2" />
@@ -420,100 +519,309 @@ export default function Users() {
                   </Button>
                 )}
               </CardHeader>
+              <div className="flex flex-col sm:flex-row gap-3 px-6 pb-4 border-b">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, username, email..."
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    className="pl-9 bg-muted/40"
+                  />
+                </div>
+                <Select value={userStatusFilter} onValueChange={(val: any) => setUserStatusFilter(val)}>
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active Only</SelectItem>
+                    <SelectItem value="disabled">Disabled Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>User</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead>Group</TableHead>
                       <TableHead>Primary Location</TableHead>
-                      <TableHead>Email</TableHead>
+                      <TableHead>Email / Phone</TableHead>
                       <TableHead>Rights Summary</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {staffUsers.map((user) => {
-                      const userRights = getUserRights(user);
-                      const group = getGroupById(user.groupId);
-                      const yesCount = Object.values(userRights).filter(v => v === 'yes').length;
-                      const supervisedCount = Object.values(userRights).filter(v => v === 'supervised').length;
-                      const noCount = Object.values(userRights).filter(v => v === 'no').length;
+                    {filteredUsers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          No users found matching your filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredUsers.map((user) => {
+                        const userRights = getUserRights(user);
+                        const group = getGroupById(user.groupId);
+                        const yesCount = Object.values(userRights).filter(v => v === 'yes').length;
+                        const supervisedCount = Object.values(userRights).filter(v => v === 'supervised').length;
+                        const noCount = Object.values(userRights).filter(v => v === 'no').length;
 
-                      const isSelf = currentUser?.id === user.id;
+                        const isSelf = currentUser?.id === user.id;
+                        const isAccountActive = user.isActive !== false;
 
-                      return (
-                        <TableRow key={user.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
-                                <UsersIcon className="h-4 w-4 text-primary" />
+                        return (
+                          <TableRow key={user.id} className={!isAccountActive ? 'bg-muted/20 opacity-80' : undefined}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <div className={cn(
+                                  "flex h-9 w-9 items-center justify-center rounded-full",
+                                  isAccountActive ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+                                )}>
+                                  <UsersIcon className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium">{user.name}</p>
+                                    {isSelf && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">You</Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">@{user.username}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-medium">{user.name}</p>
-                                <p className="text-xs text-muted-foreground">@{user.username}</p>
+                            </TableCell>
+                            <TableCell>
+                              {isAccountActive ? (
+                                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 flex items-center w-fit gap-1 text-xs">
+                                  <UserCheck className="h-3 w-3" /> Active
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 flex items-center w-fit gap-1 text-xs">
+                                  <UserX className="h-3 w-3" /> Disabled
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary">
+                                {group?.name || 'Unknown'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2 text-sm">
+                                <MapPin className="h-3 w-3 text-muted-foreground" />
+                                {user.locationId === 'all' ? 'All Locations' : locations.find(l => l.id.toString() === String(user.locationId))?.name || 'None'}
                               </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="secondary">
-                              {group?.name || 'Unknown'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2 text-sm">
-                              <MapPin className="h-3 w-3 text-muted-foreground" />
-                              {user.locationId === 'all' ? 'All Locations' : locations.find(l => l.id.toString() === String(user.locationId))?.name || 'None'}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-1 text-sm">
-                              <span className="text-muted-foreground">{user.email || '-'}</span>
-                              {user.phoneNumber && <span className="text-xs text-muted-foreground/70">{user.phoneNumber}</span>}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <span className="text-xs text-emerald-600">{yesCount} Yes</span>
-                              <span className="text-xs text-amber-600">{supervisedCount} Supervised</span>
-                              <span className="text-xs text-destructive">{noCount} No</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setEditingUser({ ...user })}
-                                disabled={!canEditUser && !isSelf}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              {canEditUser && !isSelf && (
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1 text-sm">
+                                <span className="text-muted-foreground">{user.email || '-'}</span>
+                                {user.phoneNumber && <span className="text-xs text-muted-foreground/70">{user.phoneNumber}</span>}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <span className="text-xs text-emerald-600">{yesCount} Yes</span>
+                                <span className="text-xs text-amber-600">{supervisedCount} Supervised</span>
+                                <span className="text-xs text-destructive">{noCount} No</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1.5">
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => setResettingPasswordUser(user)}
-                                  title="Reset Password"
+                                  onClick={() => setEditingUser({ ...user })}
+                                  disabled={!canEditUser && !isSelf}
+                                  title="Edit User"
                                 >
-                                  <Key className="h-4 w-4" />
+                                  <Edit className="h-4 w-4" />
                                 </Button>
+                                {canEditUser && !isSelf && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleToggleStatus(user)}
+                                      disabled={togglingUserId === user.id}
+                                      title={isAccountActive ? "Disable Account" : "Enable Account"}
+                                      className={cn(
+                                        isAccountActive
+                                          ? "text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                                          : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                                      )}
+                                    >
+                                      {togglingUserId === user.id ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : isAccountActive ? (
+                                        <UserX className="h-4 w-4" />
+                                      ) : (
+                                        <UserCheck className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setResettingPasswordUser(user)}
+                                      title="Reset Password"
+                                    >
+                                      <Key className="h-4 w-4" />
+                                    </Button>
+                                  </>
+                                )}
+                                {canDeleteUser && !isSelf && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setUserToDelete(user)}
+                                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title="Delete User"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Ecommerce Users Tab */}
+          <TabsContent value="ecommerce">
+            <Card>
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg">Ecommerce Users</CardTitle>
+                  <CardDescription>Customer accounts registered via the online shop with their verification and status</CardDescription>
+                </div>
+              </CardHeader>
+              <div className="flex flex-col sm:flex-row gap-3 px-6 pb-4 border-b">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, username, email..."
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    className="pl-9 bg-muted/40"
+                  />
+                </div>
+                <Select value={userStatusFilter} onValueChange={(val: any) => setUserStatusFilter(val)}>
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active Only</SelectItem>
+                    <SelectItem value="disabled">Disabled Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Customer Account</TableHead>
+                      <TableHead>Email & Phone</TableHead>
+                      <TableHead>Email Verification</TableHead>
+                      <TableHead>Account Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredEcommerceUsers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          No ecommerce users found matching your filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredEcommerceUsers.map((user) => {
+                        const isAccountActive = user.isActive !== false;
+                        const isVerified = user.emailVerified === true;
+
+                        return (
+                          <TableRow key={user.id} className={!isAccountActive ? 'bg-muted/20 opacity-80' : undefined}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <div className={cn(
+                                  "flex h-9 w-9 items-center justify-center rounded-full shrink-0",
+                                  isAccountActive ? "bg-sky-500/10 text-sky-600" : "bg-destructive/10 text-destructive"
+                                )}>
+                                  <Globe className="h-4 w-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium text-sm leading-tight truncate">{user.name}</p>
+                                  <p className="text-xs text-muted-foreground truncate font-mono">@{user.username}</p>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-xs space-y-0.5">
+                                <div className="text-foreground">{user.email || '—'}</div>
+                                {user.phoneNumber && <div className="text-muted-foreground">{user.phoneNumber}</div>}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {isVerified ? (
+                                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-xs font-medium">
+                                  <Check className="h-3 w-3 mr-1" />
+                                  Verified
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-xs font-medium">
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  Pending Verification
+                                </Badge>
                               )}
-                              {canDeleteUser && !isSelf && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDeleteUser(user)}
-                                  className="text-destructive hover:text-destructive"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  checked={isAccountActive}
+                                  onCheckedChange={() => handleToggleStatus(user)}
+                                  disabled={togglingUserId === user.id}
+                                />
+                                <span className={cn("text-xs font-medium", isAccountActive ? "text-emerald-600" : "text-destructive")}>
+                                  {isAccountActive ? 'Active' : 'Disabled'}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {canEditUser && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setResettingPasswordUser(user)}
+                                    title="Reset Password"
+                                  >
+                                    <Key className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                {canDeleteUser && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setUserToDelete(user)}
+                                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title="Delete User"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -849,11 +1157,58 @@ export default function Users() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="flex items-center justify-between p-3.5 rounded-lg border bg-muted/40">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="edit-status" className="text-sm font-medium">Account Status</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {editingUser.isActive !== false ? 'Active — user can sign in and operate' : 'Disabled — login access is revoked'}
+                    </p>
+                  </div>
+                  <Switch
+                    id="edit-status"
+                    checked={editingUser.isActive !== false}
+                    disabled={editingUser.id === currentUser?.id}
+                    onCheckedChange={(checked) => setEditingUser(prev => prev ? { ...prev, isActive: checked } : null)}
+                  />
+                </div>
               </div>
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditingUser(null)}>Cancel</Button>
               <Button onClick={handleUpdateUser}>Save Changes</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete User Confirmation Dialog */}
+        <Dialog open={!!userToDelete} onOpenChange={(open) => { if (!open) setUserToDelete(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                Delete User Account
+              </DialogTitle>
+              <DialogDescription className="space-y-3 pt-2 text-left">
+                <span>
+                  Are you sure you want to delete <strong>{userToDelete?.name}</strong> (@{userToDelete?.username})?
+                </span>
+                <span className="block text-xs bg-amber-500/10 text-amber-700 dark:text-amber-400 p-3 rounded-lg border border-amber-500/20 leading-relaxed">
+                  <strong>Notice:</strong> If this user has recorded sales, shifts, receipts, or transactions, their account will be safely <strong>disabled</strong> instead of wiped from the database. This protects your transaction history and audit trail.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setUserToDelete(null)} disabled={isDeletingUser}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+                disabled={isDeletingUser}
+              >
+                {isDeletingUser && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Delete Account
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

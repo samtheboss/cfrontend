@@ -140,6 +140,10 @@ export interface User {
   locationId?: string; // Main location
   assignedLocations?: string[]; // Allowed locations
   role: string;
+  userType?: string;
+  customerId?: string | number;
+  emailVerified?: boolean;
+  isActive?: boolean;
   createdAt: Date;
 }
 

@@ -43,6 +43,7 @@ import {
   TrendingUp,
   Sparkles,
   ClipboardList,
+  BookOpen,
   ArrowRightLeft,
   FileEdit,
   FileText
@@ -207,6 +208,14 @@ export default function DashboardMenu() {
       iconGradientClass: 'from-indigo-500 to-blue-500 shadow-indigo-500/20',
       requiredRight: 'viewOnlineOrders',
       hasRedDot: true,
+      category: 'core'
+    },
+    {
+      name: 'Blog & SEO Articles',
+      description: 'Write buying guides, fabric care tips, and boost Google ranking',
+      href: '/blogs',
+      icon: BookOpen,
+      iconGradientClass: 'from-pink-500 to-rose-600 shadow-pink-500/20',
       category: 'core'
     },
     {

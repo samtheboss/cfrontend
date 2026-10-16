@@ -22,6 +22,7 @@ import { Upload, FileSpreadsheet, Download, Loader2, AlertCircle } from 'lucide-
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/contexts/InventoryContext';
+import { exportProductsToCsv, downloadProductTemplateCsv } from '@/utils/productExportImport';
 
 export function ImportProductsDialog() {
     const [file, setFile] = useState<File | null>(null);
@@ -29,7 +30,7 @@ export function ImportProductsDialog() {
     const [isUploading, setIsUploading] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const { toast } = useToast();
-    const { refreshData, locations } = useInventory();
+    const { refreshData, locations, products } = useInventory();
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -73,16 +74,12 @@ export function ImportProductsDialog() {
         }
     };
 
-    const downloadTemplate = () => {
-        // Basic CSV template as a fallback or instructions test
-        const headers = "Product Name,Category,SubCategory,Description,SKU,Barcode,Price,Cost,Stock,Attributes,Low Stock Threshold";
-        const blob = new Blob([headers], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'product_import_template.csv';
-        a.click();
-        window.URL.revokeObjectURL(url);
+    const handleExportCurrent = () => {
+        const count = exportProductsToCsv(products);
+        toast({
+            title: "Products Exported",
+            description: `Exported ${count} items. You can edit this file and upload it here to re-import.`,
+        });
     };
 
     return (
@@ -93,21 +90,21 @@ export function ImportProductsDialog() {
                     Import
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Import Products</DialogTitle>
+                    <DialogTitle>Import Products & Variants</DialogTitle>
                     <DialogDescription>
-                        Upload an Excel file (.xlsx or .xls) to bulk import products.
+                        Upload an Excel file (.xlsx, .xls) or CSV (.csv) to bulk import or update products.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="excel-file">Excel File</Label>
+                        <Label htmlFor="import-file">Spreadsheet or CSV File</Label>
                         <div className="flex items-center gap-2">
                             <Input
-                                id="excel-file"
+                                id="import-file"
                                 type="file"
-                                accept=".xlsx, .xls"
+                                accept=".xlsx, .xls, .csv"
                                 onChange={handleFileChange}
                                 disabled={isUploading}
                                 className="cursor-pointer"
@@ -115,32 +112,36 @@ export function ImportProductsDialog() {
                         </div>
                         {file && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                                <FileSpreadsheet className="h-4 w-4 text-green-600" />
-                                <span>{file.name}</span>
+                                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                                <span className="font-medium text-foreground">{file.name}</span>
+                                <span className="text-xs text-muted-foreground">({(file.size / 1024).toFixed(1)} KB)</span>
                             </div>
                         )}
                     </div>
 
                     <div className="grid gap-2">
-                        <Label htmlFor="stock-location">Stock Location (Required if importing stock)</Label>
+                        <Label htmlFor="stock-location">Stock Location (Optional: updates location stock count)</Label>
                         <Select value={locationId} onValueChange={setLocationId}>
                             <SelectTrigger id="stock-location">
-                                <SelectValue placeholder="Select location" />
+                                <SelectValue placeholder="All / Default main location" />
                             </SelectTrigger>
                             <SelectContent>
                                 {locations.map(loc => (
                                     <SelectItem key={loc.id} value={loc.id.toString()}>
-                                        {loc.name}
+                                        {loc.name} {loc.isMain ? '(Main)' : ''}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
                     </div>
 
-                    <div className="bg-muted/50 p-4 rounded-lg space-y-2 text-xs">
-                        <p className="font-semibold flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3" /> Required Column Names:
-                        </p>
+                    <div className="bg-muted/50 p-4 rounded-lg space-y-2 text-xs border">
+                        <div className="flex items-center justify-between">
+                            <p className="font-semibold flex items-center gap-1.5 text-foreground">
+                                <AlertCircle className="h-3.5 w-3.5 text-primary" /> Supported Columns:
+                            </p>
+                            <span className="text-[11px] text-muted-foreground">Compatible with Excel & CSV</span>
+                        </div>
                         <ul className="list-disc list-inside grid grid-cols-2 gap-x-4 gap-y-1 opacity-80">
                             <li>Product Name</li>
                             <li>Category</li>
@@ -148,25 +149,37 @@ export function ImportProductsDialog() {
                             <li>Description</li>
                             <li>SKU</li>
                             <li>Barcode</li>
-                            <li>Price</li>
-                            <li>Cost</li>
-                            <li>Stock</li>
-                            <li>Attributes (Key:Val;Key:Val)</li>
+                            <li>Price (Sell Price)</li>
+                            <li>Cost (Buy Price)</li>
+                            <li>Stock (Quantity)</li>
+                            <li>Attributes (e.g. Size:M;Color:Red)</li>
                             <li>Low Stock Threshold</li>
                         </ul>
                     </div>
                 </div>
-                <DialogFooter className="sm:justify-between">
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-primary hover:text-primary/80"
-                        onClick={downloadTemplate}
-                    >
-                        <Download className="h-4 w-4 mr-2" />
-                        CSV Template
-                    </Button>
+                <DialogFooter className="flex-col sm:flex-row gap-2 sm:justify-between">
+                    <div className="flex gap-2">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                            onClick={downloadProductTemplateCsv}
+                        >
+                            <Download className="h-3.5 w-3.5 mr-1.5" />
+                            Sample Template
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-primary hover:text-primary/80"
+                            onClick={handleExportCurrent}
+                        >
+                            <Download className="h-3.5 w-3.5 mr-1.5" />
+                            Export Current Catalog
+                        </Button>
+                    </div>
                     <div className="flex gap-2">
                         <Button variant="outline" onClick={() => setIsOpen(false)} disabled={isUploading}>
                             Cancel
@@ -175,7 +188,7 @@ export function ImportProductsDialog() {
                             {isUploading ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Importing Data...
+                                    Importing...
                                 </>
                             ) : (
                                 'Start Import'

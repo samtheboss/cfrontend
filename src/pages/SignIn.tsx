@@ -71,9 +71,9 @@ export default function SignIn() {
     setIsLoading(true);
 
     try {
-      const success = await login(username, password);
+      const result = await login(username, password);
 
-      if (success) {
+      if (result.success) {
         toast({
           title: 'Welcome back!',
           description: 'You have successfully signed in.',
@@ -82,7 +82,7 @@ export default function SignIn() {
       } else {
         toast({
           title: 'Sign in failed',
-          description: 'Invalid username or password.',
+          description: result.message || 'Invalid username or password.',
           variant: 'destructive',
         });
       }

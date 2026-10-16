@@ -31,7 +31,8 @@ import {
   Ticket,
   Calculator,
   Clock,
-  MoreHorizontal
+  MoreHorizontal,
+  BookOpen
 } from 'lucide-react';
 import { ShiftStatusChip } from '@/components/shifts/ShiftStatusChip';
 import { cn } from '@/lib/utils';
@@ -79,6 +80,7 @@ import Accounting from '@/pages/Accounting';
 import TableOrders from '@/pages/TableOrders';
 import Tables from '@/pages/Tables';
 import Shifts from '@/pages/Shifts';
+import Blogs from '@/pages/Blogs';
 import NotFound from '@/pages/NotFound';
 
 interface TabItem {
@@ -123,6 +125,7 @@ const tabMetadata: Record<string, { title: string; icon: any; component: React.C
   '/orders': { title: 'Online Orders', icon: ShoppingBag, component: OnlineOrders },
   '/slides': { title: 'Home Slides', icon: Grid, component: Slides },
   '/promotions': { title: 'Promotions', icon: Ticket, component: Promotions },
+  '/blogs': { title: 'Blog & Content', icon: BookOpen, component: Blogs },
 };
 
 export function Workspace() {

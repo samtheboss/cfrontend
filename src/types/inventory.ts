@@ -206,6 +206,7 @@ export interface Customer {
   idNumber?: string;
   customerType?: string;
   creditLimit?: number;
+  userId?: string | number;
   createdAt: Date;
 }
 
@@ -247,6 +248,26 @@ export interface SystemSettings {
   requireOpenShiftToTransact: boolean;
   themeMode?: 'light' | 'dark' | 'system';
   primaryColor?: string;
+  // Email & SMTP Configuration
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUsername?: string;
+  smtpPassword?: string;
+  mailFromName?: string;
+  mailFromEmail?: string;
+  adminNotificationEmail?: string;
+  smtpAuth?: boolean;
+  smtpStartTls?: boolean;
+}
+
+export interface HeroSlideConfig {
+  id: string;
+  image: string;
+  title: string;
+  subtitle: string;
+  ctaText?: string;
+  ctaLink?: string;
+  showLogo?: boolean;
 }
 
 export interface EcommerceSettings {
@@ -257,6 +278,7 @@ export interface EcommerceSettings {
   heroBannerUrl: string;
   heroTitle: string;
   heroSubtitle: string;
+  heroSlidesJson?: string;
   contactEmail: string;
   contactPhone: string;
   footerText: string;

@@ -16,7 +16,7 @@ interface LoginResponse {
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -24,7 +24,8 @@ interface AuthContextType {
   allUsers: User[];
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
   updateUser: (userId: string, updates: Partial<User>) => void;
-  deleteUser: (userId: string) => void;
+  deleteUser: (userId: string) => Promise<void>;
+  toggleUserStatus: (userId: string) => Promise<void>;
   resetPassword: (userId: string, newPassword: string) => Promise<void>;
   // Groups
   allGroups: UserGroup[];
@@ -50,6 +51,10 @@ const mapBackendUserToFrontend = (backendUser: any): User => {
     groupId: backendUser.userGroupId || (backendUser.role === 'ADMIN' ? 'group-admin' : 'group-inventory'),
     locationId: backendUser.locationId,
     role: backendUser.role || 'USER',
+    userType: backendUser.userType,
+    customerId: backendUser.customerId,
+    emailVerified: backendUser.emailVerified !== undefined ? (backendUser.emailVerified === true || backendUser.emailVerified === 1) : false,
+    isActive: backendUser.isActive !== undefined ? (backendUser.isActive === true || backendUser.isActive === 1) : true,
     createdAt: new Date(),
   };
 };
@@ -70,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUsers = async () => {
     try {
-      const response = await apiFetch<ApiResponse<any[]>>('/api/auth/users');
+      const response = await apiFetch<ApiResponse<any[]>>('/api/auth/users?type=all');
       const mappedUsers = response.data.map(mapBackendUserToFrontend);
       setUsers(mappedUsers);
     } catch (error) {
@@ -136,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (username: string, password: string): Promise<{ success: boolean; message?: string }> => {
     try {
       const response = await apiFetch<LoginResponse>('/api/auth/login', {
         method: 'POST',
@@ -152,12 +157,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Refetch everything to ensure we have the latest rights
         await Promise.all([fetchUsers(), fetchGroups()]);
 
-        return true;
+        return { success: true };
       }
-      return false;
-    } catch (error) {
+      return { success: false, message: response.message || 'Login failed' };
+    } catch (error: any) {
       console.error('Login error:', error);
-      return false;
+      return { success: false, message: error?.message || 'Login failed' };
     }
   };
 
@@ -209,25 +214,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const backendUpdates: any = { ...updates };
       if (updates.name !== undefined) backendUpdates.fullName = updates.name;
       if (updates.groupId !== undefined) backendUpdates.userGroupId = updates.groupId;
+      if (updates.isActive !== undefined) backendUpdates.isActive = updates.isActive;
 
       await apiFetch(`/api/users/${userId}`, {
         method: 'PUT',
         body: JSON.stringify(backendUpdates)
       });
+      await fetchUsers();
     } catch (error) {
       console.error('Failed to update user on backend', error);
-      // Revert if needed, or just let the next fetch fix it
+      await fetchUsers();
+      throw error;
     }
   };
 
   const deleteUser = async (userId: string) => {
-    if (userId === user?.id) return;
+    if (userId === user?.id) {
+      throw new Error("You cannot delete your own account.");
+    }
 
     try {
       await apiFetch(`/api/users/${userId}`, { method: 'DELETE' });
       setUsers((prev) => prev.filter((u) => u.id !== userId));
     } catch (error) {
       console.error('Failed to delete user:', error);
+      await fetchUsers();
+      throw error;
+    }
+  };
+
+  const toggleUserStatus = async (userId: string) => {
+    try {
+      await apiFetch(`/api/users/${userId}/toggle-status`, { method: 'PATCH' });
+      await fetchUsers();
+    } catch (error) {
+      console.error('Failed to toggle user status:', error);
+      await fetchUsers();
       throw error;
     }
   };
@@ -426,6 +448,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addUser,
         updateUser,
         deleteUser,
+        toggleUserStatus,
         resetPassword,
         allGroups: groups,
         addGroup,

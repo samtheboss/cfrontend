@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw, Clock, Plus, Trash2, Palette, Sun, Moon, Laptop, Check } from 'lucide-react';
+import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw, Clock, Plus, Trash2, Palette, Sun, Moon, Laptop, Check, Mail, Send, Eye, EyeOff, ShieldCheck, AlertCircle } from 'lucide-react';
 import { ShiftSchedule } from '@/types/shift';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
@@ -164,6 +164,33 @@ export default function Settings() {
     toast.info('Backend URL reset to default.');
   };
 
+  const [testEmailRecipient, setTestEmailRecipient] = useState('');
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+
+  const handleSendTestEmail = async () => {
+    const to = testEmailRecipient.trim() || formData?.adminNotificationEmail || formData?.businessEmail;
+    if (!to) {
+      toast.error('Please enter a recipient email address to send the test email to');
+      return;
+    }
+    try {
+      setIsTestingEmail(true);
+      if (formData) {
+        await updateSettings(formData);
+      }
+      const res = await apiFetch<{ message: string }>('/api/system-settings/test-email', {
+        method: 'POST',
+        body: JSON.stringify({ to }),
+      });
+      toast.success(res.message || 'Test email sent successfully! Please check your inbox.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send test email. Check your SMTP credentials.');
+    } finally {
+      setIsTestingEmail(false);
+    }
+  };
+
   useEffect(() => {
     const fetchPrinters = async () => {
       setIsFetchingPrinters(true);
@@ -205,7 +232,14 @@ export default function Settings() {
         shiftScope: settings.shiftScope || 'PER_LOCATION',
         themeMode: settings.themeMode || themeMode || 'system',
         primaryColor: settings.primaryColor || primaryColor || 'warm-amber',
+        smtpHost: settings.smtpHost || 'smtp.gmail.com',
+        smtpPort: settings.smtpPort || 587,
+        smtpAuth: settings.smtpAuth !== false,
+        smtpStartTls: settings.smtpStartTls !== false,
       });
+      if (!testEmailRecipient && (settings.adminNotificationEmail || settings.businessEmail)) {
+        setTestEmailRecipient(settings.adminNotificationEmail || settings.businessEmail);
+      }
     }
   }, [settings]);
 
@@ -262,6 +296,9 @@ export default function Settings() {
           <TabsTrigger value="general" className="text-xs">Store</TabsTrigger>
           <TabsTrigger value="appearance" className="text-xs flex items-center gap-1.5">
             <Palette className="h-3.5 w-3.5" /> Appearance
+          </TabsTrigger>
+          <TabsTrigger value="email" className="text-xs flex items-center gap-1.5">
+            <Mail className="h-3.5 w-3.5" /> Email (SMTP)
           </TabsTrigger>
           <TabsTrigger value="ecommerce" className="text-xs">eCommerce</TabsTrigger>
           <TabsTrigger value="shipping" className="text-xs">Shipping</TabsTrigger>
@@ -593,6 +630,191 @@ export default function Settings() {
           {/* Sticky save bar */}
           <div className="sticky bottom-3 z-10 mt-3 flex justify-end">
             <Button onClick={handleSave} className="shadow-lg">Save all changes</Button>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="email" className="pb-4">
+          <div className="grid items-start gap-3 lg:grid-cols-2">
+            {/* Guide & Overview */}
+            <div className="lg:col-span-2 rounded-xl border border-primary/20 bg-primary/5 p-4 flex items-start gap-3 shadow-xs">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div className="text-xs space-y-1.5 text-muted-foreground leading-relaxed">
+                <h4 className="text-sm font-semibold text-foreground">Email Notifications &amp; SMTP Configuration</h4>
+                <p>
+                  Set up your email credentials below to power customer account verification, order confirmation receipts, and store admin order notifications.
+                </p>
+                <div className="bg-background/80 border rounded-lg p-2.5 text-[11px] text-foreground font-mono space-y-0.5">
+                  <p className="font-semibold text-primary font-sans text-xs">Recommended Gmail Settings:</p>
+                  <p>• Host: <strong>smtp.gmail.com</strong> | Port: <strong>587</strong> | Authentication &amp; TLS: <strong>Enabled</strong></p>
+                  <p>• Password: Use a 16-character <strong>Google App Password</strong> (Google Account &gt; Security &gt; 2-Step Verification &gt; App Passwords)</p>
+                </div>
+              </div>
+            </div>
+
+            {/* SMTP Server Credentials */}
+            <SectionCard icon={Mail} title="SMTP Server Credentials" desc="Outbound mail server configuration">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="smtpHost" className={fieldLabel}>SMTP Host</Label>
+                  <Input
+                    id="smtpHost"
+                    className="h-9 font-mono text-xs"
+                    value={formData.smtpHost || 'smtp.gmail.com'}
+                    onChange={(e) => updateField('smtpHost', e.target.value)}
+                    placeholder="smtp.gmail.com"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="smtpPort" className={fieldLabel}>SMTP Port</Label>
+                  <Input
+                    id="smtpPort"
+                    type="number"
+                    className="h-9 font-mono text-xs"
+                    value={formData.smtpPort || 587}
+                    onChange={(e) => updateField('smtpPort', parseInt(e.target.value) || 587)}
+                    placeholder="587"
+                  />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="smtpUsername" className={fieldLabel}>SMTP Username / Gmail Address</Label>
+                  <Input
+                    id="smtpUsername"
+                    type="email"
+                    className="h-9 text-xs"
+                    value={formData.smtpUsername || ''}
+                    onChange={(e) => updateField('smtpUsername', e.target.value)}
+                    placeholder="your-store-email@gmail.com"
+                  />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="smtpPassword" className={fieldLabel}>SMTP / App Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="smtpPassword"
+                      type={showSmtpPassword ? 'text' : 'password'}
+                      className="h-9 text-xs pr-9 font-mono"
+                      value={formData.smtpPassword || ''}
+                      onChange={(e) => updateField('smtpPassword', e.target.value)}
+                      placeholder={formData.smtpPassword ? '••••••••••••••••' : 'Enter 16-digit Google App Password'}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                      className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                    >
+                      {showSmtpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Leave blank to preserve your currently saved password.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-2 pt-2">
+                <ToggleRow
+                  label="SMTP Authentication"
+                  desc="Authenticate with username &amp; password"
+                  checked={formData.smtpAuth !== false}
+                  onChange={(v) => updateField('smtpAuth', v)}
+                />
+                <ToggleRow
+                  label="Enable STARTTLS Encryption"
+                  desc="Encrypt SMTP connection with TLS (port 587)"
+                  checked={formData.smtpStartTls !== false}
+                  onChange={(v) => updateField('smtpStartTls', v)}
+                />
+              </div>
+            </SectionCard>
+
+            {/* Sender & Notifications Configuration */}
+            <div className="space-y-3">
+              <SectionCard icon={Building2} title="Sender &amp; Notifications" desc="Email display names and admin notification targets">
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="mailFromName" className={fieldLabel}>From / Sender Name</Label>
+                    <Input
+                      id="mailFromName"
+                      className="h-9 text-xs"
+                      value={formData.mailFromName || ''}
+                      onChange={(e) => updateField('mailFromName', e.target.value)}
+                      placeholder="SmartApps Cakes & Bakery"
+                    />
+                    <p className="text-[11px] text-muted-foreground">Name displayed to customers on verification &amp; order emails.</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="mailFromEmail" className={fieldLabel}>From / Reply-To Email</Label>
+                    <Input
+                      id="mailFromEmail"
+                      type="email"
+                      className="h-9 text-xs"
+                      value={formData.mailFromEmail || ''}
+                      onChange={(e) => updateField('mailFromEmail', e.target.value)}
+                      placeholder="orders@cakesandbakes.com (defaults to SMTP username)"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="adminNotificationEmail" className={fieldLabel}>Admin Order Notification Email</Label>
+                    <Input
+                      id="adminNotificationEmail"
+                      type="email"
+                      className="h-9 text-xs"
+                      value={formData.adminNotificationEmail || ''}
+                      onChange={(e) => updateField('adminNotificationEmail', e.target.value)}
+                      placeholder="admin@cakesandbakes.com"
+                    />
+                    <p className="text-[11px] text-muted-foreground">Receives an alert copy whenever an online order is placed.</p>
+                  </div>
+                </div>
+              </SectionCard>
+
+              {/* Test Email Card */}
+              <SectionCard icon={Send} title="Send Test Email" desc="Verify your SMTP setup right now">
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="testEmailRecipient" className={fieldLabel}>Recipient Email Address</Label>
+                    <Input
+                      id="testEmailRecipient"
+                      type="email"
+                      className="h-9 text-xs"
+                      value={testEmailRecipient}
+                      onChange={(e) => setTestEmailRecipient(e.target.value)}
+                      placeholder="your-email@example.com"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleSendTestEmail}
+                    disabled={isTestingEmail || !formData.smtpUsername}
+                    className="w-full h-9 text-xs gap-1.5"
+                  >
+                    {isTestingEmail ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending Test Email...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-3.5 w-3.5" /> Send Test Email
+                      </>
+                    )}
+                  </Button>
+                  {!formData.smtpUsername && (
+                    <p className="text-[11px] text-amber-600 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3 shrink-0" /> Enter your SMTP username above and save before testing.
+                    </p>
+                  )}
+                </div>
+              </SectionCard>
+            </div>
+          </div>
+
+          {/* Sticky Save Bar */}
+          <div className="sticky bottom-3 z-10 mt-3 flex justify-end">
+            <Button onClick={handleSave} className="shadow-lg">Save Email Settings</Button>
           </div>
         </TabsContent>
 

@@ -110,6 +110,7 @@ export default function Customers() {
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="ALL">All Types</SelectItem>
+                                <SelectItem value="ONLINE">Ecommerce / Online</SelectItem>
                                 <SelectItem value="POS">POS</SelectItem>
                                 <SelectItem value="ROOM">Room</SelectItem>
                                 <SelectItem value="BOTH">Both</SelectItem>
@@ -170,7 +171,12 @@ export default function Customers() {
                                             {initials}
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <p className="font-semibold text-sm leading-tight truncate">{customer.name}</p>
+                                            <div className="flex items-center gap-1.5">
+                                                <p className="font-semibold text-sm leading-tight truncate">{customer.name}</p>
+                                                {customer.userId && (
+                                                    <span className="text-[9px] font-medium bg-sky-500/10 text-sky-600 border border-sky-500/20 px-1 py-0.2 rounded shrink-0">Web</span>
+                                                )}
+                                            </div>
                                             {customer.idNumber && (
                                                 <p className="text-xs text-muted-foreground truncate mt-0.5">ID: {customer.idNumber}</p>
                                             )}
@@ -205,13 +211,15 @@ export default function Customers() {
                                     {/* Footer */}
                                     <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30 mt-1">
                                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                                            customer.customerType === 'WHOLESALE'
+                                            customer.customerType === 'ONLINE'
+                                                ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300'
+                                                : customer.customerType === 'WHOLESALE'
                                                 ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
                                                 : customer.customerType === 'TENANT' || customer.customerType === 'ROOM'
                                                 ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400'
                                                 : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
                                         }`}>
-                                            {customer.customerType || 'RETAIL'}
+                                            {customer.customerType === 'ONLINE' ? 'ONLINE / ECOMMERCE' : (customer.customerType || 'RETAIL')}
                                         </span>
                                         <div className="flex items-center gap-1">
                                             <Button
@@ -307,6 +315,7 @@ export default function Customers() {
                                     <SelectContent>
                                         <SelectItem value="POS">POS Customer</SelectItem>
                                         <SelectItem value="ROOM">Room Customer</SelectItem>
+                                        <SelectItem value="ONLINE">Ecommerce / Online</SelectItem>
                                         <SelectItem value="BOTH">Both</SelectItem>
                                     </SelectContent>
                                 </Select>
@@ -389,6 +398,7 @@ export default function Customers() {
                                         <SelectContent>
                                             <SelectItem value="POS">POS Customer</SelectItem>
                                             <SelectItem value="ROOM">Room Customer</SelectItem>
+                                            <SelectItem value="ONLINE">Ecommerce / Online</SelectItem>
                                             <SelectItem value="BOTH">Both</SelectItem>
                                         </SelectContent>
                                     </Select>

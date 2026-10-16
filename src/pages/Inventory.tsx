@@ -6,12 +6,15 @@ import { useCurrency } from '@/hooks/useCurrency';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { getStockStatus } from '@/types/inventory';
 import { StockBadge } from '@/components/inventory/StockBadge';
-import { Search, Filter, ArrowUpDown, Package, ChevronDown, ChevronRight, Barcode } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, Package, ChevronDown, ChevronRight, Barcode, Download } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
+import { ImportProductsDialog } from '@/components/inventory/ImportProductsDialog';
+import { exportProductsToCsv } from '@/utils/productExportImport';
 
 type SortField = 'name' | 'sku' | 'stock' | 'price';
 type SortOrder = 'asc' | 'desc';
@@ -20,6 +23,7 @@ type StockFilter = 'all' | 'in-stock' | 'low-stock' | 'out-of-stock';
 export default function Inventory() {
   const { products, locations } = useInventory();
   const { user } = useAuth();
+  const { toast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLocationId, setSelectedLocationId] = useState<string>(
@@ -176,6 +180,23 @@ export default function Inventory() {
             <SelectItem value="out-of-stock">Out of Stock</SelectItem>
           </SelectContent>
         </Select>
+
+        <div className="ml-auto flex items-center gap-2">
+          <ImportProductsDialog />
+          <Button
+            variant="outline"
+            onClick={() => {
+              const count = exportProductsToCsv(products);
+              toast({
+                title: "Inventory Exported",
+                description: `Exported ${count} items to CSV. You can modify this spreadsheet and re-import it anytime.`,
+              });
+            }}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Table */}

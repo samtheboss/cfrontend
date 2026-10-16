@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
-import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Star, RefreshCw, ChefHat, Settings, Tag, AlertTriangle, Layers } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Download, FileSpreadsheet, Star, RefreshCw, ChefHat, Settings, Tag, AlertTriangle, Layers, AlertCircle } from 'lucide-react';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { RecipeDialog } from '@/components/inventory/RecipeDialog';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +33,7 @@ import { StockBadge } from '@/components/inventory/StockBadge';
 import { getStockStatus } from '@/types/inventory';
 import { useInventory } from '@/contexts/InventoryContext';
 import { ImportProductsDialog } from '@/components/inventory/ImportProductsDialog';
+import { exportProductsToCsv, downloadProductTemplateCsv, downloadBackendExport } from '@/utils/productExportImport';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,6 +80,8 @@ export default function Products() {
   const [importingCategories, setImportingCategories] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [originalDefaultVariant, setOriginalDefaultVariant] = useState<ProductVariant | null>(null);
+  const [mappedDefaultVariantIndex, setMappedDefaultVariantIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [showDisabled, setShowDisabled] = useState(false);
@@ -259,7 +262,8 @@ export default function Products() {
     currentVariants: ProductVariant[],
     currentBaseWholesalePrice?: string,
     currentBaseSpecialPrice?: string,
-    currentBaseTradePrice?: string
+    currentBaseTradePrice?: string,
+    targetDefaultIndex: number = mappedDefaultVariantIndex
   ) => {
     const parsedAttributes = currentAttributes
       .filter(a => a.name && a.values)
@@ -298,36 +302,53 @@ export default function Products() {
       return keysA.every((key, i) => key === keysB[i] && a[key] === b[key]);
     };
 
-    return newVariants.map(nv => {
+    const usedExistingIds = new Set<string | number>();
+
+    return newVariants.map((nv, idx) => {
       // Priority 1: Exact match by attributes
-      let existing = currentVariants.find(ev => areAttributesEqual(ev.attributes, nv.attributes));
+      let existing = currentVariants.find(ev => !usedExistingIds.has(ev.id) && areAttributesEqual(ev.attributes, nv.attributes));
 
       // Priority 2: Partial match - if existing variant's attributes are a subset of the new variant
-      // This handles the case when a new attribute is added (e.g., adding "Color" when only "Size" existed)
       if (!existing) {
         existing = currentVariants.find(ev =>
-          Object.keys(ev.attributes).length > 0 && isAttributeSubset(ev.attributes, nv.attributes)
+          !usedExistingIds.has(ev.id) &&
+          Object.keys(ev.attributes).length > 0 &&
+          isAttributeSubset(ev.attributes, nv.attributes)
         );
       }
 
       // Priority 3: Match by SKU if attributes don't match (prevents ID loss on SKU edits)
       if (!existing && nv.sku) {
-        existing = currentVariants.find(ev => ev.sku === nv.sku);
+        existing = currentVariants.find(ev => !usedExistingIds.has(ev.id) && ev.sku === nv.sku);
+      }
+
+      // Priority 4: Preserve and update Default Variant if product originally had a default variant
+      const defaultVar = originalDefaultVariant || (
+        currentVariants.length === 1 && Object.keys(currentVariants[0].attributes || {}).length === 0
+          ? currentVariants[0]
+          : null
+      );
+
+      if (!existing && defaultVar && idx === targetDefaultIndex && !usedExistingIds.has(defaultVar.id)) {
+        existing = defaultVar;
       }
 
       if (existing) {
+        usedExistingIds.add(existing.id);
         return {
           ...nv,
           id: existing.id,
           price: (nv.price === 0 && existing.price > 0) ? existing.price : nv.price,
           cost: (nv.cost === 0 && existing.cost > 0) ? existing.cost : nv.cost,
           wasPrice: existing.wasPrice,
-          wholesalePrice: existing.wholesalePrice,
-          specialPrice: existing.specialPrice,
-          tradePrice: existing.tradePrice,
+          wholesalePrice: existing.wholesalePrice !== undefined ? existing.wholesalePrice : nv.wholesalePrice,
+          specialPrice: existing.specialPrice !== undefined ? existing.specialPrice : nv.specialPrice,
+          tradePrice: existing.tradePrice !== undefined ? existing.tradePrice : nv.tradePrice,
           stock: existing.stock,
           locationStock: existing.locationStock,
+          barcode: existing.barcode || nv.barcode,
           lowStockThreshold: existing.lowStockThreshold || nv.lowStockThreshold,
+          hasRecipe: existing.hasRecipe !== undefined ? existing.hasRecipe : nv.hasRecipe,
           isActive: existing.isActive !== undefined ? existing.isActive : true
         };
       }
@@ -335,11 +356,55 @@ export default function Products() {
     });
   };
 
+  const handleMapDefaultVariant = (targetIndex: number) => {
+    setMappedDefaultVariantIndex(targetIndex);
+    if (!originalDefaultVariant) return;
+
+    setNewProduct(prev => {
+      const updatedVariants = prev.variants.map((v, i) => {
+        if (i === targetIndex) {
+          return {
+            ...v,
+            id: originalDefaultVariant.id,
+            stock: originalDefaultVariant.stock,
+            locationStock: originalDefaultVariant.locationStock,
+            barcode: originalDefaultVariant.barcode || v.barcode,
+            cost: originalDefaultVariant.cost || v.cost,
+            price: (v.price === 0 && originalDefaultVariant.price > 0) ? originalDefaultVariant.price : v.price,
+            wholesalePrice: originalDefaultVariant.wholesalePrice ?? v.wholesalePrice,
+            specialPrice: originalDefaultVariant.specialPrice ?? v.specialPrice,
+            tradePrice: originalDefaultVariant.tradePrice ?? v.tradePrice,
+            hasRecipe: originalDefaultVariant.hasRecipe ?? v.hasRecipe,
+          };
+        } else if (v.id === originalDefaultVariant.id) {
+          return {
+            ...v,
+            id: undefined as any,
+            stock: 0,
+            locationStock: {},
+            barcode: generateBarcode(),
+          };
+        }
+        return v;
+      });
+      return { ...prev, variants: updatedVariants };
+    });
+  };
+
   const handleAttributeChange = (newAttributes: { name: string; values: string }[]) => {
     setNewProduct(prev => ({
       ...prev,
       attributes: newAttributes,
-      variants: updateVariantsFromAttributes(newAttributes, prev.basePrice, prev.baseCost, prev.variants, prev.baseWholesalePrice, prev.baseSpecialPrice, prev.baseTradePrice)
+      variants: updateVariantsFromAttributes(
+        newAttributes,
+        prev.basePrice,
+        prev.baseCost,
+        prev.variants,
+        prev.baseWholesalePrice,
+        prev.baseSpecialPrice,
+        prev.baseTradePrice,
+        mappedDefaultVariantIndex
+      )
     }));
   };
 
@@ -352,10 +417,11 @@ export default function Products() {
           newState.attributes,
           newState.basePrice,
           newState.baseCost,
-          [],
+          prev.variants,
           newState.baseWholesalePrice,
           newState.baseSpecialPrice,
-          newState.baseTradePrice
+          newState.baseTradePrice,
+          mappedDefaultVariantIndex
         )
       };
     });
@@ -481,6 +547,8 @@ export default function Products() {
       negativeStockPolicy: 'INHERIT',
     });
     setEditingId(null);
+    setOriginalDefaultVariant(null);
+    setMappedDefaultVariantIndex(0);
     setVariantRecipes({});
   };
 
@@ -496,6 +564,19 @@ export default function Products() {
 
   const handleEditProduct = (product: Product) => {
     setEditingId(product.id);
+
+    // Detect if this product previously operated with a single default variant
+    const isSingleDefault = product.variants && product.variants.length === 1 &&
+      (Object.keys(product.variants[0].attributes || {}).length === 0 || product.variants[0].sku?.endsWith('-DEFAULT'));
+
+    if (isSingleDefault) {
+      setOriginalDefaultVariant(product.variants[0]);
+      setMappedDefaultVariantIndex(0);
+    } else {
+      setOriginalDefaultVariant(null);
+      setMappedDefaultVariantIndex(0);
+    }
+
     setNewProduct({
       name: product.name,
       description: product.description,
@@ -720,6 +801,40 @@ export default function Products() {
     window.URL.revokeObjectURL(url);
   };
 
+  const handleExportAll = () => {
+    const count = exportProductsToCsv(products);
+    toast({
+      title: "Export Complete",
+      description: `Exported ${count} items to CSV. You can modify this spreadsheet and re-import it anytime.`,
+    });
+  };
+
+  const handleExportFiltered = () => {
+    const dateStr = new Date().toISOString().split('T')[0];
+    const count = exportProductsToCsv(filteredProducts, `products_filtered_${dateStr}.csv`);
+    toast({
+      title: "Filtered Export Complete",
+      description: `Exported ${count} filtered items to CSV.`,
+    });
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      await downloadBackendExport('xlsx');
+      toast({
+        title: "Excel Export Complete",
+        description: "Products downloaded in Excel (.xlsx) format.",
+      });
+    } catch {
+      // Instant client-side fallback
+      const count = exportProductsToCsv(products);
+      toast({
+        title: "CSV Export Complete",
+        description: `Exported ${count} items to CSV.`,
+      });
+    }
+  };
+
   return (
     <AppLayout title="Products">
       <Tabs value={activeView} onValueChange={(v) => { setActiveView(v as 'list' | 'form' | 'categories'); if (v === 'list') resetForm(); if (v !== 'categories') handleCategoryParamsReset(); }}>
@@ -751,6 +866,34 @@ export default function Products() {
             />
           </div>
           <ImportProductsDialog />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportAll}>
+                <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
+                Export All Items (CSV)
+              </DropdownMenuItem>
+              {searchQuery && (
+                <DropdownMenuItem onClick={handleExportFiltered}>
+                  <FileSpreadsheet className="h-4 w-4 mr-2 text-sky-600" />
+                  Export Filtered ({filteredProducts.length})
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={handleExportExcel}>
+                <Download className="h-4 w-4 mr-2 text-blue-600" />
+                Export to Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={downloadProductTemplateCsv}>
+                <Download className="h-4 w-4 mr-2 text-muted-foreground" />
+                Sample Template (CSV)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="outline" onClick={() => setActiveView('categories')}>
             <Tag className="h-4 w-4 mr-2" />
             Categories
@@ -1015,16 +1158,64 @@ export default function Products() {
                     </div>
                   ))}
                   <div className="space-y-3">
-                    <Label>Generated Variants ({newProduct.variants?.length || 0})</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>Generated Variants ({newProduct.variants?.length || 0})</Label>
+                    </div>
+
+                    {/* Migration option banner when converting a product with default variant */}
+                    {originalDefaultVariant && newProduct.variants && newProduct.variants.length > 0 && (
+                      <div className="p-3 bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                        <div>
+                          <span className="font-bold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                            <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                            Preserve & Convert Default Variant Data
+                          </span>
+                          <p className="text-blue-700/90 dark:text-blue-400 mt-0.5">
+                            This product previously had a default variant with <strong>{originalDefaultVariant.stock} units in stock</strong>
+                            {originalDefaultVariant.cost ? ` (Cost: ${sym}${originalDefaultVariant.cost})` : ''}
+                            {originalDefaultVariant.barcode ? ` (Barcode: ${originalDefaultVariant.barcode})` : ''}.
+                            Choose which new variant inherits this existing stock and data:
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Label className="text-xs font-semibold whitespace-nowrap text-blue-900 dark:text-blue-200">
+                            Update into:
+                          </Label>
+                          <Select
+                            value={mappedDefaultVariantIndex.toString()}
+                            onValueChange={(val) => handleMapDefaultVariant(parseInt(val))}
+                          >
+                            <SelectTrigger className="h-8 text-xs w-[180px] bg-white dark:bg-card border-blue-300">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {newProduct.variants.map((v, idx) => (
+                                <SelectItem key={idx} value={idx.toString()}>
+                                  {Object.values(v.attributes).join(' / ') || `Variant ${idx + 1}`}
+                                  {v.id === originalDefaultVariant.id ? ' (Inherited)' : ''}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Mobile Card Layout */}
                     <div className="md:hidden space-y-3">
                       {newProduct.variants?.map((variant, index) => (
                         <div key={index} className="border rounded-lg p-3 space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="font-medium text-sm">
-                              {Object.entries(variant.attributes).map(([k, v]) => `${v}`).join(' / ')}
-                            </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-sm">
+                                {Object.entries(variant.attributes).map(([k, v]) => `${v}`).join(' / ')}
+                              </span>
+                              {originalDefaultVariant && variant.id === originalDefaultVariant.id && (
+                                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 py-0">
+                                  Default Data Inherited
+                                </Badge>
+                              )}
+                            </div>
                             <div className="flex items-center gap-2">
                               {variant.image ? (
                                 <div className="relative h-8 w-8 rounded border overflow-hidden group">
@@ -1192,9 +1383,16 @@ export default function Products() {
                         <tbody>
                           {newProduct.variants?.map((variant, index) => (
                             <tr key={index} className="border-t">
-                              <td className="p-2 flex items-center gap-2">
-                                {Object.entries(variant.attributes).map(([k, v]) => `${v}`).join(' / ')}
-                                {variant.hasRecipe && <ChefHat className="h-3 w-3 text-primary" />}
+                              <td className="p-2">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>{Object.entries(variant.attributes).map(([k, v]) => `${v}`).join(' / ')}</span>
+                                  {variant.hasRecipe && <ChefHat className="h-3 w-3 text-primary shrink-0" />}
+                                  {originalDefaultVariant && variant.id === originalDefaultVariant.id && (
+                                    <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 py-0 px-1.5 shrink-0">
+                                      Default Data
+                                    </Badge>
+                                  )}
+                                </div>
                               </td>
                               <td className="p-2">
                                 <Input
