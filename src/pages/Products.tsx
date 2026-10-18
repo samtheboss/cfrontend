@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
@@ -83,6 +83,8 @@ export default function Products() {
   const [originalDefaultVariant, setOriginalDefaultVariant] = useState<ProductVariant | null>(null);
   const [mappedDefaultVariantIndex, setMappedDefaultVariantIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
+  // Images chosen locally (blob: preview URL -> File); uploaded only when the product is saved
+  const pendingImageFiles = useRef<Map<string, File>>(new Map());
   const [isUploadingImages, setIsUploadingImages] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [showDisabled, setShowDisabled] = useState(false);
@@ -440,33 +442,18 @@ export default function Products() {
     }
 
     if (!files || files.length === 0) return;
-    setIsUploadingImages(true);
 
-    const fileArray = Array.from(files);
-    for (const file of fileArray) {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const response = await apiFetch<{ url: string }>('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        setNewProduct(prev => ({
-          ...prev,
-          images: [...prev.images, response.url]
-        }));
-      } catch (error) {
-        console.error('Upload error:', error);
-        toast({
-          title: "Upload Failed",
-          description: `Could not upload ${file.name}. The file may be too large.`,
-          variant: "destructive"
-        });
-      }
+    // Only preview locally; the actual upload happens on save so images can be removed first
+    const previews: string[] = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) continue;
+      const url = URL.createObjectURL(file);
+      pendingImageFiles.current.set(url, file);
+      previews.push(url);
     }
-    setIsUploadingImages(false);
+    if (previews.length === 0) return;
+    setNewProduct(prev => ({ ...prev, images: [...prev.images, ...previews] }));
+    if ('target' in e && e.target instanceof HTMLInputElement) e.target.value = '';
   };
 
   const handleVariantImageUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -524,6 +511,11 @@ export default function Products() {
   };
 
   const removeImage = (index: number) => {
+    const img = newProduct.images[index];
+    if (img && pendingImageFiles.current.has(img)) {
+      pendingImageFiles.current.delete(img);
+      URL.revokeObjectURL(img);
+    }
     setNewProduct(prev => ({
       ...prev,
       images: prev.images.filter((_, i) => i !== index)
@@ -531,6 +523,8 @@ export default function Products() {
   };
 
   const resetForm = () => {
+    pendingImageFiles.current.forEach((_, url) => URL.revokeObjectURL(url));
+    pendingImageFiles.current.clear();
     setNewProduct({
       name: '',
       description: '',
@@ -662,6 +656,30 @@ export default function Products() {
         newProduct.baseTradePrice ? parseFloat(newProduct.baseTradePrice) || undefined : undefined
       ).map(v => ({ ...v, id: undefined, productId: sanitizeId(editingId) }));
 
+      // Upload locally-selected images now, preserving their order
+      const uploadedImages: string[] = [];
+      if (pendingImageFiles.current.size > 0) setIsUploadingImages(true);
+      for (const img of newProduct.images) {
+        const file = pendingImageFiles.current.get(img);
+        if (!file) {
+          uploadedImages.push(img);
+          continue;
+        }
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+          const response = await apiFetch<{ url: string }>('/api/upload', { method: 'POST', body: formData });
+          uploadedImages.push(response.url);
+        } catch (uploadError) {
+          toast({
+            title: "Upload Failed",
+            description: `Could not upload ${file.name}. The file may be too large.`,
+            variant: "destructive"
+          });
+          throw uploadError;
+        }
+      }
+
       const productData: any = {
         id: sanitizeId(editingId),
         name: newProduct.name,
@@ -671,7 +689,7 @@ export default function Products() {
         type: newProduct.type,
         attributes: parsedAttributes,
         variants,
-        images: newProduct.images.map(img => img.replace(getBaseUrl(), '')).filter(img => img.trim() !== ''),
+        images: uploadedImages.map(img => img.replace(getBaseUrl(), '')).filter(img => img.trim() !== ''),
         availableOnline: !!newProduct.availableOnline,
         isActive: newProduct.isActive !== false,
         isFeatured: !!newProduct.isFeatured,
@@ -711,6 +729,7 @@ export default function Products() {
     } catch (error) {
       console.error('Error creating/updating product:', error);
     } finally {
+      setIsUploadingImages(false);
       setIsSubmitting(false);
     }
   };
@@ -1644,7 +1663,7 @@ export default function Products() {
                             className="relative group border rounded-lg overflow-hidden aspect-square bg-muted cursor-move"
                           >
                             <img
-                              src={img.startsWith('http') ? img : `${getBaseUrl()}${img}`}
+                              src={img.startsWith('http') || img.startsWith('blob:') ? img : `${getBaseUrl()}${img}`}
                               alt={`Product ${index + 1}`}
                               className="w-full h-full object-cover pointer-events-none"
                             />
