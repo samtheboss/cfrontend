@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { mockProducts } from '@/data/mockData';
 import { Product, ProductAttribute, ProductVariant } from '@/types/inventory';
-import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Download, FileSpreadsheet, Star, RefreshCw, ChefHat, Settings, Tag, AlertTriangle, Layers, AlertCircle } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Package, ChevronDown, ChevronRight, Barcode, Edit, Trash2, Globe, Image as ImageIcon, X, Upload, Download, FileSpreadsheet, Star, RefreshCw, ChefHat, Settings, Tag, AlertTriangle, Layers, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { RecipeDialog } from '@/components/inventory/RecipeDialog';
 import { useToast } from '@/hooks/use-toast';
@@ -83,6 +83,7 @@ export default function Products() {
   const [originalDefaultVariant, setOriginalDefaultVariant] = useState<ProductVariant | null>(null);
   const [mappedDefaultVariantIndex, setMappedDefaultVariantIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [showDisabled, setShowDisabled] = useState(false);
 
@@ -439,6 +440,7 @@ export default function Products() {
     }
 
     if (!files || files.length === 0) return;
+    setIsUploadingImages(true);
 
     const fileArray = Array.from(files);
     for (const file of fileArray) {
@@ -457,8 +459,14 @@ export default function Products() {
         }));
       } catch (error) {
         console.error('Upload error:', error);
+        toast({
+          title: "Upload Failed",
+          description: `Could not upload ${file.name}. The file may be too large.`,
+          variant: "destructive"
+        });
       }
     }
+    setIsUploadingImages(false);
   };
 
   const handleVariantImageUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1576,8 +1584,8 @@ export default function Products() {
                     <label htmlFor="image-upload">
                       <Button type="button" variant="outline" size="sm" className="cursor-pointer" asChild>
                         <span>
-                          <Upload className="h-3 w-3 mr-1" />
-                          Upload Images
+                          {isUploadingImages ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
+                          {isUploadingImages ? 'Uploading...' : 'Upload Images'}
                         </span>
                       </Button>
                     </label>
@@ -1601,6 +1609,11 @@ export default function Products() {
                     onDragLeave={handleDragLeave}
                     onDrop={handleImageUpload}
                   >
+                    {isUploadingImages && (
+                      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground pb-3">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Uploading images...
+                      </div>
+                    )}
                     {newProduct.images.length === 0 ? (
                       <div className="text-center text-muted-foreground flex flex-col items-center gap-2">
                         <ImageIcon className="h-6 w-6 md:h-8 md:w-8 opacity-50" />
