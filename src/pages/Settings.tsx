@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw, Clock, Plus, Trash2, Palette, Sun, Moon, Laptop, Check, Mail, Send, Eye, EyeOff, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Building2, Receipt, Bell, Database, Loader2, Globe, Server, CheckCircle2, RotateCcw, Clock, Plus, Trash2, Palette, Sun, Moon, Laptop, Check, Mail, Send, Eye, EyeOff, ShieldCheck, AlertCircle, ImageDown } from 'lucide-react';
 import { ShiftSchedule } from '@/types/shift';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
@@ -726,6 +726,41 @@ export default function Settings() {
                   checked={formData.smtpStartTls !== false}
                   onChange={(v) => updateField('smtpStartTls', v)}
                 />
+              </div>
+            </SectionCard>
+
+            {/* Image Compression (TinyPNG) */}
+            <SectionCard icon={ImageDown} title="Image Compression" desc="Compress uploaded item images with TinyPNG before saving">
+              <div className="space-y-3">
+                <ToggleRow
+                  label="Compress uploaded images"
+                  desc="Requires a TinyPNG API key; originals are kept if compression fails"
+                  checked={formData.imageCompressionEnabled !== false}
+                  onChange={(v) => updateField('imageCompressionEnabled', v)}
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="tinifyApiKey" className={fieldLabel}>TinyPNG API Key</Label>
+                  <Input
+                    id="tinifyApiKey"
+                    type="password"
+                    className="h-9 text-xs font-mono"
+                    value={formData.tinifyApiKey || ''}
+                    onChange={(e) => updateField('tinifyApiKey', e.target.value)}
+                    placeholder="Paste your key from tinypng.com/developers"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Leave blank to preserve your currently saved key.</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="compressibleExtensions" className={fieldLabel}>Image Extensions to Compress</Label>
+                  <Input
+                    id="compressibleExtensions"
+                    className="h-9 text-xs font-mono"
+                    value={formData.compressibleExtensions ?? 'jpg,jpeg,png,webp,avif,heic,heif'}
+                    onChange={(e) => updateField('compressibleExtensions', e.target.value)}
+                    placeholder="jpg,jpeg,png,webp,avif,heic,heif"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Comma-separated. Add or remove extensions any time. Files TinyPNG can't process are saved uncompressed.</p>
+                </div>
               </div>
             </SectionCard>
 

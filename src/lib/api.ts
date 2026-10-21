@@ -19,10 +19,39 @@ export function clearBaseUrl(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/** True for iPhone HEIC/HEIF photos (by MIME type or extension). */
+function isHeic(file: File): boolean {
+  return /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+}
+
+/** Converts HEIC/HEIF files in an upload FormData to JPEG in the browser; other entries are untouched. */
+async function convertHeicInFormData(form: FormData): Promise<FormData> {
+  const out = new FormData();
+  for (const [key, value] of Array.from(form.entries())) {
+    if (value instanceof File && isHeic(value)) {
+      try {
+        const { default: heic2any } = await import('heic2any');
+        const result = await heic2any({ blob: value, toType: 'image/jpeg', quality: 0.9 });
+        const blob = Array.isArray(result) ? result[0] : result;
+        out.append(key, blob, value.name.replace(/\.hei[cf]$/i, '') + '.jpg');
+        continue;
+      } catch {
+        // Conversion failed: fall through and upload the original file.
+      }
+    }
+    out.append(key, value);
+  }
+  return out;
+}
+
 export async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (endpoint === '/api/upload' && options.body instanceof FormData) {
+    options = { ...options, body: await convertHeicInFormData(options.body) };
+  }
+
   const token = sessionStorage.getItem('token');
 
   const isFormData = options.body instanceof FormData;

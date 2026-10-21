@@ -258,6 +258,10 @@ export interface SystemSettings {
   adminNotificationEmail?: string;
   smtpAuth?: boolean;
   smtpStartTls?: boolean;
+  // Image compression (TinyPNG)
+  tinifyApiKey?: string;
+  imageCompressionEnabled?: boolean;
+  compressibleExtensions?: string;
 }
 
 export interface HeroSlideConfig {
