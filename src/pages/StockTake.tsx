@@ -76,7 +76,7 @@ export default function StockTake() {
     useEffect(() => {
         if (stockTakeItems.length > 0 && selectedLocationId) {
             setStockTakeItems(prev => prev.map(item => {
-                const product = products.find(p => p.name === item.productName);
+                const product = products.find(p => p.variants.some(v => v.id.toString() === item.variantId.toString()));
                 const variant = product?.variants.find(v => v.id.toString() === item.variantId.toString());
                 if (variant) {
                     const newSystemStock = variant.locationStock[selectedLocationId] || 0;
@@ -240,24 +240,50 @@ export default function StockTake() {
             setTransactionDate(draftDate);
         }
 
-        // Map transaction items back to stock take items, refreshing systemStock from products
+        // Map transaction items back to stock take items, refreshing details from current products
         const draftItems: StockTakeItem[] = (draft.items || []).map(item => {
-            const prod = products.find(p => p.name === item.productName);
+            const prod = products.find(p => p.variants.some(v => v.id.toString() === item.variantId?.toString()))
+                || products.find(p => p.name === item.productName);
             const variant = prod?.variants.find(v => v.id.toString() === item.variantId?.toString());
 
             const currentSystemStock = variant ? (variant.locationStock[locId] || 0) : (item.quantityBefore || 0);
 
             return {
                 variantId: item.variantId!.toString(),
-                variantSku: item.sku!,
-                productName: item.productName!,
+                variantSku: variant?.sku ?? item.sku!,
+                productName: prod?.name ?? item.productName!,
                 systemStock: currentSystemStock,
                 countedStock: item.quantityAfter || 0,
                 variance: (item.quantityAfter || 0) - currentSystemStock,
-                unit: 'pcs',
+                cost: variant?.cost,
+                price: variant?.price,
+                unit: prod?.unit || 'PCS',
                 attributes: variant?.attributes
             };
         });
+
+        // Add active products/variants created since the draft was held
+        const existingIds = new Set(draftItems.map(i => i.variantId.toString()));
+        products
+            .filter(p => p.isActive !== false)
+            .forEach(product => {
+                product.variants
+                    .filter(v => v.isActive !== false && !existingIds.has(v.id.toString()))
+                    .forEach(variant => {
+                        draftItems.push({
+                            variantId: variant.id,
+                            productName: product.name,
+                            variantSku: variant.sku,
+                            systemStock: variant.locationStock[locId] || 0,
+                            countedStock: 0,
+                            variance: 0,
+                            cost: variant.cost,
+                            price: variant.price,
+                            unit: product.unit || 'PCS',
+                            attributes: variant.attributes
+                        });
+                    });
+            });
 
         setStockTakeItems(draftItems);
         const countedIds = new Set(draftItems.filter(i => i.countedStock !== 0).map(i => i.variantId));
@@ -267,7 +293,7 @@ export default function StockTake() {
         toast.info(`Loaded draft ${draft.journalNumber}`);
     };
 
-    const submitStockTake = async (status: 'DRAFT' | 'COMPLETED' = 'COMPLETED') => {
+    const submitStockTake = async (status: 'DRAFT' | 'COMPLETED' = 'COMPLETED', keepOpen = false) => {
         const countedItemsList = status === 'DRAFT' ? stockTakeItems : stockTakeItems.filter(item => countedItems.has(item.variantId));
 
         if (status === 'COMPLETED' && countedItemsList.length === 0) {
@@ -295,16 +321,24 @@ export default function StockTake() {
                 }))
             };
 
+            let savedId = currentTransactionId;
             if (currentTransactionId) {
                 await updateTransaction(currentTransactionId, transactionData);
             } else {
-                await applyStockTake(transactionData);
+                const saved = await applyStockTake(transactionData);
+                savedId = saved?.id ? String(saved.id) : null;
             }
 
-            setIsCountingMode(false);
-            setStockTakeItems([]);
-            setCountedItems(new Set());
-            setCurrentTransactionId(null);
+            if (keepOpen && status === 'DRAFT') {
+                // Save only: stay in the journal so further edits update the same entry
+                if (savedId) setCurrentTransactionId(savedId);
+                else setIsCountingMode(false);
+            } else {
+                setIsCountingMode(false);
+                setStockTakeItems([]);
+                setCountedItems(new Set());
+                setCurrentTransactionId(null);
+            }
         } catch (error) {
             // Error handled by context
         } finally {
@@ -461,6 +495,10 @@ export default function StockTake() {
                                     cancelStockTake();
                                     setCurrentTransactionId(null);
                                 }} disabled={isSubmitting}>Cancel</Button>
+                                <Button variant="outline" size="sm" className="flex-1 sm:flex-none h-9" onClick={() => submitStockTake('DRAFT', true)} disabled={isSubmitting}>
+                                    <Save className="h-4 w-4 mr-1 sm:mr-2" />
+                                    Save
+                                </Button>
                                 <Button variant="secondary" size="sm" className="flex-1 sm:flex-none h-9" onClick={() => submitStockTake('DRAFT')} disabled={isSubmitting}>
                                     <Save className="h-4 w-4 mr-1 sm:mr-2" />
                                     Hold

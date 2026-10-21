@@ -28,7 +28,7 @@ interface InventoryContextType {
     createAdjustment: (adjustment: Partial<StockAdjustment>) => Promise<void>;
     createTransfer: (transfer: Partial<StockTransfer>) => Promise<void>;
     confirmTransfer: (transferId: string) => Promise<void>;
-    applyStockTake: (stockTake: Partial<StockTake>) => Promise<void>;
+    applyStockTake: (stockTake: Partial<StockTake>) => Promise<StockTake | undefined>;
     updateTransaction: (id: string, transaction: Partial<InventoryTransaction>) => Promise<void>;
 
     // Categories
@@ -368,7 +368,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const applyStockTake = async (stockTake: Partial<StockTake>) => {
+    const applyStockTake = async (stockTake: Partial<StockTake>): Promise<StockTake | undefined> => {
         try {
             const response = await apiFetch<ApiResponse<StockTake>>('/api/transactions/stock-take', {
                 method: 'POST',
@@ -376,6 +376,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
             });
             await fetchInventoryData();
             toast.success(response.message || 'Stock take processed');
+            return response.data;
         } catch (error: any) {
             toast.error(error.message || 'Failed to apply stock take');
             throw error;
