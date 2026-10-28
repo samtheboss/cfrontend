@@ -1784,20 +1784,6 @@ export default function POS() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posLoadSaleId, salesHistory]);
 
-  // When the POS is opened with a held order waiting and nothing already in progress,
-  // load the most recent held order automatically so the cashier picks up where they left off.
-  const autoResumedRef = useRef(false);
-  useEffect(() => {
-    if (autoResumedRef.current) return;
-    if (tableManagementEnabled) return;              // restaurant mode starts at the table picker
-    if (posLoadSaleId) return;                       // an explicit dashboard hand-off wins
-    if (cart.length > 0 || currentSaleId) return;    // work already in progress / draft restored
-    if (!activeOrders || activeOrders.length === 0) return;
-    autoResumedRef.current = true;
-    handleResumeOrder(activeOrders[0]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrders, posLoadSaleId, tableManagementEnabled]);
-
   const toggleExpandOrder = (id: string) => {
     if (expandedOrderId === id) {
       setExpandedOrderId(null);
@@ -1897,7 +1883,16 @@ export default function POS() {
 
   const combinedActiveOrders = useMemo(() => {
     const dbIds = new Set(databasePendingOrders.map(o => o.id));
-    const localFiltered = activeOrders.filter(o => !dbIds.has(o.id));
+    const localFiltered = activeOrders.filter(o => {
+      if (dbIds.has(o.id)) return false;
+      // Do not list credit invoices held from Invoicing in POS counter orders
+      if (o.id.startsWith('invoicing-')) {
+        const docType = o.documentType;
+        const note = o.note || '';
+        if (docType === 'SALE_INVOICE' || note.includes('SALE_INVOICE')) return false;
+      }
+      return true;
+    });
     return [...databasePendingOrders, ...localFiltered];
   }, [databasePendingOrders, activeOrders]);
 

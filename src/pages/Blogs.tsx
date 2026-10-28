@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { useAuth } from '@/contexts/AuthContext';
 import { Plus, Search, Edit, Trash2, Globe, Eye, Upload, Sparkles, BookOpen, Clock, Tag, ExternalLink } from 'lucide-react';
 import { apiFetch, getBaseUrl } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -51,6 +52,8 @@ interface ProductOption {
 
 export default function Blogs() {
     const { toast } = useToast();
+    const { user, getUserRights } = useAuth();
+    const canViewBlogs = !user || getUserRights(user).viewBlogs !== 'no';
     const [posts, setPosts] = useState<AdminBlogPost[]>([]);
     const [products, setProducts] = useState<ProductOption[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -259,8 +262,20 @@ export default function Blogs() {
         return `${getBaseUrl()}${path}`;
     };
 
+    if (!canViewBlogs) {
+        return (
+            <AppLayout title="Blog & SEO Articles">
+                <Card className="border-amber-300 bg-amber-50/50">
+                    <CardContent className="py-6 text-center text-sm text-amber-800">
+                        You don't have permission to open Blog & SEO Articles. Ask an administrator for the "Blog & SEO Articles: Open Module" right.
+                    </CardContent>
+                </Card>
+            </AppLayout>
+        );
+    }
+
     return (
-        <AppLayout>
+        <AppLayout title="Blog & SEO Articles">
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

@@ -51,6 +51,7 @@ import Products from '@/pages/Products';
 import Inventory from '@/pages/Inventory';
 import POS from '@/pages/POS';
 import Invoicing from '@/pages/Invoicing';
+const CashSale = () => <Invoicing initialDocumentType="CASH_SALE" />;
 import CustomerAccounts from '@/pages/CustomerAccounts';
 import AccountsDashboard from '@/pages/AccountsDashboard';
 import StockAdjustment from '@/pages/StockAdjustment';
@@ -99,6 +100,7 @@ const tabMetadata: Record<string, { title: string; icon: any; component: React.C
   '/tables': { title: 'Tables', icon: Grid, component: Tables },
   '/shifts': { title: 'Shift Management', icon: Clock, component: Shifts },
   '/invoicing': { title: 'Invoicing', icon: FileText, component: Invoicing },
+  '/cash-sale': { title: 'Cash Sale', icon: Wallet, component: CashSale },
   '/accounts-dashboard': { title: 'Accounts Dashboard', icon: Wallet, component: AccountsDashboard },
   '/customer-accounts': { title: 'Customer Accounts', icon: Wallet, component: CustomerAccounts },
   '/adjustments': { title: 'Stock Adjustments', icon: ArrowRightLeft, component: StockAdjustment },

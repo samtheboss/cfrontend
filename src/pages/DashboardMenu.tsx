@@ -119,6 +119,16 @@ export default function DashboardMenu() {
       category: 'core'
     },
     {
+      name: 'Cash Sale',
+      description: 'Open the invoicing window directly in cash sale mode',
+      href: '/cash-sale',
+      icon: Wallet,
+      iconGradientClass: 'from-emerald-500 to-green-600 shadow-emerald-500/20',
+      requiredRight: 'createInvoice',
+      hasRedDot: true,
+      category: 'core'
+    },
+    {
       name: 'Customer Accounts',
       description: 'Customer balances, statements, and receiving payments',
       href: '/customer-accounts',
@@ -216,6 +226,7 @@ export default function DashboardMenu() {
       href: '/blogs',
       icon: BookOpen,
       iconGradientClass: 'from-pink-500 to-rose-600 shadow-pink-500/20',
+      requiredRight: 'viewBlogs',
       category: 'core'
     },
     {

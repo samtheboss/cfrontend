@@ -379,6 +379,8 @@ export interface ActiveOrder {
   saleId?: number | null;
   /** True when this held order was created by printing a KOT. */
   kot?: boolean;
+  documentType?: 'SALE_INVOICE' | 'CASH_SALE';
+  source?: 'pos' | 'invoicing';
 }
 export interface Promotion {
   id?: number;

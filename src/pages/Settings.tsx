@@ -18,6 +18,7 @@ import EcommerceSettingsUI from '@/components/settings/EcommerceSettingsUI';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getBaseUrl, setBaseUrl, clearBaseUrl, apiFetch } from '@/lib/api';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -137,6 +138,11 @@ function ShiftScheduleEditor() {
 }
 
 export default function Settings() {
+  const { user, getUserRights } = useAuth();
+  const rights = user ? getUserRights(user) : null;
+  const canViewSettings = !rights || rights.viewSettings !== 'no';
+  const canEditSettings = !rights || rights.editSettings !== 'no';
+
   const { settings, updateSettings, isLoading, categories = [] } = useInventory();
   const { themeMode, setThemeMode, primaryColor, setPrimaryColor, colorPresets } = useTheme();
   const [formData, setFormData] = useState<SystemSettings | null>(null);
@@ -243,6 +249,22 @@ export default function Settings() {
     }
   }, [settings]);
 
+  if (!canViewSettings) {
+    return (
+      <AppLayout title="Settings">
+        <Card className="border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 max-w-lg mx-auto mt-12">
+          <CardContent className="py-8 text-center space-y-2">
+            <AlertCircle className="h-10 w-10 text-amber-600 mx-auto" />
+            <h3 className="font-semibold text-foreground text-base">Access Restricted</h3>
+            <p className="text-sm text-muted-foreground">
+              You do not have permission to view or modify store settings. Contact your administrator if you need access.
+            </p>
+          </CardContent>
+        </Card>
+      </AppLayout>
+    );
+  }
+
   if (isLoading || !formData) {
     return (
       <AppLayout title="Settings">
@@ -254,6 +276,10 @@ export default function Settings() {
   }
 
   const handleSave = async () => {
+    if (!canEditSettings) {
+      toast.error('You do not have permission to modify settings.');
+      return;
+    }
     if (formData) {
       await updateSettings(formData);
       localStorage.setItem('localPrinterName', localPrinterName);

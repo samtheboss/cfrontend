@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useInventory } from '@/contexts/InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,8 +13,9 @@ import type { DocumentType, InvoiceListItem, Product, ProductVariant } from '@/t
 import {
   Search, Trash2, User, UserPlus, X, ChevronsUpDown, Check, Plus,
   FileText, Printer, Wallet, Ban, Pause, RotateCcw, Calculator as CalculatorIcon,
-  Eye, Undo2, Minus, List
+  Eye, Undo2, Minus, List, AlertTriangle
 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,7 +49,7 @@ interface CartLine {
 
 const emptyCustomerBalance = { totalInvoiced: 0, totalPaid: 0, currentBalance: 0 };
 
-export default function Invoicing() {
+export default function Invoicing({ initialDocumentType }: { initialDocumentType?: DocumentType } = {}) {
   const { products, locations, customers, addCustomer, activeOrders, holdOrder, discardOrder, settings, createReturn, checkReturnableItems, refreshData } = useInventory();
   const { sym, fmt, computeTax, vatInclusive } = useCurrency();
   const { user, getUserRights } = useAuth();
@@ -56,38 +57,219 @@ export default function Invoicing() {
   const canView = (right: keyof import('@/types/user').UserRights) => !rights || rights[right] !== 'no';
   const fmtNum = (n: number) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const [documentType, setDocumentType] = useState<DocumentType>('SALE_INVOICE');
+  const DRAFT_KEY = `invoicing_draft_${user?.id || 'guest'}${initialDocumentType ? `_${initialDocumentType}` : ''}`;
+
+  const [documentType, setDocumentType] = useState<DocumentType>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.documentType) return parsed.documentType;
+      } catch {}
+    }
+    return initialDocumentType ?? 'SALE_INVOICE';
+  });
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.selectedCustomerId !== undefined) return parsed.selectedCustomerId;
+      } catch {}
+    }
+    return null;
+  });
+  const defaultCashCustomer = useMemo(() => {
+    if (!customers || customers.length === 0) return null;
+    return customers.find(c => {
+      const n = c.name?.toUpperCase().trim();
+      return n === 'CASH-SALES ACCOUNT' || n === 'CASH SALES ACCOUNT' || n === 'CASH SALE' || n === 'CASH SALES';
+    }) || customers.find(c => c.name?.toUpperCase().includes('CASH-SALE') || c.name?.toUpperCase().includes('CASH SALE')) || null;
+  }, [customers]);
+
+  // On cash sales, default to CASH-SALES ACCOUNT if no customer is selected
+  useEffect(() => {
+    if (documentType === 'CASH_SALE' && !selectedCustomerId && defaultCashCustomer) {
+      setSelectedCustomerId(defaultCashCustomer.id);
+    }
+  }, [documentType, selectedCustomerId, defaultCashCustomer]);
+
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId) || null;
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
   const [customerBalance, setCustomerBalance] = useState(emptyCustomerBalance);
 
   const mainLocation = locations.find(l => l.isMain) || locations[0];
-  const [selectedLocationId, setSelectedLocationId] = useState<string>('');
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.selectedLocationId) return parsed.selectedLocationId;
+      } catch {}
+    }
+    return '';
+  });
   useEffect(() => {
     if (!selectedLocationId && mainLocation) setSelectedLocationId(mainLocation.id);
   }, [mainLocation, selectedLocationId]);
   const selectedLocation = locations.find(l => l.id === selectedLocationId) || null;
 
-  const [cart, setCart] = useState<CartLine[]>([]);
+  const [cart, setCart] = useState<CartLine[]>(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed.cart) ? parsed.cart : [];
+      } catch {}
+    }
+    return [];
+  });
+  const itemSearchRef = useRef<HTMLInputElement>(null);
   const [itemPickerOpen, setItemPickerOpen] = useState(false);
   const [itemSearchQuery, setItemSearchQuery] = useState('');
   const [itemSortBy, setItemSortBy] = useState<'name' | 'price'>('name');
   const [itemPageSize, setItemPageSize] = useState(50);
   const [itemPage, setItemPage] = useState(1);
 
-  const [orderDate, setOrderDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [dueDate, setDueDate] = useState('');
-  const [salesPerson, setSalesPerson] = useState('');
-  const [reference, setReference] = useState('');
-  const [tradeDiscount, setTradeDiscount] = useState('0');
+  const [orderDate, setOrderDate] = useState(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.orderDate) return parsed.orderDate;
+      } catch {}
+    }
+    return format(new Date(), 'yyyy-MM-dd');
+  });
+  const [dueDate, setDueDate] = useState(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.dueDate !== undefined) return parsed.dueDate;
+      } catch {}
+    }
+    return '';
+  });
+  const [salesPerson, setSalesPerson] = useState(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.salesPerson !== undefined) return parsed.salesPerson;
+      } catch {}
+    }
+    return '';
+  });
+  const [reference, setReference] = useState(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.reference !== undefined) return parsed.reference;
+      } catch {}
+    }
+    return '';
+  });
+  const [tradeDiscount, setTradeDiscount] = useState(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.tradeDiscount !== undefined) return parsed.tradeDiscount;
+      } catch {}
+    }
+    return '0';
+  });
+
+  // Auto-save draft so refresh does not lose items or order fields (matches POS behavior)
+  useEffect(() => {
+    if (cart.length > 0) {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        cart,
+        documentType,
+        selectedCustomerId,
+        selectedLocationId,
+        orderDate,
+        dueDate,
+        salesPerson,
+        reference,
+        tradeDiscount,
+      }));
+    } else {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+  }, [DRAFT_KEY, cart, documentType, selectedCustomerId, selectedLocationId, orderDate, dueDate, salesPerson, reference, tradeDiscount]);
+
+  // Synchronize across multiple tabs/windows
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === DRAFT_KEY) {
+        if (e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            setCart(Array.isArray(parsed.cart) ? parsed.cart : []);
+            if (parsed.documentType) setDocumentType(parsed.documentType);
+            if (parsed.selectedCustomerId !== undefined) setSelectedCustomerId(parsed.selectedCustomerId);
+            if (parsed.selectedLocationId) setSelectedLocationId(parsed.selectedLocationId);
+            if (parsed.orderDate) setOrderDate(parsed.orderDate);
+            if (parsed.dueDate !== undefined) setDueDate(parsed.dueDate);
+            if (parsed.salesPerson !== undefined) setSalesPerson(parsed.salesPerson);
+            if (parsed.reference !== undefined) setReference(parsed.reference);
+            if (parsed.tradeDiscount !== undefined) setTradeDiscount(parsed.tradeDiscount);
+          } catch {}
+        } else {
+          setCart([]);
+          setSelectedCustomerId(null);
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [DRAFT_KEY]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
   const [lastInvoiceNumber, setLastInvoiceNumber] = useState<string | null>(null);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [heldOrdersOpen, setHeldOrdersOpen] = useState(false);
+  const [cartSearch, setCartSearch] = useState('');
+
+  // Supervisor approval for rights set to 'supervised'. Once approved for a right, it stays unlocked until the order is reset.
+  const [supDialogOpen, setSupDialogOpen] = useState(false);
+  const [supLabel, setSupLabel] = useState('');
+  const [supUser, setSupUser] = useState('');
+  const [supPass, setSupPass] = useState('');
+  const [supBusy, setSupBusy] = useState(false);
+  const supPending = useRef<(() => void) | null>(null);
+  const supUnlocked = useRef<Set<string>>(new Set());
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [workspaceHeight, setWorkspaceHeight] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (activeTab !== 'new') return;
+    const fit = () => {
+      const el = workspaceRef.current;
+      if (!el || el.offsetParent === null) return; // hidden workspace tab: measuring now would give 0
+      if (window.innerWidth < 1024) { setWorkspaceHeight(undefined); return; }
+      // Distance from the top of the viewport to the workspace, so the bottom always lands inside the window
+      const top = el.getBoundingClientRect().top;
+      const next = Math.max(300, Math.floor(window.innerHeight - top - 40));
+      setWorkspaceHeight(prev => (prev === next ? prev : next));
+    };
+    fit();
+    // Keep in sync: header/fonts settle after mount and this tab may be restored hidden, then shown later
+    const iv = setInterval(fit, 400);
+    window.addEventListener('resize', fit);
+    window.addEventListener('scroll', fit, { passive: true });
+    return () => {
+      clearInterval(iv);
+      window.removeEventListener('resize', fit);
+      window.removeEventListener('scroll', fit);
+    };
+  }, [activeTab]);
   const [calcValue, setCalcValue] = useState('0');
 
   const [invoices, setInvoices] = useState<InvoiceListItem[]>([]);
@@ -249,21 +431,188 @@ export default function Invoicing() {
 
   const removeLine = (cartItemId: string) => setCart(prev => prev.filter(l => l.cartItemId !== cartItemId));
 
+  const guard = (right: keyof import('@/types/user').UserRights, label: string, action: () => void, persistUnlock = true) => {
+    const value = rights ? rights[right] : 'yes';
+    if (value === 'no') {
+      toast.error(`You don't have the right to ${label}`);
+      return;
+    }
+    if (value === 'supervised' && !supUnlocked.current.has(right)) {
+      supPending.current = () => { if (persistUnlock) supUnlocked.current.add(right); action(); };
+      setSupLabel(label);
+      setSupUser('');
+      setSupPass('');
+      setSupDialogOpen(true);
+      return;
+    }
+    action();
+  };
+
+  const submitSupervisor = async () => {
+    if (!supUser.trim() || !supPass) {
+      toast.error('Enter the supervisor username and password.');
+      return;
+    }
+    setSupBusy(true);
+    try {
+      const token = sessionStorage.getItem('token');
+      const resp = await fetch(`${getBaseUrl()}/api/auth/verify-supervisor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ username: supUser.trim(), password: supPass }),
+      });
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => null);
+        toast.error(j?.message || 'Supervisor authorisation failed');
+        return;
+      }
+      const run = supPending.current;
+      supPending.current = null;
+      setSupDialogOpen(false);
+      setSupUser('');
+      setSupPass('');
+      run?.();
+    } catch {
+      toast.error('Could not reach the server to verify the supervisor.');
+    } finally {
+      setSupBusy(false);
+    }
+  };
+
+  // Price edits and quantity decreases are rights-controlled
+  const editLine = (cartItemId: string, patch: Partial<CartLine>) => {
+    const line = cart.find(l => l.cartItemId === cartItemId);
+    if (!line) return;
+    if (patch.price !== undefined && patch.price !== line.price) {
+      guard('invoiceEditPrice', 'edit prices', () => updateLine(cartItemId, patch));
+      return;
+    }
+    if (patch.quantity !== undefined && patch.quantity < line.quantity) {
+      guard('invoiceEditQuantity', 'reduce quantities', () => updateLine(cartItemId, patch));
+      return;
+    }
+    updateLine(cartItemId, patch);
+  };
+
+  const requestRemoveLine = (cartItemId: string) => guard('invoiceEditQuantity', 'remove items', () => removeLine(cartItemId));
+  const requestClearCart = () => guard('invoiceEditQuantity', 'remove items', () => setCart([]));
+
   const resetForm = () => {
+    localStorage.removeItem(DRAFT_KEY);
     setCart([]);
-    setSelectedCustomerId(null);
+    setSelectedCustomerId(documentType === 'CASH_SALE' && defaultCashCustomer ? defaultCashCustomer.id : null);
     setTradeDiscount('0');
     setDueDate('');
     setReference('');
     setSalesPerson('');
     setOrderDate(format(new Date(), 'yyyy-MM-dd'));
     setLastInvoiceNumber(null);
+    supUnlocked.current.clear();
   };
+
+  const isOrderDateLocked = rights?.invoiceChangeOrderDate === 'no' || (rights?.invoiceChangeOrderDate === 'supervised' && !supUnlocked.current.has('invoiceChangeOrderDate'));
+  const isDueDateLocked = rights?.invoiceChangeDueDate === 'no' || (rights?.invoiceChangeDueDate === 'supervised' && !supUnlocked.current.has('invoiceChangeDueDate'));
+  const isDiscountLocked = rights?.invoiceChangeDiscount === 'no' || (rights?.invoiceChangeDiscount === 'supervised' && !supUnlocked.current.has('invoiceChangeDiscount'));
+
+  const requestUnlockOrderDate = () => {
+    if (rights?.invoiceChangeOrderDate === 'no') {
+      toast.error("You don't have the right to change the order date");
+    } else if (rights?.invoiceChangeOrderDate === 'supervised' && !supUnlocked.current.has('invoiceChangeOrderDate')) {
+      guard('invoiceChangeOrderDate', 'change order date', () => {});
+    }
+  };
+
+  const requestUnlockDueDate = () => {
+    if (rights?.invoiceChangeDueDate === 'no') {
+      toast.error("You don't have the right to change the due date");
+    } else if (rights?.invoiceChangeDueDate === 'supervised' && !supUnlocked.current.has('invoiceChangeDueDate')) {
+      guard('invoiceChangeDueDate', 'change due date', () => {});
+    }
+  };
+
+  const requestUnlockDiscount = () => {
+    if (rights?.invoiceChangeDiscount === 'no') {
+      toast.error("You don't have the right to change the trade discount");
+    } else if (rights?.invoiceChangeDiscount === 'supervised' && !supUnlocked.current.has('invoiceChangeDiscount')) {
+      guard('invoiceChangeDiscount', 'change trade discount', () => {});
+    }
+  };
+
+  const requestApproveInvoice = () => {
+    if (cart.length === 0) {
+      toast.error('Add at least one item first');
+      return;
+    }
+    if (!selectedLocationId) {
+      toast.error('Select a location');
+      return;
+    }
+    if (!selectedCustomer) {
+      toast.error('A customer is required for a credit Sale Invoice');
+      return;
+    }
+    if (!canView('createInvoice')) {
+      toast.error('You are not allowed to create invoices');
+      return;
+    }
+    setApproveConfirmOpen(true);
+  };
+
+  const handleApproveOrderShortcut = () => {
+    if (isSubmitting) return;
+    if (paymentDialogOpen || itemPickerOpen || heldOrdersOpen || supDialogOpen || approveConfirmOpen) return;
+    if (cart.length === 0) {
+      toast.error('Add at least one item first');
+      return;
+    }
+    if (!canView('createInvoice')) {
+      toast.error('You are not allowed to create invoices');
+      return;
+    }
+    if (documentType === 'CASH_SALE') {
+      setPaymentDialogOpen(true);
+    } else {
+      requestApproveInvoice();
+    }
+  };
+
+  // Keyboard shortcuts: F2/Alt+I = Focus item search, F4/F3/Alt+P = Request item options (picker), F9/Ctrl+Enter = Approve / Pay
+  useEffect(() => {
+    if (activeTab !== 'new') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (supDialogOpen) return;
+
+      // F2 or Alt+I: Focus item search
+      if (e.key === 'F2' || (e.altKey && (e.key === 'i' || e.key === 'I'))) {
+        e.preventDefault();
+        itemSearchRef.current?.focus();
+        itemSearchRef.current?.select();
+        return;
+      }
+
+      // F4 or F3 or Alt+P: Request item options / open product picker
+      if (e.key === 'F4' || e.key === 'F3' || (e.altKey && (e.key === 'p' || e.key === 'P'))) {
+        e.preventDefault();
+        setItemPickerOpen(true);
+        return;
+      }
+
+      // F9 or Ctrl+Enter: Approve Order / Pay Cash
+      if (e.key === 'F9' || (e.ctrlKey && e.key === 'Enter')) {
+        e.preventDefault();
+        handleApproveOrderShortcut();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, supDialogOpen, paymentDialogOpen, itemPickerOpen, heldOrdersOpen, approveConfirmOpen, cart, documentType, isSubmitting, selectedLocationId, selectedCustomer]);
 
   const buildSalePayload = (status: 'COMPLETED' | 'PAYMENT_PENDING', payments: PaymentDetails[] = []) => ({
     type: 'SALE',
     locationId: selectedLocationId,
-    customerId: selectedCustomer ? Number(selectedCustomer.id) : null,
+    customerId: (selectedCustomer || (documentType === 'CASH_SALE' ? defaultCashCustomer : null)) ? Number((selectedCustomer || defaultCashCustomer)!.id) : null,
     status,
     subtotal: totals.subtotal,
     taxAmount: totals.tax,
@@ -315,6 +664,7 @@ export default function Invoicing() {
       const invoiceNumber = result.data.invoice.invoiceNumber;
       setLastInvoiceNumber(invoiceNumber);
       toast.success(`${documentType === 'CASH_SALE' ? 'Cash sale' : 'Invoice'} ${invoiceNumber} created`);
+      localStorage.removeItem(DRAFT_KEY);
       setCart([]);
       loadInvoices();
       refreshData?.();
@@ -328,18 +678,33 @@ export default function Invoicing() {
     }
   };
 
+  // New Order: parks the current cart as a held order (respecting the max held orders setting), then starts fresh
+  const handleNewOrder = () => {
+    if (cart.length === 0) {
+      resetForm();
+      return;
+    }
+    guard('invoiceHoldOrder', 'hold orders', handleHoldOrder, false);
+  };
+
   const handleHoldOrder = () => {
     if (cart.length === 0) return;
-    holdOrder({
+    const held = holdOrder({
       id: `invoicing-${Date.now()}`,
-      customer: selectedCustomer,
+      customer: selectedCustomer || (documentType === 'CASH_SALE' ? defaultCashCustomer : null),
       items: cart.map(l => ({
         cartItemId: l.cartItemId, variantId: l.variantId, productName: l.productName,
         variantSku: l.sku, attributes: {}, quantity: l.quantity, price: l.price, maxStock: 999999,
       })),
       timestamp: new Date(),
       note: `Invoicing draft (${documentType})`,
+      documentType,
+      source: 'invoicing',
     });
+    if (!held) {
+      toast.error(`Maximum held orders reached (${settings?.maxHeldOrders ?? 10}). Resume or discard a held order first.`);
+      return;
+    }
     toast.success('Order held');
     resetForm();
   };
@@ -347,6 +712,9 @@ export default function Invoicing() {
   const resumeHeldOrder = (orderId: string) => {
     const order = activeOrders.find(o => o.id === orderId);
     if (!order) return;
+    if (order.documentType) {
+      setDocumentType(order.documentType);
+    }
     setSelectedCustomerId(order.customer?.id || null);
     setCart(order.items.map(item => ({
       cartItemId: item.cartItemId || `${item.variantId}-${Date.now()}`,
@@ -443,6 +811,9 @@ export default function Invoicing() {
   const printInvoice = async (invoiceNumber: string) => {
     await pdfPreview.showPdf(`${getBaseUrl()}/api/invoices/${invoiceNumber}/pdf`, { title: 'Invoice Preview' });
   };
+
+  // Manual print / reprint is rights-controlled (auto print right after creating an invoice is not)
+  const reprintInvoice = (invoiceNumber: string) => guard('invoiceReprint', 'reprint invoices', () => { printInvoice(invoiceNumber); }, false);
 
   const printReturn = async (journalNumber: string) => {
     await pdfPreview.showPdf(`${getBaseUrl()}/api/invoices/return/${journalNumber}/pdf`, { title: `Return Note — ${journalNumber}` });
@@ -672,266 +1043,340 @@ export default function Invoicing() {
             <TabsTrigger value="history">Invoice History</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="new" className="space-y-3 mt-3">
-            {/* Top bar - sticky so document type/customer/location/balance stay visible while scrolling */}
-            <Card className={cn('sticky top-28 z-20', overLimit && 'border-destructive')}>
-              <CardContent className="py-2 flex flex-wrap items-center gap-2">
-                <Select value={documentType} onValueChange={(v) => setDocumentType(v as DocumentType)}>
-                  <SelectTrigger className="w-44 font-semibold h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="SALE_INVOICE">Credit Sales</SelectItem>
-                    <SelectItem value="CASH_SALE">Cash Sale</SelectItem>
-                  </SelectContent>
-                </Select>
+          <TabsContent value="new" className="mt-2">
+            {/* Fixed-height workspace: nothing moves, the cart scrolls and the action buttons stay at the bottom */}
+            <div ref={workspaceRef} style={workspaceHeight ? { height: workspaceHeight } : undefined} className="flex flex-col gap-2 overflow-hidden">
+              {/* Header strip */}
+              <div className={cn('rounded-md border bg-card px-2 py-1.5 space-y-1.5', overLimit && 'border-destructive')}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={documentType} onValueChange={(v) => {
+                    const newType = v as DocumentType;
+                    setDocumentType(newType);
+                    if (newType === 'CASH_SALE' && !selectedCustomerId && defaultCashCustomer) {
+                      setSelectedCustomerId(defaultCashCustomer.id);
+                    }
+                  }}>
+                    <SelectTrigger className="w-40 font-semibold h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="SALE_INVOICE">Credit Sales</SelectItem>
+                      <SelectItem value="CASH_SALE">Cash Sale</SelectItem>
+                    </SelectContent>
+                  </Select>
 
-                <div className="flex gap-1 flex-1 min-w-[220px]">
-                  <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" role="combobox" className="flex-1 justify-start h-9">
-                        <User className="h-4 w-4 mr-2" />
-                        {selectedCustomer ? selectedCustomer.name : 'Select customer...'}
-                        <ChevronsUpDown className="h-3 w-3 ml-auto opacity-50" />
+                  <div className="flex flex-1 min-w-[260px] items-center gap-1">
+                    <span className="h-8 px-3 inline-flex items-center rounded-md border bg-muted/50 text-xs font-semibold">Customer</span>
+                    <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" role="combobox" className="flex-1 justify-start h-8 text-xs font-normal">
+                          <User className="h-3.5 w-3.5 mr-2" />
+                          {selectedCustomer ? selectedCustomer.name : 'Select customer...'}
+                          <ChevronsUpDown className="h-3 w-3 ml-auto opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72 p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Search customers..." />
+                          <CommandList>
+                            <CommandEmpty>No customer found.</CommandEmpty>
+                            <CommandGroup>
+                              {customers.filter(c => !c.customerType || c.customerType === 'POS' || c.customerType === 'BOTH').map((customer) => (
+                                <CommandItem
+                                  key={customer.id}
+                                  value={customer.name}
+                                  onSelect={() => { setSelectedCustomerId(customer.id); setCustomerPopoverOpen(false); }}
+                                >
+                                  <Check className={cn('mr-2 h-4 w-4', selectedCustomerId === customer.id ? 'opacity-100' : 'opacity-0')} />
+                                  <div className="flex flex-col">
+                                    <span>{customer.name}</span>
+                                    {customer.phone && <span className="text-xs text-muted-foreground">{customer.phone}</span>}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    {selectedCustomer && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedCustomerId(null)}>
+                        <X className="h-4 w-4" />
                       </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-72 p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Search customers..." />
-                        <CommandList>
-                          <CommandEmpty>No customer found.</CommandEmpty>
-                          <CommandGroup>
-                            {customers.filter(c => !c.customerType || c.customerType === 'POS' || c.customerType === 'BOTH').map((customer) => (
-                              <CommandItem
-                                key={customer.id}
-                                value={customer.name}
-                                onSelect={() => { setSelectedCustomerId(customer.id); setCustomerPopoverOpen(false); }}
-                              >
-                                <Check className={cn('mr-2 h-4 w-4', selectedCustomerId === customer.id ? 'opacity-100' : 'opacity-0')} />
-                                <div className="flex flex-col">
-                                  <span>{customer.name}</span>
-                                  {customer.phone && <span className="text-xs text-muted-foreground">{customer.phone}</span>}
-                                </div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                  {selectedCustomer && (
-                    <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setSelectedCustomerId(null)}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-
-                {/* Balance / credit limit - same line as the customer field */}
-                {selectedCustomer && (
-                  <div className="flex items-center gap-3 text-xs whitespace-nowrap">
-                    <span><span className="text-muted-foreground">Bal: </span><span className="font-semibold">{fmt(customerBalance.currentBalance)}</span></span>
-                    <span><span className="text-muted-foreground">After: </span><span className={cn('font-semibold', overLimit && 'text-destructive')}>{fmt(closingBalance)}</span></span>
-                    <span><span className="text-muted-foreground">Limit: </span><span className="font-semibold">{creditLimit != null ? fmt(creditLimit) : 'N/A'}</span></span>
-                    {overLimit && <Badge variant="destructive" className="h-5 text-[10px]">Over limit</Badge>}
+                    )}
                   </div>
-                )}
 
-                <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
-                  <SelectTrigger className="w-44 h-9">
-                    <SelectValue placeholder="Location" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locations.map(l => (
-                      <SelectItem key={l.id} value={l.id}>{l.name}{l.code ? ` (${l.code})` : ''}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <div className="ml-auto text-right">
-                  <div className="text-[10px] text-muted-foreground leading-none">Order No</div>
-                  <div className="font-mono font-semibold text-sm">{lastInvoiceNumber || 'New Invoice'}</div>
+                  <div className="flex items-center gap-1">
+                    <span className="h-8 px-3 inline-flex items-center rounded-md border bg-muted/50 text-xs font-semibold">Order No</span>
+                    <div className="h-8 w-44 px-2 inline-flex items-center rounded-md border bg-background font-mono text-xs">{lastInvoiceNumber || 'New Invoice'}</div>
+                  </div>
                 </div>
-              </CardContent>
-              <CardContent className="pt-0 pb-3">
-                <div className="relative w-[800px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search item name, barcode, item code"
-                    value={itemSearchQuery}
-                    onChange={(e) => setItemSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Enter') return;
-                      if (itemSearchQuery.trim() && filteredItemOptions.length === 1) {
-                        const { product, variant } = filteredItemOptions[0];
-                        addToCart(variant, product);
-                        toast.success(`Added ${product.name} to cart`);
-                        setItemSearchQuery('');
-                      } else {
-                        setItemPickerOpen(true);
-                      }
-                    }}
-                    className="pl-9 pr-11 h-10"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-                    onClick={() => setItemPickerOpen(true)}
-                  >
-                    <List className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-              {/* Left: items */}
-              <div className="lg:col-span-2 space-y-3">
-                <Card>
-                  <CardContent className="p-0">
-                    <div className="sticky top-56 z-10 bg-card grid grid-cols-[1fr_70px_80px_70px_80px_28px] gap-1.5 px-2 py-1 text-xs font-semibold text-muted-foreground border-b rounded-t-lg">
-                      <div>Item</div>
-                      <div className="text-right">Qty</div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                  <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                    <SelectTrigger className="w-44 h-8 text-xs">
+                      <SelectValue placeholder="Location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map(l => (
+                        <SelectItem key={l.id} value={l.id}>{l.name}{l.code ? ` (${l.code})` : ''}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span><span className="text-muted-foreground">Balance : </span><span className="font-bold">{selectedCustomer ? fmt(customerBalance.currentBalance) : 'N/A'}</span></span>
+                  <span><span className="text-muted-foreground">Closing : </span><span className={cn('font-bold', overLimit && 'text-destructive')}>{selectedCustomer ? fmt(closingBalance) : 'N/A'}</span></span>
+                  <span><span className="text-muted-foreground">Credit Limit : </span><span className="font-bold">{selectedCustomer && creditLimit != null ? fmt(creditLimit) : 'N/A'}</span></span>
+                  {overLimit && <Badge variant="destructive" className="h-5 text-[10px]">Over limit</Badge>}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-2 flex-1 min-h-0">
+                {/* Left: search + cart + totals bar */}
+                <div className="flex flex-col min-h-0 gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      ref={itemSearchRef}
+                      placeholder="Search item name, barcode, item code (F2)..."
+                      value={itemSearchQuery}
+                      onChange={(e) => setItemSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown' || e.key === 'F4' || e.key === 'F3') {
+                          e.preventDefault();
+                          setItemPickerOpen(true);
+                          return;
+                        }
+                        if (e.key !== 'Enter') return;
+                        if (itemSearchQuery.trim() && filteredItemOptions.length === 1) {
+                          const { product, variant } = filteredItemOptions[0];
+                          addToCart(variant, product);
+                          toast.success(`Added ${product.name} to cart`);
+                          setItemSearchQuery('');
+                        } else {
+                          setItemPickerOpen(true);
+                        }
+                      }}
+                      className="pl-9 pr-11 h-9 text-sm"
+                    />
+                    <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setItemPickerOpen(true)} title="Request item options / Product picker (F4 or F3)">
+                      <List className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col flex-1 min-h-0 rounded-md border bg-card overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 px-2 py-1 border-b">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={requestClearCart} disabled={cart.length === 0} title="Clear cart">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Input value={cartSearch} onChange={(e) => setCartSearch(e.target.value)} placeholder="Search cart..." className="h-7 max-w-xs text-xs" />
+                      <div className="text-xs whitespace-nowrap">
+                        <span className="text-muted-foreground">Items : </span><span className="font-bold">{cart.length}</span>
+                        <span className="text-muted-foreground ml-2">Qty : </span><span className="font-bold">{cart.reduce((s, l) => s + (Number(l.quantity) || 0), 0)}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-[110px_1fr_90px_70px_60px_100px_28px] gap-1.5 px-2 py-1.5 text-[11px] font-bold uppercase text-primary border-b bg-muted/30">
+                      <div>Item Code</div>
+                      <div>Item Name</div>
                       <div className="text-right">Price</div>
+                      <div className="text-right">Qty</div>
                       <div className="text-right">Tax %</div>
                       <div className="text-right">Total</div>
                       <div />
                     </div>
-                    {cart.length === 0 ? (
-                      <div className="py-6 text-center text-muted-foreground text-sm">No items added yet</div>
-                    ) : cart.map(line => {
-                      const t = computeTax(line.quantity, line.price, line.taxRate ?? 16.0);
-                      const cartVariant = variantOptions.find(o => o.variant.id === line.variantId)?.variant;
-                      const cartStock = cartVariant ? (cartVariant.locationStock?.[selectedLocationId] ?? cartVariant.stock ?? 0) : null;
-                      return (
-                        <div key={line.cartItemId} className="grid grid-cols-[1fr_70px_80px_70px_80px_28px] gap-1.5 px-2 py-1 items-center border-b last:border-b-0">
-                          <div className="min-w-0 flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium truncate">{line.productName}</div>
-                              <div className="text-xs text-muted-foreground truncate">{line.sku}</div>
+                    <div className="flex-1 overflow-y-auto">
+                      {cart.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Empty order items</div>
+                      ) : cart.filter(l => !cartSearch.trim() || `${l.productName} ${l.sku}`.toLowerCase().includes(cartSearch.trim().toLowerCase())).map(line => {
+                        const t = computeTax(line.quantity, line.price, line.taxRate ?? 16.0);
+                        const cartVariant = variantOptions.find(o => o.variant.id === line.variantId)?.variant;
+                        const cartStock = cartVariant ? (cartVariant.locationStock?.[selectedLocationId] ?? cartVariant.stock ?? 0) : null;
+                        return (
+                          <div key={line.cartItemId} className="grid grid-cols-[110px_1fr_90px_70px_60px_100px_28px] gap-1.5 px-2 py-1 items-center border-b last:border-b-0 hover:bg-muted/30 text-xs">
+                            <div className="truncate text-muted-foreground">{line.sku}</div>
+                            <div className="min-w-0 flex items-center gap-2">
+                              <span className="truncate font-medium">{line.productName}</span>
+                              {canView('viewItemStock') && cartStock !== null && (
+                                <span className={cn('whitespace-nowrap shrink-0 text-[10px]', cartStock <= 0 ? 'text-destructive' : 'text-muted-foreground')}>Stock: {cartStock}</span>
+                              )}
                             </div>
-                            {canView('viewItemStock') && cartStock !== null && (
-                              <div className={cn('text-xs whitespace-nowrap shrink-0', cartStock <= 0 ? 'text-destructive' : 'text-muted-foreground')}>
-                                Stock: {cartStock}
-                              </div>
-                            )}
+                            <Input type="number" min="0" value={line.price}
+                              onChange={(e) => editLine(line.cartItemId, { price: parseFloat(e.target.value) || 0 })}
+                              className="h-7 text-right px-1.5 text-xs" />
+                            <Input type="number" min="0" value={line.quantity}
+                              onChange={(e) => editLine(line.cartItemId, { quantity: parseFloat(e.target.value) || 0 })}
+                              className="h-7 text-right px-1.5 text-xs" />
+                            <Input type="number" value={line.taxRate ?? 16.0} readOnly disabled
+                              title="Tax rate is fixed and cannot be edited directly"
+                              className="h-7 text-right px-1 text-xs bg-muted/60 text-muted-foreground cursor-not-allowed select-none opacity-80" />
+                            <div className="text-right font-semibold">{fmt(t.total)}</div>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => requestRemoveLine(line.cartItemId)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
-                          <Input type="number" min="0" value={line.quantity}
-                            onChange={(e) => updateLine(line.cartItemId, { quantity: parseFloat(e.target.value) || 0 })}
-                            className="h-7 text-right px-1.5" />
-                          <Input type="number" min="0" value={line.price}
-                            onChange={(e) => updateLine(line.cartItemId, { price: parseFloat(e.target.value) || 0 })}
-                            className="h-7 text-right px-1.5" />
-                          <Input type="number" min="0" value={line.taxRate}
-                            onChange={(e) => updateLine(line.cartItemId, { taxRate: parseFloat(e.target.value) || 0 })}
-                            className="h-7 text-right px-1.5" />
-                          <div className="text-sm text-right font-medium">{fmt(t.total)}</div>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeLine(line.cartItemId)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between gap-4 px-3 py-2 border-t bg-muted/30">
+                      <div className="text-2xl font-bold text-primary">{fmt(totals.total)}</div>
+                      <div className="flex items-center gap-4 text-xs">
+                        <span><span className="text-muted-foreground">Subtotal: </span><span className="font-bold">{fmt(totals.subtotal)}</span></span>
+                        <span><span className="text-muted-foreground">Discount: </span><span className="font-bold">{fmt(totals.discount)}</span></span>
+                        <span><span className="text-muted-foreground">VAT: </span><span className="font-bold">{fmt(totals.tax)}</span></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                {activeOrders.length > 0 && (
-                  <Card>
-                    <CardHeader className="py-2"><CardTitle className="text-sm">Held Orders</CardTitle></CardHeader>
-                    <CardContent className="py-2 space-y-1">
-                      {activeOrders.map(order => (
-                        <div key={order.id} className="flex items-center justify-between text-sm py-1">
-                          <span>{order.customer?.name || 'Walk-in'} — {order.items.length} item(s)</span>
-                          <div className="flex gap-1">
-                            <Button variant="outline" size="sm" onClick={() => resumeHeldOrder(order.id)}>Resume</Button>
-                            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => discardOrder(order.id)}>Discard</Button>
-                          </div>
+                {/* Right: details panel, actions pinned to the bottom */}
+                <div className="flex flex-col min-h-0 gap-2 rounded-md border bg-card p-2">
+                  <Tabs defaultValue="details" className="flex-1 min-h-0 overflow-y-auto">
+                    <TabsList className="w-full h-8">
+                      <TabsTrigger value="details" className="flex-1 text-xs">Order Details</TabsTrigger>
+                      <TabsTrigger value="extra" className="flex-1 text-xs">Order Extra</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="details" className="mt-2 space-y-1.5">
+                      <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+                        <Label className="text-xs">Order Date</Label>
+                        <Input
+                          type="date"
+                          value={orderDate}
+                          readOnly={isOrderDateLocked}
+                          onClick={requestUnlockOrderDate}
+                          onChange={(e) => {
+                            if (isOrderDateLocked) { requestUnlockOrderDate(); return; }
+                            setOrderDate(e.target.value);
+                          }}
+                          className={cn("h-8 text-xs", isOrderDateLocked && "cursor-not-allowed bg-muted opacity-80")}
+                        />
+                      </div>
+                      {documentType === 'SALE_INVOICE' && (
+                        <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+                          <Label className="text-xs">Due Date</Label>
+                          <Input
+                            type="date"
+                            value={dueDate}
+                            readOnly={isDueDateLocked}
+                            onClick={requestUnlockDueDate}
+                            onChange={(e) => {
+                              if (isDueDateLocked) { requestUnlockDueDate(); return; }
+                              setDueDate(e.target.value);
+                            }}
+                            className={cn("h-8 text-xs", isDueDateLocked && "cursor-not-allowed bg-muted opacity-80")}
+                          />
                         </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-
-              {/* Right: order details - sticky below the sticky top bar, stays visible while the item list scrolls */}
-              <div className="space-y-2 lg:sticky lg:top-56 lg:self-start lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
-                <Card>
-                  <Tabs defaultValue="details">
-                    <CardHeader className="pb-0">
-                      <TabsList className="w-full">
-                        <TabsTrigger value="details" className="flex-1">Order Details</TabsTrigger>
-                        <TabsTrigger value="extra" className="flex-1">Order Extra</TabsTrigger>
-                      </TabsList>
-                    </CardHeader>
-                    <CardContent className="pt-2 space-y-2">
-                      <TabsContent value="details" className="space-y-2 mt-0">
-                        <div className={cn('grid gap-2', documentType === 'SALE_INVOICE' ? 'grid-cols-2' : 'grid-cols-1')}>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Order Date</Label>
-                            <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="h-9" />
-                          </div>
-                          {documentType === 'SALE_INVOICE' && (
-                            <div className="space-y-1">
-                              <Label className="text-xs">Due Date</Label>
-                              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="h-9" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Trade Discount</Label>
-                          <Input type="number" min="0" value={tradeDiscount} onChange={(e) => setTradeDiscount(e.target.value)} className="h-9" />
-                        </div>
-                      </TabsContent>
-                      <TabsContent value="extra" className="space-y-2 mt-0">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Sales Person</Label>
-                          <Input value={salesPerson} onChange={(e) => setSalesPerson(e.target.value)} placeholder="Optional" className="h-9" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Reference</Label>
-                          <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional" className="h-9" />
-                        </div>
-                      </TabsContent>
-                    </CardContent>
+                      )}
+                      <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+                        <Label className="text-xs">Trade Discount</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={tradeDiscount}
+                          readOnly={isDiscountLocked}
+                          onClick={requestUnlockDiscount}
+                          onChange={(e) => {
+                            if (isDiscountLocked) { requestUnlockDiscount(); return; }
+                            setTradeDiscount(e.target.value);
+                          }}
+                          className={cn("h-8 text-xs", isDiscountLocked && "cursor-not-allowed bg-muted opacity-80")}
+                        />
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="extra" className="mt-2 space-y-1.5">
+                      <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+                        <Label className="text-xs">Sales Person</Label>
+                        <Input value={salesPerson} onChange={(e) => setSalesPerson(e.target.value)} placeholder="Optional" className="h-8 text-xs" />
+                      </div>
+                      <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+                        <Label className="text-xs">Reference</Label>
+                        <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional" className="h-8 text-xs" />
+                      </div>
+                    </TabsContent>
                   </Tabs>
-                </Card>
 
-                <Card>
-                  <CardContent className="py-2 space-y-1 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{fmt(totals.subtotal)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span>-{fmt(totals.discount)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">VAT</span><span>{fmt(totals.tax)}</span></div>
-                    <div className="flex justify-between text-base font-bold pt-1 border-t"><span>Total</span><span>{fmt(totals.total)}</span></div>
-                  </CardContent>
-                </Card>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" onClick={resetForm}><Plus className="h-4 w-4 mr-1" />New Order</Button>
-                  <Button variant="outline" onClick={() => setCalculatorOpen(true)}><CalculatorIcon className="h-4 w-4 mr-1" />Calculator</Button>
-                  <Button variant="outline" onClick={handleHoldOrder} disabled={cart.length === 0}><Pause className="h-4 w-4 mr-1" />Hold Order</Button>
-                  <Button variant="outline" className="text-destructive" onClick={() => setCart([])} disabled={cart.length === 0}><Ban className="h-4 w-4 mr-1" />Cancel Order</Button>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Button variant="outline" size="sm" onClick={handleNewOrder}><Plus className="h-4 w-4 mr-1" />New Order</Button>
+                    <Button variant="outline" size="sm" onClick={() => setCalculatorOpen(true)}><CalculatorIcon className="h-4 w-4 mr-1" />Calculator</Button>
+                    <Button variant="outline" size="sm" onClick={() => setHeldOrdersOpen(true)}>
+                      <List className="h-4 w-4 mr-1" />Held Orders
+                      {activeOrders.length > 0 && (
+                        <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold min-w-4 h-4 px-1">{activeOrders.length}</span>
+                      )}
+                    </Button>
+                    <Button variant="outline" size="sm" className="text-destructive" onClick={requestClearCart} disabled={cart.length === 0}><Ban className="h-4 w-4 mr-1" />Cancel Order</Button>
+                  </div>
 
                   {!canView('createInvoice') ? (
-                    <p className="col-span-2 text-center text-xs text-muted-foreground py-2">
+                    <p className="text-center text-xs text-muted-foreground py-2">
                       You don't have the "Create Cash Sale / Invoice" right.
                     </p>
                   ) : documentType === 'CASH_SALE' ? (
-                    <Button className="col-span-2" disabled={cart.length === 0 || isSubmitting} onClick={() => setPaymentDialogOpen(true)}>
-                      <Wallet className="h-4 w-4 mr-1" />Pay Cash / Mob Money
+                    <Button className="w-full font-semibold" disabled={cart.length === 0 || isSubmitting} onClick={() => setPaymentDialogOpen(true)}>
+                      <Wallet className="h-4 w-4 mr-1" />Pay Cash / Mob Money <kbd className="ml-2 text-[10px] bg-primary-foreground/20 px-1.5 py-0.5 rounded font-mono">F9</kbd>
                     </Button>
                   ) : (
-                    <Button className="col-span-2" disabled={cart.length === 0 || isSubmitting} onClick={() => createInvoice('PAYMENT_PENDING')}>
-                      <FileText className="h-4 w-4 mr-1" />{isSubmitting ? 'Approving...' : 'Approve Order'}
-                    </Button>
-                  )}
-
-                  {lastInvoiceNumber && (
-                    <Button variant="outline" className="col-span-2" onClick={() => printInvoice(lastInvoiceNumber)}>
-                      <Printer className="h-4 w-4 mr-1" />Print {lastInvoiceNumber}
+                    <Button className="w-full font-semibold" disabled={cart.length === 0 || isSubmitting} onClick={requestApproveInvoice}>
+                      <FileText className="h-4 w-4 mr-1" />{isSubmitting ? 'Approving...' : 'Approve Order'} <kbd className="ml-2 text-[10px] bg-primary-foreground/20 px-1.5 py-0.5 rounded font-mono">F9</kbd>
                     </Button>
                   )}
                 </div>
               </div>
+
+              <Dialog open={supDialogOpen} onOpenChange={(o) => { if (!o) { setSupDialogOpen(false); supPending.current = null; } }}>
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Supervisor approval</DialogTitle>
+                    <DialogDescription>A supervisor (admin / manager) must approve this: {supLabel}.</DialogDescription>
+                  </DialogHeader>
+                  <div className="py-2 grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="invSupUser">Supervisor username</Label>
+                      <Input id="invSupUser" autoComplete="off" value={supUser} onChange={(e) => setSupUser(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="invSupPass">Password</Label>
+                      <Input id="invSupPass" type="password" autoComplete="off" value={supPass} onChange={(e) => setSupPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitSupervisor(); }} />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => { setSupDialogOpen(false); supPending.current = null; }} disabled={supBusy}>Cancel</Button>
+                    <Button onClick={submitSupervisor} disabled={supBusy}>{supBusy ? 'Checking...' : 'Approve'}</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={heldOrdersOpen} onOpenChange={setHeldOrdersOpen}>
+                <DialogContent className="max-w-xl w-[95vw] max-h-[80vh] flex flex-col">
+                  <DialogHeader>
+                    <DialogTitle>Held Orders</DialogTitle>
+                    <DialogDescription>Resume or discard orders you put on hold.</DialogDescription>
+                  </DialogHeader>
+                  <div className="flex-1 overflow-y-auto space-y-1.5">
+                    {activeOrders.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
+                        <Pause className="h-10 w-10 mb-2 opacity-20" />
+                        <p>No held orders</p>
+                      </div>
+                    ) : activeOrders.map(order => (
+                      <div key={order.id} className="flex items-center justify-between gap-2 border rounded-md bg-card px-3 py-2 text-sm">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold truncate">{order.customer?.name || 'Walk-in Customer'}</span>
+                            {order.documentType && (
+                              <Badge variant={order.documentType === 'CASH_SALE' ? 'secondary' : 'outline'} className="text-[10px] px-1.5 py-0">
+                                {order.documentType === 'CASH_SALE' ? 'Cash Sale' : 'Sale Invoice'}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">{order.items.length} item(s)</div>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <Button size="sm" onClick={() => { resumeHeldOrder(order.id); setHeldOrdersOpen(false); }}>Resume</Button>
+                          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => discardOrder(order.id)}>Discard</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           </TabsContent>
 
@@ -1061,7 +1506,7 @@ export default function Invoicing() {
                               <Eye className="h-4 w-4" />
                             </Button>
                             {row.kind === 'invoice' && (
-                              <Button variant="ghost" size="sm" onClick={() => printInvoice(row.docNumber)} title="Print">
+                              <Button variant="ghost" size="sm" onClick={() => reprintInvoice(row.docNumber)} title="Print">
                                 <Printer className="h-4 w-4" />
                               </Button>
                             )}
@@ -1355,7 +1800,7 @@ export default function Invoicing() {
                 <Undo2 className="h-4 w-4 mr-1" />Return Items
               </Button>
             )}
-            <Button variant="outline" onClick={() => viewingInvoice && printInvoice(viewingInvoice.invoice.invoiceNumber)}>
+            <Button variant="outline" onClick={() => viewingInvoice && reprintInvoice(viewingInvoice.invoice.invoiceNumber)}>
               <Printer className="h-4 w-4 mr-1" />Print
             </Button>
             <Button onClick={() => setViewingInvoice(null)}>Close</Button>
@@ -1529,6 +1974,80 @@ export default function Invoicing() {
                 {isProcessingReturn ? 'Processing...' : 'Process Return'}
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog before approving a credit Sale Invoice */}
+      <Dialog open={approveConfirmOpen} onOpenChange={setApproveConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Confirm Invoice Approval
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to approve and issue this invoice?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1 text-sm">
+            <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Customer:</span>
+                <span className="font-semibold">{selectedCustomer?.name || 'No customer'}</span>
+              </div>
+              {selectedLocation && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Location:</span>
+                  <span>{selectedLocation.name}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Items:</span>
+                <span>{cart.length} item(s) &middot; Total Qty: {cart.reduce((s, l) => s + (Number(l.quantity) || 0), 0)}</span>
+              </div>
+              {orderDate && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Order Date:</span>
+                  <span>{orderDate}</span>
+                </div>
+              )}
+              {dueDate && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Due Date:</span>
+                  <span>{dueDate}</span>
+                </div>
+              )}
+              <Separator />
+              <div className="flex justify-between items-center text-base font-bold">
+                <span>Total Amount:</span>
+                <span className="text-primary text-lg">{fmt(totals.total)}</span>
+              </div>
+            </div>
+
+            {overLimit && (
+              <div className="p-2.5 rounded border border-destructive/30 bg-destructive/10 text-destructive text-xs flex items-center gap-2 font-medium">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>Notice: This order will exceed the customer's credit limit.</span>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setApproveConfirmOpen(false)} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                setApproveConfirmOpen(false);
+                await createInvoice('PAYMENT_PENDING');
+              }}
+              disabled={isSubmitting}
+            >
+              <Check className="h-4 w-4 mr-1" />
+              {isSubmitting ? 'Approving...' : 'Confirm & Approve'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
