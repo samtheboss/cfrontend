@@ -57,6 +57,14 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
   const canView = (right: keyof import('@/types/user').UserRights) => !rights || rights[right] !== 'no';
   const fmtNum = (n: number) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  const canCashSale = canView('createCashSale');
+  const canInvoice = canView('createInvoice');
+  const canReceivePayment = canView('invoiceReceivePayment');
+  const canViewHistory = canView('viewInvoiceHistory');
+  const canViewAllInvoices = canView('viewAllInvoices');
+  const canCreateCustomer = canView('createCustomer');
+  const canCreate = canCashSale || canInvoice;
+
   const DRAFT_KEY = `invoicing_draft_${user?.id || 'guest'}${initialDocumentType ? `_${initialDocumentType}` : ''}`;
 
   const [documentType, setDocumentType] = useState<DocumentType>(() => {
@@ -65,11 +73,36 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.documentType) return parsed.documentType;
-      } catch {}
+      } catch { }
     }
     return initialDocumentType ?? 'SALE_INVOICE';
   });
-  const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
+  useEffect(() => {
+    if (!canCashSale && canInvoice && documentType === 'CASH_SALE') {
+      setDocumentType('SALE_INVOICE');
+    } else if (!canInvoice && canCashSale && documentType === 'SALE_INVOICE') {
+      setDocumentType('CASH_SALE');
+    }
+  }, [canCashSale, canInvoice, documentType]);
+
+  useEffect(() => {
+    if (!canCashSale && canInvoice && documentType === 'CASH_SALE') {
+      setDocumentType('SALE_INVOICE');
+    } else if (!canInvoice && canCashSale && documentType === 'SALE_INVOICE') {
+      setDocumentType('CASH_SALE');
+    }
+  }, [canCashSale, canInvoice, documentType]);
+
+  const [activeTab, setActiveTab] = useState<'new' | 'history'>(() => {
+    if (!canCreate && canViewHistory) return 'history';
+    return 'new';
+  });
+
+  useEffect(() => {
+    if (!canCreate && canViewHistory && activeTab === 'new') {
+      setActiveTab('history');
+    }
+  }, [canCreate, canViewHistory, activeTab]);
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
@@ -77,7 +110,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.selectedCustomerId !== undefined) return parsed.selectedCustomerId;
-      } catch {}
+      } catch { }
     }
     return null;
   });
@@ -98,6 +131,46 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
 
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId) || null;
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
+
+  // Quick Add Customer
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [isSubmittingQuickCust, setIsSubmittingQuickCust] = useState(false);
+  const [quickCustomer, setQuickCustomer] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    idNumber: '',
+    creditLimit: '',
+  });
+
+  const handleQuickAddCustomerSubmit = async () => {
+    if (!canCreateCustomer) {
+      toast.error('You do not have permission to add new customers');
+      return;
+    }
+    if (!quickCustomer.name.trim() || isSubmittingQuickCust) return;
+    setIsSubmittingQuickCust(true);
+    try {
+      const created = await addCustomer({
+        name: quickCustomer.name.trim(),
+        phone: quickCustomer.phone.trim() || undefined,
+        email: quickCustomer.email.trim() || undefined,
+        idNumber: quickCustomer.idNumber.trim() || undefined,
+        customerType: 'BOTH',
+        creditLimit: quickCustomer.creditLimit ? Number(quickCustomer.creditLimit) : undefined,
+      });
+      toast.success(`Customer "${quickCustomer.name}" created`);
+      setQuickCustomer({ name: '', phone: '', email: '', idNumber: '', creditLimit: '' });
+      setQuickAddOpen(false);
+      if (created?.id) {
+        setSelectedCustomerId(created.id);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add customer');
+    } finally {
+      setIsSubmittingQuickCust(false);
+    }
+  };
   const [customerBalance, setCustomerBalance] = useState(emptyCustomerBalance);
 
   const mainLocation = locations.find(l => l.isMain) || locations[0];
@@ -107,7 +180,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.selectedLocationId) return parsed.selectedLocationId;
-      } catch {}
+      } catch { }
     }
     return '';
   });
@@ -122,7 +195,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         return Array.isArray(parsed.cart) ? parsed.cart : [];
-      } catch {}
+      } catch { }
     }
     return [];
   });
@@ -139,7 +212,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.orderDate) return parsed.orderDate;
-      } catch {}
+      } catch { }
     }
     return format(new Date(), 'yyyy-MM-dd');
   });
@@ -149,7 +222,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.dueDate !== undefined) return parsed.dueDate;
-      } catch {}
+      } catch { }
     }
     return '';
   });
@@ -159,7 +232,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.salesPerson !== undefined) return parsed.salesPerson;
-      } catch {}
+      } catch { }
     }
     return '';
   });
@@ -169,7 +242,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.reference !== undefined) return parsed.reference;
-      } catch {}
+      } catch { }
     }
     return '';
   });
@@ -179,7 +252,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       try {
         const parsed = JSON.parse(saved);
         if (parsed.tradeDiscount !== undefined) return parsed.tradeDiscount;
-      } catch {}
+      } catch { }
     }
     return '0';
   });
@@ -219,7 +292,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
             if (parsed.salesPerson !== undefined) setSalesPerson(parsed.salesPerson);
             if (parsed.reference !== undefined) setReference(parsed.reference);
             if (parsed.tradeDiscount !== undefined) setTradeDiscount(parsed.tradeDiscount);
-          } catch {}
+          } catch { }
         } else {
           setCart([]);
           setSelectedCustomerId(null);
@@ -275,11 +348,20 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
   const [invoices, setInvoices] = useState<InvoiceListItem[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const todayStr = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
   const [historySearch, setHistorySearch] = useState('');
   const [historyTypeFilter, setHistoryTypeFilter] = useState<'ALL' | DocumentType | 'RETURN'>('ALL');
-  const [historyStartDate, setHistoryStartDate] = useState('');
-  const [historyEndDate, setHistoryEndDate] = useState('');
-  const [historyUserFilter, setHistoryUserFilter] = useState('ALL');
+  const [historyStartDate, setHistoryStartDate] = useState(todayStr);
+  const [historyEndDate, setHistoryEndDate] = useState(todayStr);
+  const [historyUserFilter, setHistoryUserFilter] = useState<string>(() => user?.name || user?.username || 'ALL');
+
+  const initialUserFilterSet = useRef(false);
+  useEffect(() => {
+    if (!initialUserFilterSet.current && (user?.name || user?.username)) {
+      setHistoryUserFilter(user.name || user.username);
+      initialUserFilterSet.current = true;
+    }
+  }, [user]);
   const [payingInvoice, setPayingInvoice] = useState<InvoiceListItem | null>(null);
 
   // View items / return
@@ -518,7 +600,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
     if (rights?.invoiceChangeOrderDate === 'no') {
       toast.error("You don't have the right to change the order date");
     } else if (rights?.invoiceChangeOrderDate === 'supervised' && !supUnlocked.current.has('invoiceChangeOrderDate')) {
-      guard('invoiceChangeOrderDate', 'change order date', () => {});
+      guard('invoiceChangeOrderDate', 'change order date', () => { });
     }
   };
 
@@ -526,7 +608,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
     if (rights?.invoiceChangeDueDate === 'no') {
       toast.error("You don't have the right to change the due date");
     } else if (rights?.invoiceChangeDueDate === 'supervised' && !supUnlocked.current.has('invoiceChangeDueDate')) {
-      guard('invoiceChangeDueDate', 'change due date', () => {});
+      guard('invoiceChangeDueDate', 'change due date', () => { });
     }
   };
 
@@ -534,7 +616,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
     if (rights?.invoiceChangeDiscount === 'no') {
       toast.error("You don't have the right to change the trade discount");
     } else if (rights?.invoiceChangeDiscount === 'supervised' && !supUnlocked.current.has('invoiceChangeDiscount')) {
-      guard('invoiceChangeDiscount', 'change trade discount', () => {});
+      guard('invoiceChangeDiscount', 'change trade discount', () => { });
     }
   };
 
@@ -551,8 +633,8 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       toast.error('A customer is required for a credit Sale Invoice');
       return;
     }
-    if (!canView('createInvoice')) {
-      toast.error('You are not allowed to create invoices');
+    if (!canInvoice) {
+      toast.error('You are not allowed to create credit sale invoices');
       return;
     }
     setApproveConfirmOpen(true);
@@ -565,13 +647,21 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       toast.error('Add at least one item first');
       return;
     }
-    if (!canView('createInvoice')) {
-      toast.error('You are not allowed to create invoices');
-      return;
-    }
     if (documentType === 'CASH_SALE') {
-      setPaymentDialogOpen(true);
+      if (!canCashSale) {
+        toast.error('You are not allowed to create cash sales');
+        return;
+      }
+      if (canReceivePayment) {
+        setPaymentDialogOpen(true);
+      } else {
+        handlePlaceCashOrder();
+      }
     } else {
+      if (!canInvoice) {
+        toast.error('You are not allowed to create credit sale invoices');
+        return;
+      }
       requestApproveInvoice();
     }
   };
@@ -633,8 +723,16 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
   });
 
   const createInvoice = async (status: 'COMPLETED' | 'PAYMENT_PENDING', payments: PaymentDetails[] = []) => {
-    if (!canView('createInvoice')) {
-      toast.error('You are not allowed to create invoices');
+    if (documentType === 'CASH_SALE' && !canCashSale) {
+      toast.error('You are not allowed to create cash sales');
+      return;
+    }
+    if (documentType === 'SALE_INVOICE' && !canInvoice) {
+      toast.error('You are not allowed to create credit sale invoices');
+      return;
+    }
+    if (status === 'COMPLETED' && !canReceivePayment) {
+      toast.error('You are not allowed to receive payments');
       return;
     }
     if (cart.length === 0) {
@@ -676,6 +774,22 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       setIsSubmitting(false);
       setPaymentDialogOpen(false);
     }
+  };
+
+  const handlePlaceCashOrder = async () => {
+    if (!canCashSale) {
+      toast.error('You are not allowed to create cash sales');
+      return;
+    }
+    if (cart.length === 0) {
+      toast.error('Add at least one item first');
+      return;
+    }
+    if (!selectedLocationId) {
+      toast.error('Select a location');
+      return;
+    }
+    await createInvoice('PAYMENT_PENDING');
   };
 
   // New Order: parks the current cart as a held order (respecting the max held orders setting), then starts fresh
@@ -749,30 +863,36 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
   // Unified history rows - invoices/cash sales plus the returns processed against them, so Invoice
   // History shows the full picture instead of just what was originally sold.
   const historyRows = useMemo(() => {
-    const invoiceRows = invoices.map(inv => ({
-      kind: 'invoice' as const,
-      key: inv.invoiceNumber,
-      docNumber: inv.invoiceNumber,
-      documentType: inv.documentType as string,
-      customerId: inv.customerId,
-      date: inv.orderDate,
-      dueDate: inv.dueDate,
-      total: inv.totalAmount,
-      paid: inv.amountPaid,
-      balance: inv.balance,
-      status: inv.status,
-      createdBy: inv.createdBy,
-      searchText: `${inv.invoiceNumber} ${inv.reference || ''}`.toLowerCase(),
-      raw: inv,
-    }));
+    const invoiceRows = invoices.map(inv => {
+      const cName = customers.find(c => Number(c.id) === inv.customerId)?.name || '';
+      return {
+        kind: 'invoice' as const,
+        key: inv.invoiceNumber,
+        docNumber: inv.invoiceNumber,
+        documentType: inv.documentType as string,
+        customerId: inv.customerId,
+        customerName: cName,
+        date: inv.orderDate,
+        dueDate: inv.dueDate,
+        total: inv.totalAmount,
+        paid: inv.amountPaid,
+        balance: inv.balance,
+        status: inv.status,
+        createdBy: inv.createdBy,
+        searchText: `${inv.invoiceNumber} ${inv.reference || ''} ${cName}`.toLowerCase(),
+        raw: inv,
+      };
+    });
     const returnRows = returns.map(ret => {
       const matchedInvoice = invoices.find(inv => inv.saleId === ret.originalSaleId);
+      const cName = customers.find(c => Number(c.id) === matchedInvoice?.customerId)?.name || '';
       return {
         kind: 'return' as const,
         key: ret.journalNumber,
         docNumber: ret.journalNumber,
         documentType: 'RETURN',
         customerId: matchedInvoice?.customerId,
+        customerName: cName,
         date: ret.timestamp ? String(ret.timestamp).slice(0, 10) : '',
         dueDate: undefined as string | undefined,
         total: ret.totalAmount ?? ret.refundAmount ?? 0,
@@ -780,26 +900,47 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
         balance: undefined as number | undefined,
         status: 'RETURNED',
         createdBy: ret.createdBy,
-        searchText: `${ret.journalNumber} ${matchedInvoice?.invoiceNumber || ''}`.toLowerCase(),
+        searchText: `${ret.journalNumber} ${matchedInvoice?.invoiceNumber || ''} ${cName}`.toLowerCase(),
         raw: ret,
         againstInvoiceNumber: matchedInvoice?.invoiceNumber,
       };
     });
     return [...invoiceRows, ...returnRows].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  }, [invoices, returns]);
+  }, [invoices, returns, customers]);
 
   const historyUsers = useMemo(() => {
     const names = new Set<string>();
-    historyRows.forEach(row => { if (row.createdBy) names.add(row.createdBy); });
+    if (canViewAllInvoices) {
+      historyRows.forEach(row => { if (row.createdBy) names.add(row.createdBy); });
+    }
+    if (user?.name) names.add(user.name);
+    if (user?.username) names.add(user.username);
     return Array.from(names).sort();
-  }, [historyRows]);
+  }, [historyRows, user, canViewAllInvoices]);
 
   const filteredHistoryRows = historyRows.filter(row => {
-    if (historySearch && !row.searchText.includes(historySearch.toLowerCase())) return false;
+    if (historySearch) {
+      const q = historySearch.toLowerCase().trim();
+      const inSearch = row.searchText.includes(q) || (row.customerName || '').toLowerCase().includes(q);
+      if (!inSearch) return false;
+    }
     if (historyTypeFilter !== 'ALL' && row.documentType !== historyTypeFilter) return false;
     if (historyStartDate && row.date && row.date < historyStartDate) return false;
     if (historyEndDate && row.date && row.date > historyEndDate) return false;
-    if (historyUserFilter !== 'ALL' && row.createdBy !== historyUserFilter) return false;
+
+    // Restrict to current user if user cannot view other users' orders
+    if (!canViewAllInvoices) {
+      const rowUser = (row.createdBy || '').toLowerCase();
+      const currentUserName = (user?.name || '').toLowerCase();
+      const currentUserUsername = (user?.username || '').toLowerCase();
+      const isMine = (currentUserName && (rowUser === currentUserName || rowUser.includes(currentUserName)))
+        || (currentUserUsername && (rowUser === currentUserUsername || rowUser.includes(currentUserUsername)));
+      if (!isMine) return false;
+    } else if (historyUserFilter !== 'ALL') {
+      const rowUser = (row.createdBy || '').toLowerCase();
+      const targetUser = historyUserFilter.toLowerCase();
+      if (rowUser !== targetUser && !rowUser.includes(targetUser) && !targetUser.includes(rowUser)) return false;
+    }
     return true;
   });
 
@@ -1021,13 +1162,13 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
     setCalcValue(prev => (prev === '0' || prev === 'Error' ? btn : prev + btn));
   };
 
-  if (!canView('viewInvoicing')) {
+  if (!canView('viewInvoicing') || (!canCreate && !canViewHistory)) {
     return (
       <AppLayout title="Invoicing">
         <Card className="border-amber-300 bg-amber-50/50 dark:bg-amber-950/20">
           <CardContent className="py-6 text-center text-sm text-amber-800 dark:text-amber-300">
             You don't have permission to use Invoicing. Ask an administrator for the
-            "Invoicing: Open Window" right.
+            "Invoicing: Open Window" or "Invoicing: View History" right.
           </CardContent>
         </Card>
       </AppLayout>
@@ -1039,47 +1180,71 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
       <div className="space-y-4">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
           <TabsList>
-            <TabsTrigger value="new">New</TabsTrigger>
-            <TabsTrigger value="history">Invoice History</TabsTrigger>
+            {canCreate && <TabsTrigger value="new">New</TabsTrigger>}
+            {canViewHistory && <TabsTrigger value="history">Invoice History</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="new" className="mt-2">
             {/* Fixed-height workspace: nothing moves, the cart scrolls and the action buttons stay at the bottom */}
-            <div ref={workspaceRef} style={workspaceHeight ? { height: workspaceHeight } : undefined} className="flex flex-col gap-2 overflow-hidden">
+            <div ref={workspaceRef} style={workspaceHeight ? { height: workspaceHeight } : undefined} className={cn("flex flex-col gap-2", workspaceHeight ? "overflow-hidden" : "overflow-visible pb-24 lg:pb-0")}>
               {/* Header strip */}
-              <div className={cn('rounded-md border bg-card px-2 py-1.5 space-y-1.5', overLimit && 'border-destructive')}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select value={documentType} onValueChange={(v) => {
-                    const newType = v as DocumentType;
-                    setDocumentType(newType);
-                    if (newType === 'CASH_SALE' && !selectedCustomerId && defaultCashCustomer) {
-                      setSelectedCustomerId(defaultCashCustomer.id);
-                    }
-                  }}>
-                    <SelectTrigger className="w-40 font-semibold h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="SALE_INVOICE">Credit Sales</SelectItem>
-                      <SelectItem value="CASH_SALE">Cash Sale</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div className={cn('rounded-md border bg-card p-2 space-y-2', overLimit && 'border-destructive')}>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <Select value={documentType} onValueChange={(v) => {
+                      const newType = v as DocumentType;
+                      setDocumentType(newType);
+                      if (newType === 'CASH_SALE' && !selectedCustomerId && defaultCashCustomer) {
+                        setSelectedCustomerId(defaultCashCustomer.id);
+                      }
+                    }}>
+                      <SelectTrigger className="flex-1 sm:w-40 font-semibold h-8 text-xs bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SALE_INVOICE">Credit Sales</SelectItem>
+                        <SelectItem value="CASH_SALE">Cash Sale</SelectItem>
+                      </SelectContent>
+                    </Select>
 
-                  <div className="flex flex-1 min-w-[260px] items-center gap-1">
-                    <span className="h-8 px-3 inline-flex items-center rounded-md border bg-muted/50 text-xs font-semibold">Customer</span>
+                    <div className="flex items-center gap-1 sm:hidden">
+                      <span className="h-8 px-2 inline-flex items-center rounded-md border bg-muted/50 text-[10px] font-semibold">No:</span>
+                      <div className="h-8 px-2 inline-flex items-center rounded-md border bg-background font-mono text-xs">{lastInvoiceNumber || 'New'}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-1 items-center gap-1 min-w-0">
+                    <span className="h-8 px-2.5 inline-flex items-center rounded-md border bg-muted/50 text-xs font-semibold shrink-0">Customer</span>
                     <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" role="combobox" className="flex-1 justify-start h-8 text-xs font-normal">
-                          <User className="h-3.5 w-3.5 mr-2" />
-                          {selectedCustomer ? selectedCustomer.name : 'Select customer...'}
-                          <ChevronsUpDown className="h-3 w-3 ml-auto opacity-50" />
+                        <Button variant="outline" role="combobox" className="flex-1 justify-start h-8 text-xs font-normal min-w-0 truncate">
+                          <User className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                          <span className="truncate">{selectedCustomer ? selectedCustomer.name : 'Select customer...'}</span>
+                          <ChevronsUpDown className="h-3 w-3 ml-auto opacity-50 shrink-0" />
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-72 p-0" align="start">
                         <Command>
                           <CommandInput placeholder="Search customers..." />
                           <CommandList>
-                            <CommandEmpty>No customer found.</CommandEmpty>
+                            {canCreateCustomer && (
+                              <div className="p-1 border-b">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="w-full justify-start text-xs h-7 text-primary gap-1.5"
+                                  onClick={() => {
+                                    setCustomerPopoverOpen(false);
+                                    setQuickAddOpen(true);
+                                  }}
+                                >
+                                  <Plus className="h-3.5 w-3.5" /> Quick Add New Customer
+                                </Button>
+                              </div>
+                            )}
+                            <CommandEmpty className="p-2 text-center text-xs text-muted-foreground">
+                              No customer found.
+                            </CommandEmpty>
                             <CommandGroup>
                               {customers.filter(c => !c.customerType || c.customerType === 'POS' || c.customerType === 'BOTH').map((customer) => (
                                 <CommandItem
@@ -1099,34 +1264,47 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
                         </Command>
                       </PopoverContent>
                     </Popover>
+                    {canCreateCustomer && (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8 text-primary shrink-0"
+                        onClick={() => setQuickAddOpen(true)}
+                        title="Quick Add Customer"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                      </Button>
+                    )}
                     {selectedCustomer && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedCustomerId(null)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setSelectedCustomerId(null)}>
                         <X className="h-4 w-4" />
                       </Button>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  <div className="hidden sm:flex items-center gap-1 shrink-0">
                     <span className="h-8 px-3 inline-flex items-center rounded-md border bg-muted/50 text-xs font-semibold">Order No</span>
-                    <div className="h-8 w-44 px-2 inline-flex items-center rounded-md border bg-background font-mono text-xs">{lastInvoiceNumber || 'New Invoice'}</div>
+                    <div className="h-8 w-36 px-2 inline-flex items-center rounded-md border bg-background font-mono text-xs truncate">{lastInvoiceNumber || 'New Invoice'}</div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs pt-1 border-t sm:border-0 border-border/40">
                   <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
-                    <SelectTrigger className="w-44 h-8 text-xs">
+                    <SelectTrigger className="w-full sm:w-44 h-7 text-xs bg-background">
                       <SelectValue placeholder="Location" />
                     </SelectTrigger>
                     <SelectContent>
                       {locations.map(l => (
-                        <SelectItem key={l.id} value={l.id}>{l.name}{l.code ? ` (${l.code})` : ''}</SelectItem>
+                        <SelectItem key={l.id} value={l.id} className="text-xs">{l.name}{l.code ? ` (${l.code})` : ''}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <span><span className="text-muted-foreground">Balance : </span><span className="font-bold">{selectedCustomer ? fmt(customerBalance.currentBalance) : 'N/A'}</span></span>
-                  <span><span className="text-muted-foreground">Closing : </span><span className={cn('font-bold', overLimit && 'text-destructive')}>{selectedCustomer ? fmt(closingBalance) : 'N/A'}</span></span>
-                  <span><span className="text-muted-foreground">Credit Limit : </span><span className="font-bold">{selectedCustomer && creditLimit != null ? fmt(creditLimit) : 'N/A'}</span></span>
-                  {overLimit && <Badge variant="destructive" className="h-5 text-[10px]">Over limit</Badge>}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span><span className="text-muted-foreground">Balance: </span><span className="font-bold">{selectedCustomer ? fmt(customerBalance.currentBalance) : 'N/A'}</span></span>
+                    <span><span className="text-muted-foreground">Closing: </span><span className={cn('font-bold', overLimit && 'text-destructive')}>{selectedCustomer ? fmt(closingBalance) : 'N/A'}</span></span>
+                    <span><span className="text-muted-foreground">Limit: </span><span className="font-bold">{selectedCustomer && creditLimit != null ? fmt(creditLimit) : 'N/A'}</span></span>
+                    {overLimit && <Badge variant="destructive" className="h-5 text-[10px]">Over limit</Badge>}
+                  </div>
                 </div>
               </div>
 
@@ -1174,9 +1352,11 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
                         <span className="text-muted-foreground ml-2">Qty : </span><span className="font-bold">{cart.reduce((s, l) => s + (Number(l.quantity) || 0), 0)}</span>
                       </div>
                     </div>
-                    <div className="grid grid-cols-[110px_1fr_90px_70px_60px_100px_28px] gap-1.5 px-2 py-1.5 text-[11px] font-bold uppercase text-primary border-b bg-muted/30">
+                    {/* Desktop header */}
+                    <div className="hidden sm:grid sm:grid-cols-[105px_1fr_65px_85px_65px_55px_90px_28px] gap-1.5 px-2 py-1.5 text-[11px] font-bold uppercase text-primary border-b bg-muted/30">
                       <div>Item Code</div>
                       <div>Item Name</div>
+                      <div className="text-right">Stock</div>
                       <div className="text-right">Price</div>
                       <div className="text-right">Qty</div>
                       <div className="text-right">Tax %</div>
@@ -1185,40 +1365,101 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
                     </div>
                     <div className="flex-1 overflow-y-auto">
                       {cart.length === 0 ? (
-                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Empty order items</div>
+                        <div className="h-full min-h-[140px] flex items-center justify-center text-sm text-muted-foreground">Empty order items</div>
                       ) : cart.filter(l => !cartSearch.trim() || `${l.productName} ${l.sku}`.toLowerCase().includes(cartSearch.trim().toLowerCase())).map(line => {
                         const t = computeTax(line.quantity, line.price, line.taxRate ?? 16.0);
                         const cartVariant = variantOptions.find(o => o.variant.id === line.variantId)?.variant;
                         const cartStock = cartVariant ? (cartVariant.locationStock?.[selectedLocationId] ?? cartVariant.stock ?? 0) : null;
                         return (
-                          <div key={line.cartItemId} className="grid grid-cols-[110px_1fr_90px_70px_60px_100px_28px] gap-1.5 px-2 py-1 items-center border-b last:border-b-0 hover:bg-muted/30 text-xs">
-                            <div className="truncate text-muted-foreground">{line.sku}</div>
-                            <div className="min-w-0 flex items-center gap-2">
-                              <span className="truncate font-medium">{line.productName}</span>
-                              {canView('viewItemStock') && cartStock !== null && (
-                                <span className={cn('whitespace-nowrap shrink-0 text-[10px]', cartStock <= 0 ? 'text-destructive' : 'text-muted-foreground')}>Stock: {cartStock}</span>
-                              )}
+                          <div key={line.cartItemId}>
+                            {/* Desktop row */}
+                            <div className="hidden sm:grid sm:grid-cols-[105px_1fr_65px_85px_65px_55px_90px_28px] gap-1.5 px-2 py-1 items-center border-b last:border-b-0 hover:bg-muted/30 text-xs">
+                              <div className="truncate text-muted-foreground font-mono">{line.sku}</div>
+                              <div className="min-w-0">
+                                <span className="truncate font-medium block">{line.productName}</span>
+                              </div>
+                              <div className="text-right font-medium text-xs">
+                                {canView('viewItemStock') && cartStock !== null ? (
+                                  <span className={cn('whitespace-nowrap', cartStock <= 0 ? 'text-destructive font-semibold' : 'text-muted-foreground')}>
+                                    {cartStock}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </div>
+                              <Input type="number" min="0" inputMode="decimal" value={line.price}
+                                onChange={(e) => editLine(line.cartItemId, { price: parseFloat(e.target.value) || 0 })}
+                                className="h-7 text-right px-1.5 text-xs" />
+                              <Input type="number" min="0" inputMode="decimal" value={line.quantity}
+                                onChange={(e) => editLine(line.cartItemId, { quantity: parseFloat(e.target.value) || 0 })}
+                                className="h-7 text-right px-1.5 text-xs font-semibold" />
+                              <Input type="number" value={line.taxRate ?? 16.0} readOnly disabled
+                                title="Tax rate is fixed and cannot be edited directly"
+                                className="h-7 text-right px-1 text-xs bg-muted/60 text-muted-foreground cursor-not-allowed select-none opacity-80" />
+                              <div className="text-right font-semibold">{fmt(t.total)}</div>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => requestRemoveLine(line.cartItemId)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
                             </div>
-                            <Input type="number" min="0" value={line.price}
-                              onChange={(e) => editLine(line.cartItemId, { price: parseFloat(e.target.value) || 0 })}
-                              className="h-7 text-right px-1.5 text-xs" />
-                            <Input type="number" min="0" value={line.quantity}
-                              onChange={(e) => editLine(line.cartItemId, { quantity: parseFloat(e.target.value) || 0 })}
-                              className="h-7 text-right px-1.5 text-xs" />
-                            <Input type="number" value={line.taxRate ?? 16.0} readOnly disabled
-                              title="Tax rate is fixed and cannot be edited directly"
-                              className="h-7 text-right px-1 text-xs bg-muted/60 text-muted-foreground cursor-not-allowed select-none opacity-80" />
-                            <div className="text-right font-semibold">{fmt(t.total)}</div>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => requestRemoveLine(line.cartItemId)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+
+                            {/* Mobile card item */}
+                            <div className="sm:hidden p-2.5 border-b last:border-b-0 bg-card space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <span className="font-semibold text-xs text-foreground block truncate">{line.productName}</span>
+                                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono mt-0.5">
+                                    <span>{line.sku}</span>
+                                    {canView('viewItemStock') && cartStock !== null && (
+                                      <span className={cn('px-1.5 py-0.2 rounded font-sans', cartStock <= 0 ? 'bg-destructive/10 text-destructive font-bold' : 'bg-muted text-muted-foreground')}>
+                                        Stock: {cartStock}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive shrink-0" onClick={() => requestRemoveLine(line.cartItemId)}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2 items-end pt-1 bg-muted/20 p-2 rounded-md">
+                                <div>
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground block mb-0.5">Price</span>
+                                  <Input
+                                    type="number"
+                                    inputMode="decimal"
+                                    min="0"
+                                    value={line.price}
+                                    onChange={(e) => editLine(line.cartItemId, { price: parseFloat(e.target.value) || 0 })}
+                                    className="h-8 text-xs text-right font-medium px-1.5 bg-background"
+                                  />
+                                </div>
+                                <div>
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground block mb-0.5">Qty</span>
+                                  <Input
+                                    type="number"
+                                    inputMode="decimal"
+                                    min="0"
+                                    value={line.quantity}
+                                    onChange={(e) => editLine(line.cartItemId, { quantity: parseFloat(e.target.value) || 0 })}
+                                    className="h-8 text-xs text-center font-bold px-1.5 bg-background"
+                                  />
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground block mb-0.5">Total</span>
+                                  <span className="font-bold text-sm text-primary block leading-tight">{fmt(t.total)}</span>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         );
                       })}
                     </div>
-                    <div className="flex items-center justify-between gap-4 px-3 py-2 border-t bg-muted/30">
-                      <div className="text-2xl font-bold text-primary">{fmt(totals.total)}</div>
-                      <div className="flex items-center gap-4 text-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 border-t bg-muted/30">
+                      <div className="flex items-baseline justify-between sm:justify-start gap-2">
+                        <span className="text-xs font-semibold text-muted-foreground sm:hidden">Total:</span>
+                        <div className="text-xl sm:text-2xl font-bold text-primary">{fmt(totals.total)}</div>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between sm:justify-end gap-x-3 gap-y-1 text-[11px] sm:text-xs">
                         <span><span className="text-muted-foreground">Subtotal: </span><span className="font-bold">{fmt(totals.subtotal)}</span></span>
                         <span><span className="text-muted-foreground">Discount: </span><span className="font-bold">{fmt(totals.discount)}</span></span>
                         <span><span className="text-muted-foreground">VAT: </span><span className="font-bold">{fmt(totals.tax)}</span></span>
@@ -1305,18 +1546,110 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
                     <Button variant="outline" size="sm" className="text-destructive" onClick={requestClearCart} disabled={cart.length === 0}><Ban className="h-4 w-4 mr-1" />Cancel Order</Button>
                   </div>
 
-                  {!canView('createInvoice') ? (
+                  {(!canCashSale && !canInvoice) ? (
                     <p className="text-center text-xs text-muted-foreground py-2">
-                      You don't have the "Create Cash Sale / Invoice" right.
+                      You don't have permission to create cash sales or invoices.
                     </p>
                   ) : documentType === 'CASH_SALE' ? (
-                    <Button className="w-full font-semibold" disabled={cart.length === 0 || isSubmitting} onClick={() => setPaymentDialogOpen(true)}>
-                      <Wallet className="h-4 w-4 mr-1" />Pay Cash / Mob Money <kbd className="ml-2 text-[10px] bg-primary-foreground/20 px-1.5 py-0.5 rounded font-mono">F9</kbd>
-                    </Button>
+                    !canCashSale ? (
+                      <p className="text-center text-xs text-muted-foreground py-2">
+                        You don't have the "Create Cash Sale" right.
+                      </p>
+                    ) : (
+                      <div className="flex gap-1.5 w-full">
+                        <Button
+                          variant={canReceivePayment ? "outline" : "default"}
+                          className={cn(
+                            "font-semibold",
+                            canReceivePayment
+                              ? "flex-1 border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                              : "w-full bg-blue-600 hover:bg-blue-700 text-white"
+                          )}
+                          disabled={cart.length === 0 || isSubmitting}
+                          onClick={handlePlaceCashOrder}
+                        >
+                          <FileText className="h-4 w-4 mr-1" />
+                          {isSubmitting ? 'Placing...' : 'Approve Order'}
+                          {!canReceivePayment && (
+                            <kbd className="ml-2 text-[10px] bg-primary-foreground/20 px-1.5 py-0.5 rounded font-mono">F9</kbd>
+                          )}
+                        </Button>
+                        {canReceivePayment && (
+                          <Button
+                            className="flex-1 font-semibold"
+                            disabled={cart.length === 0 || isSubmitting}
+                            onClick={() => setPaymentDialogOpen(true)}
+                          >
+                            <Wallet className="h-4 w-4 mr-1" />
+                            Receive Payments
+                            <kbd className="ml-2 text-[10px] bg-primary-foreground/20 px-1.5 py-0.5 rounded font-mono">F9</kbd>
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  ) : !canInvoice ? (
+                    <p className="text-center text-xs text-muted-foreground py-2">
+                      You don't have the "Create Sale Invoice" right.
+                    </p>
                   ) : (
                     <Button className="w-full font-semibold" disabled={cart.length === 0 || isSubmitting} onClick={requestApproveInvoice}>
                       <FileText className="h-4 w-4 mr-1" />{isSubmitting ? 'Approving...' : 'Approve Order'} <kbd className="ml-2 text-[10px] bg-primary-foreground/20 px-1.5 py-0.5 rounded font-mono">F9</kbd>
                     </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Mobile Fixed Bottom Checkout Bar */}
+              <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-md border-t p-2.5 px-4 shadow-[0_-4px_16px_rgba(0,0,0,0.12)] flex items-center justify-between gap-3">
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground leading-tight">Total</span>
+                  <span className="text-base font-bold text-primary truncate leading-tight">{fmt(totals.total)}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {documentType === 'CASH_SALE' ? (
+                    canCashSale && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant={canReceivePayment ? "outline" : "default"}
+                          className={cn(
+                            "h-9 text-xs font-semibold px-2.5",
+                            canReceivePayment
+                              ? "border-blue-500 text-blue-600 hover:bg-blue-50"
+                              : "bg-blue-600 text-white hover:bg-blue-700"
+                          )}
+                          disabled={cart.length === 0 || isSubmitting}
+                          onClick={handlePlaceCashOrder}
+                        >
+                          <FileText className="h-3.5 w-3.5 mr-1" />
+                          {isSubmitting ? 'Placing...' : 'Approve'}
+                        </Button>
+                        {canReceivePayment && (
+                          <Button
+                            size="sm"
+                            className="h-9 text-xs font-semibold px-3 bg-emerald-600 hover:bg-emerald-700 text-white"
+                            disabled={cart.length === 0 || isSubmitting}
+                            onClick={() => setPaymentDialogOpen(true)}
+                          >
+                            <Wallet className="h-3.5 w-3.5 mr-1" />
+                            Pay
+                          </Button>
+                        )}
+                      </>
+                    )
+                  ) : (
+                    canInvoice && (
+                      <Button
+                        size="sm"
+                        className="h-9 text-xs font-semibold px-3"
+                        disabled={cart.length === 0 || isSubmitting}
+                        onClick={requestApproveInvoice}
+                      >
+                        <FileText className="h-3.5 w-3.5 mr-1" />
+                        {isSubmitting ? 'Approving...' : 'Approve Order'}
+                      </Button>
+                    )
                   )}
                 </div>
               </div>
@@ -1380,15 +1713,20 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
             </div>
           </TabsContent>
 
-          <TabsContent value="history" className="space-y-3 mt-4">
-            <Card className="sticky top-28 z-20 bg-background">
-              <CardContent className="py-3 flex flex-wrap items-center gap-2">
-                <div className="relative w-64">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input placeholder="Search invoice #, reference..." value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} className="pl-9" />
+          <TabsContent value="history" className="space-y-2 mt-3">
+            <Card className="sticky top-28 z-20 bg-background shadow-xs">
+              <CardContent className="py-2 px-3 flex flex-wrap items-center gap-2">
+                <div className="relative w-60">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search invoice #, customer, ref..."
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    className="pl-8 h-8 text-xs"
+                  />
                 </div>
                 <Select value={historyTypeFilter} onValueChange={(v) => setHistoryTypeFilter(v as any)}>
-                  <SelectTrigger className="w-44">
+                  <SelectTrigger className="w-36 h-8 text-xs">
                     <SelectValue placeholder="Type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1398,121 +1736,154 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
                     <SelectItem value="RETURN">Return</SelectItem>
                   </SelectContent>
                 </Select>
-                <div className="flex items-center gap-1.5">
-                  <Label className="text-xs text-muted-foreground whitespace-nowrap">From</Label>
-                  <Input type="date" value={historyStartDate} onChange={(e) => setHistoryStartDate(e.target.value)} className="w-40" />
+                <div className="flex items-center gap-1">
+                  <Label className="text-[11px] text-muted-foreground whitespace-nowrap">From</Label>
+                  <Input type="date" value={historyStartDate} onChange={(e) => setHistoryStartDate(e.target.value)} className="w-32 h-8 text-xs px-2" />
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Label className="text-xs text-muted-foreground whitespace-nowrap">To</Label>
-                  <Input type="date" value={historyEndDate} onChange={(e) => setHistoryEndDate(e.target.value)} className="w-40" />
+                <div className="flex items-center gap-1">
+                  <Label className="text-[11px] text-muted-foreground whitespace-nowrap">To</Label>
+                  <Input type="date" value={historyEndDate} onChange={(e) => setHistoryEndDate(e.target.value)} className="w-32 h-8 text-xs px-2" />
                 </div>
-                <Select value={historyUserFilter} onValueChange={setHistoryUserFilter}>
-                  <SelectTrigger className="w-44">
-                    <SelectValue placeholder="Approved By" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All Users</SelectItem>
-                    {historyUsers.map(name => (
-                      <SelectItem key={name} value={name}>{name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {canViewAllInvoices ? (
+                  <Select value={historyUserFilter} onValueChange={setHistoryUserFilter}>
+                    <SelectTrigger className="w-36 h-8 text-xs">
+                      <SelectValue placeholder="Approved By" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All Users</SelectItem>
+                      {historyUsers.map(name => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Badge variant="outline" className="h-8 text-xs px-2.5 text-muted-foreground font-normal bg-muted/30 whitespace-nowrap">
+                    My Orders Only
+                  </Badge>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs px-2"
+                  onClick={() => {
+                    setHistoryStartDate(todayStr);
+                    setHistoryEndDate(todayStr);
+                    if (user?.name || user?.username) {
+                      setHistoryUserFilter(user.name || user.username);
+                    }
+                  }}
+                  title="Filter by today and logged-in user"
+                >
+                  Today & Me
+                </Button>
                 {(historySearch || historyTypeFilter !== 'ALL' || historyStartDate || historyEndDate || historyUserFilter !== 'ALL') && (
                   <Button
                     variant="ghost"
                     size="sm"
+                    className="h-8 text-xs px-2"
                     onClick={() => { setHistorySearch(''); setHistoryTypeFilter('ALL'); setHistoryStartDate(''); setHistoryEndDate(''); setHistoryUserFilter('ALL'); }}
                   >
-                    <X className="h-3.5 w-3.5 mr-1" />Clear
+                    <X className="h-3 w-3 mr-1" />Clear
                   </Button>
                 )}
-                <Button variant="outline" size="sm" className="ml-auto" onClick={loadInvoices} disabled={invoicesLoading}>
+                <Button variant="outline" size="sm" className="ml-auto h-8 text-xs px-2.5" onClick={loadInvoices} disabled={invoicesLoading}>
                   <RotateCcw className={cn('h-3.5 w-3.5 mr-1', invoicesLoading && 'animate-spin')} />
                   Refresh
                 </Button>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-0">
-                <Table>
+            <Card className="rounded-xl overflow-hidden shadow-xs">
+              <CardContent className="p-0 overflow-x-auto">
+                <Table className="min-w-[700px]">
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Invoice #</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Paid</TableHead>
-                      <TableHead className="text-right">Balance</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Approved By</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                    <TableRow className="h-8">
+                      <TableHead className="py-1 px-2 text-xs font-semibold">Invoice #</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold">Type</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold">Customer</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold">Date</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold">Due Date</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold text-right">Total</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold text-right">Paid</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold text-right">Balance</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold">Status</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold">Approved By</TableHead>
+                      <TableHead className="py-1 px-2 text-xs font-semibold text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredHistoryRows.map(row => (
-                      <TableRow key={row.key} className={cn(row.kind === 'return' && 'bg-destructive/5')}>
-                        <TableCell className="font-mono text-xs font-semibold">
+                      <TableRow key={row.key} className={cn('h-9 hover:bg-muted/30 transition-colors', row.kind === 'return' && 'bg-destructive/5')}>
+                        <TableCell className="py-1 px-2 font-mono text-xs font-semibold whitespace-nowrap">
                           {row.docNumber}
                           {row.kind === 'return' && row.againstInvoiceNumber && (
                             <div className="text-[10px] font-normal text-muted-foreground">vs {row.againstInvoiceNumber}</div>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-1 px-2 whitespace-nowrap">
                           {row.kind === 'return' ? (
-                            <Badge variant="destructive">
+                            <Badge variant="destructive" className="h-5 px-1.5 py-0 text-[10px]">
                               <Undo2 className="h-3 w-3 mr-1" />Return
                             </Badge>
                           ) : (
-                            <Badge variant={row.documentType === 'CASH_SALE' ? 'secondary' : 'outline'}>
+                            <Badge variant={row.documentType === 'CASH_SALE' ? 'secondary' : 'outline'} className="h-5 px-1.5 py-0 text-[10px]">
                               {row.documentType === 'CASH_SALE' ? 'Cash Sale' : 'Sale Invoice'}
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell>{customerName(row.customerId)}</TableCell>
-                        <TableCell>{row.date}</TableCell>
-                        <TableCell>{row.dueDate || '-'}</TableCell>
-                        <TableCell className={cn('text-right', row.kind === 'return' && 'text-destructive')}>
+                        <TableCell className="py-1 px-2 text-xs max-w-[170px] truncate font-medium" title={row.customerName || customerName(row.customerId)}>
+                          {row.customerName || customerName(row.customerId)}
+                        </TableCell>
+                        <TableCell className="py-1 px-2 text-xs whitespace-nowrap">{row.date}</TableCell>
+                        <TableCell className="py-1 px-2 text-xs whitespace-nowrap">{row.dueDate || '-'}</TableCell>
+                        <TableCell className={cn('py-1 px-2 text-xs text-right whitespace-nowrap font-medium', row.kind === 'return' && 'text-destructive')}>
                           {row.kind === 'return' ? `-${fmt(row.total || 0)}` : fmt(row.total || 0)}
                         </TableCell>
-                        <TableCell className="text-right">{row.paid !== undefined ? fmt(row.paid) : '-'}</TableCell>
-                        <TableCell className={cn('text-right font-medium', (row.balance || 0) > 0 && 'text-destructive')}>
+                        <TableCell className="py-1 px-2 text-xs text-right whitespace-nowrap">{row.paid !== undefined ? fmt(row.paid) : '-'}</TableCell>
+                        <TableCell className={cn('py-1 px-2 text-xs text-right whitespace-nowrap font-semibold', (row.balance || 0) > 0 && 'text-destructive')}>
                           {row.balance !== undefined ? fmt(row.balance) : '-'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-1 px-2 whitespace-nowrap">
                           {row.kind === 'return' ? (
-                            <Badge variant="outline">RETURNED</Badge>
+                            <Badge variant="outline" className="h-5 px-1.5 py-0 text-[10px]">RETURNED</Badge>
                           ) : (
-                            <Badge variant={row.status === 'COMPLETED' ? 'default' : 'secondary'}>
+                            <Badge variant={row.status === 'COMPLETED' ? 'default' : 'secondary'} className="h-5 px-1.5 py-0 text-[10px]">
                               {row.status === 'PAYMENT_PENDING'
                                 ? ((row.paid || 0) > 0 ? 'PARTIALLY PAID' : 'UNPAID')
                                 : row.status}
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{row.createdBy || '-'}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
+                        <TableCell className="py-1 px-2 text-xs text-muted-foreground whitespace-nowrap">{row.createdBy || '-'}</TableCell>
+                        <TableCell className="py-1 px-2 text-right whitespace-nowrap">
+                          <div className="flex justify-end gap-1 items-center">
                             {row.kind === 'invoice' && row.status === 'PAYMENT_PENDING' && canView('invoiceReceivePayment') && (
-                              <Button variant="outline" size="sm" onClick={() => setPayingInvoice(row.raw)}>Receive Payment</Button>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs font-semibold px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs gap-1.5 shrink-0"
+                                onClick={() => setPayingInvoice(row.raw)}
+                                title="Receive payment for this pending invoice"
+                              >
+                                <Wallet className="h-3.5 w-3.5" />
+                                Receive Payment
+                              </Button>
                             )}
                             <Button
                               variant="ghost"
-                              size="sm"
+                              size="icon"
+                              className="h-6 w-6"
                               onClick={() => row.kind === 'return' ? setViewingReturn(row.raw) : openInvoiceDetail(row.docNumber)}
                               title="View items"
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-3.5 w-3.5" />
                             </Button>
                             {row.kind === 'invoice' && (
-                              <Button variant="ghost" size="sm" onClick={() => reprintInvoice(row.docNumber)} title="Print">
-                                <Printer className="h-4 w-4" />
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => reprintInvoice(row.docNumber)} title="Print">
+                                <Printer className="h-3.5 w-3.5" />
                               </Button>
                             )}
                             {row.kind === 'return' && (
-                              <Button variant="ghost" size="sm" onClick={() => printReturn(row.docNumber)} title="Print Return Note">
-                                <Printer className="h-4 w-4" />
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => printReturn(row.docNumber)} title="Print Return Note">
+                                <Printer className="h-3.5 w-3.5" />
                               </Button>
                             )}
                           </div>
@@ -1532,7 +1903,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
 
       {/* Item Picker Dialog */}
       <Dialog open={itemPickerOpen} onOpenChange={(open) => { setItemPickerOpen(open); if (!open) { setSelectedItemKey(null); setSelectedItemTier('retail'); setItemSearchQuery(''); } }}>
-        <DialogContent className="max-w-5xl h-[85vh] flex flex-col p-0 gap-0">
+        <DialogContent className="max-w-5xl w-[95vw] h-[85vh] flex flex-col p-0 gap-0">
           <DialogHeader className="px-4 py-3 border-b">
             <DialogTitle className="flex items-center gap-2">
               <Search className="h-4 w-4" />
@@ -1687,7 +2058,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
 
       {/* View Invoice Items Dialog */}
       <Dialog open={!!viewingInvoice} onOpenChange={(open) => { if (!open) setViewingInvoice(null); }}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -1810,7 +2181,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
 
       {/* View Return Details Dialog */}
       <Dialog open={!!viewingReturn} onOpenChange={(open) => { if (!open) setViewingReturn(null); }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Undo2 className="h-5 w-5 text-destructive" />
@@ -1869,7 +2240,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
 
       {/* Return Items Dialog - mirrors POS.tsx's return dialog: qty steppers bounded by returnable remaining */}
       <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Undo2 className="h-5 w-5 text-destructive" />
@@ -1980,7 +2351,7 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
 
       {/* Confirmation Dialog before approving a credit Sale Invoice */}
       <Dialog open={approveConfirmOpen} onOpenChange={setApproveConfirmOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md w-[95vw]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
@@ -2101,6 +2472,87 @@ export default function Invoicing({ initialDocumentType }: { initialDocumentType
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* Quick Add Customer Dialog */}
+      <Dialog open={quickAddOpen} onOpenChange={setQuickAddOpen}>
+        <DialogContent className="max-w-md w-[95vw]">
+          <DialogHeader className="pb-1">
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <UserPlus className="h-4 w-4 text-primary" /> Quick Add Customer
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-1">
+              <Label htmlFor="quick-cust-name" className="text-xs">Full Name *</Label>
+              <Input
+                id="quick-cust-name"
+                value={quickCustomer.name}
+                onChange={(e) => setQuickCustomer(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g. John Doe"
+                className="h-8 text-xs"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="quick-cust-phone" className="text-xs">Phone</Label>
+                <Input
+                  id="quick-cust-phone"
+                  value={quickCustomer.phone}
+                  onChange={(e) => setQuickCustomer(prev => ({ ...prev, phone: e.target.value }))}
+                  placeholder="e.g. 0712 345 678"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="quick-cust-email" className="text-xs">Email</Label>
+                <Input
+                  id="quick-cust-email"
+                  type="email"
+                  value={quickCustomer.email}
+                  onChange={(e) => setQuickCustomer(prev => ({ ...prev, email: e.target.value }))}
+                  placeholder="e.g. john@mail.com"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="quick-cust-idNumber" className="text-xs">ID Number</Label>
+                <Input
+                  id="quick-cust-idNumber"
+                  value={quickCustomer.idNumber}
+                  onChange={(e) => setQuickCustomer(prev => ({ ...prev, idNumber: e.target.value }))}
+                  placeholder="National ID / Passport"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="quick-cust-limit" className="text-xs">Credit Limit</Label>
+                <Input
+                  id="quick-cust-limit"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={quickCustomer.creditLimit}
+                  onChange={(e) => setQuickCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
+                  placeholder="No limit"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="mt-2 pt-2 border-t flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setQuickAddOpen(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={!quickCustomer.name.trim() || isSubmittingQuickCust}
+              onClick={handleQuickAddCustomerSubmit}
+            >
+              {isSubmittingQuickCust ? 'Saving...' : 'Save & Select'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </AppLayout>

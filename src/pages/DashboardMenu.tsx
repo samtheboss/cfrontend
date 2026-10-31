@@ -124,7 +124,7 @@ export default function DashboardMenu() {
       href: '/cash-sale',
       icon: Wallet,
       iconGradientClass: 'from-emerald-500 to-green-600 shadow-emerald-500/20',
-      requiredRight: 'createInvoice',
+      requiredRight: 'createCashSale',
       hasRedDot: true,
       category: 'core'
     },

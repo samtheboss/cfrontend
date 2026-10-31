@@ -38,14 +38,14 @@ export default function Reports() {
   // Format date as local ISO string (no Z suffix) to match backend LocalDateTime
   const formatLocalISO = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
   // Report State (Global Filters)
   const todayStr = (() => {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
-    return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   })();
   const [startDate, setStartDate] = useState<string>(todayStr);
   const [endDate, setEndDate] = useState<string>(todayStr);
@@ -92,7 +92,7 @@ export default function Reports() {
     `;
 
     printWindow.document.head.appendChild(style);
-    
+
     const h1 = printWindow.document.createElement('h1');
     h1.innerText = title;
     printWindow.document.body.appendChild(h1);
@@ -104,8 +104,17 @@ export default function Reports() {
     printWindow.close();
   };
 
-  const exportToCSV = (data: any[], headers: string[], filename: string) => {
+  const exportToCSV = (data: any[], headers: string[], filename: string, metaRows?: any[][]) => {
     const csvRows = [];
+    if (metaRows && metaRows.length > 0) {
+      for (const mrow of metaRows) {
+        csvRows.push(mrow.map((val: any) => {
+          const escaped = (val === null || val === undefined ? '' : String(val)).replace(/"/g, '""');
+          return `"${escaped}"`;
+        }).join(','));
+      }
+      csvRows.push(''); // blank row separating metadata from table headers
+    }
     csvRows.push(headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','));
     for (const row of data) {
       const values = row.map((val: any) => {
@@ -548,7 +557,7 @@ export default function Reports() {
 
   const profitabilityLedger = useMemo(() => {
     const rows: any[] = [];
-    
+
     filteredCombinedPayments.forEach(p => {
       rows.push({
         id: `rev-${p.id || Math.random()}`,
@@ -1250,15 +1259,40 @@ export default function Reports() {
   };
 
   const handleExportHistory = () => {
-    const rows = movements.map(move => [
+    const selectedProd = products.find(p => p.id === selectedProductId);
+    const locName = selectedLocationId === 'all' ? 'All Locations' : (locations.find(l => l.id === selectedLocationId)?.name || 'Selected Location');
+    const varLabel = selectedVariantIds.length === 1
+      ? (Object.values(selectedProd?.variants.find(v => v.id === selectedVariantIds[0])?.attributes || {}).join(' / ') || selectedProd?.variants.find(v => v.id === selectedVariantIds[0])?.sku || '-')
+      : (selectedVariantIds.length > 1 ? 'Selected Variants' : 'All Variants');
+
+    const openingRow = [
+      format(buildStartDate(), 'yyyy-MM-dd HH:mm'),
+      'Opening Stock',
+      varLabel,
+      locName,
+      'OPENING',
+      '-',
+      openingBalance
+    ];
+
+    const movementRows = movements.map(move => [
       format(move.date, 'yyyy-MM-dd HH:mm'),
       move.type,
       move.variantInfo || '-',
+      move.locationName || locName,
       move.reference,
       move.quantity > 0 ? `+${move.quantity}` : move.quantity,
       move.runningBalance
     ]);
-    exportToCSV(rows, ["Date", "Type", "Variant (Info)", "Reference", "In/Out", "Running Balance"], `Stock_Movement_${startDate}_to_${endDate}.csv`);
+
+    const rows = [openingRow, ...movementRows];
+    const metaRows = [
+      ['Product Name:', selectedProd ? `${selectedProd.name}${selectedProd.sku ? ` (${selectedProd.sku})` : ''}` : 'All Products'],
+      ['Location:', locName, 'Date Range:', `${startDate} to ${endDate}`],
+      ['Opening Stock:', openingBalance, 'Current Stock:', currentDisplayedStock()]
+    ];
+    const safeProdName = (selectedProd?.name || 'Stock').replace(/[^a-zA-Z0-9_-]/g, '_');
+    exportToCSV(rows, ["Date", "Type", "Variant (Info)", "Location", "Reference", "In/Out", "Running Balance"], `Stock_Movement_${safeProdName}_${startDate}_to_${endDate}.csv`, metaRows);
   };
 
   const handleExportPurchases = () => {
@@ -1293,81 +1327,81 @@ export default function Reports() {
   return (
     <AppLayout title="Reports & Analytics">
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                <DollarSign className="h-6 w-6 text-primary" />
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 mb-3">
+        <Card className="shadow-none border rounded-xl">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                <DollarSign className="h-4 w-4 text-primary" />
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Sales</p>
-                <p className="text-2xl font-bold">{sym}{totalSales.toFixed(2)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-success/10">
-                <TrendingUp className="h-6 w-6 text-success" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Items Sold</p>
-                <p className="text-2xl font-bold">{totalItems}</p>
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted-foreground truncate">Total Sales</p>
+                <p className="text-base font-bold truncate">{sym}{totalSales.toFixed(2)}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-info/10">
-                <Package className="h-6 w-6 text-info" />
+        <Card className="shadow-none border rounded-xl">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 shrink-0">
+                <TrendingUp className="h-4 w-4 text-success" />
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Inventory Value</p>
-                <p className="text-2xl font-bold">{sym}{totalInventoryValue.toLocaleString()}</p>
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted-foreground truncate">Items Sold</p>
+                <p className="text-base font-bold truncate">{totalItems}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning/10">
-                <AlertTriangle className="h-6 w-6 text-warning" />
+        <Card className="shadow-none border rounded-xl">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-info/10 shrink-0">
+                <Package className="h-4 w-4 text-info" />
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Low Stock Items</p>
-                <p className="text-2xl font-bold">{lowStock + outOfStock}</p>
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted-foreground truncate">Inventory Value</p>
+                <p className="text-base font-bold truncate">{sym}{totalInventoryValue.toLocaleString()}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-none border rounded-xl">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning/10 shrink-0">
+                <AlertTriangle className="h-4 w-4 text-warning" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted-foreground truncate">Low Stock Items</p>
+                <p className="text-base font-bold truncate">{lowStock + outOfStock}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-muted/50 p-4 rounded-lg border mb-6">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Report Period:</span>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 bg-muted/40 p-2 rounded-xl border mb-3 text-xs">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Filter className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="font-semibold text-xs">Period:</span>
         </div>
-        <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
-          <div className="flex items-center gap-2">
-            <Label className="text-xs">From</Label>
-            <Input type="date" className="w-full sm:w-auto bg-background" value={startDate} onChange={e => setStartDate(e.target.value)} />
-            <Input type="time" className="w-[110px] bg-background" value={startTime} onChange={e => setStartTime(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-1">
+            <Label className="text-[11px] text-muted-foreground">From</Label>
+            <Input type="date" className="h-7 text-xs w-auto bg-background px-2" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            <Input type="time" className="h-7 text-xs w-[95px] bg-background px-1" value={startTime} onChange={e => setStartTime(e.target.value)} />
           </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-xs">To</Label>
-            <Input type="date" className="w-full sm:w-auto bg-background" value={endDate} onChange={e => setEndDate(e.target.value)} />
-            <Input type="time" className="w-[110px] bg-background" value={endTime} onChange={e => setEndTime(e.target.value)} />
+          <div className="flex items-center gap-1">
+            <Label className="text-[11px] text-muted-foreground">To</Label>
+            <Input type="date" className="h-7 text-xs w-auto bg-background px-2" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <Input type="time" className="h-7 text-xs w-[95px] bg-background px-1" value={endTime} onChange={e => setEndTime(e.target.value)} />
           </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-xs">Location</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-[11px] text-muted-foreground">Location</Label>
             <Select value={reportLocationId} onValueChange={setReportLocationId}>
-              <SelectTrigger className="w-[150px] bg-background">
+              <SelectTrigger className="h-7 text-xs w-[130px] bg-background">
                 <SelectValue placeholder="All Locations" />
               </SelectTrigger>
               <SelectContent>
@@ -1378,10 +1412,10 @@ export default function Reports() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-xs">User</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-[11px] text-muted-foreground">User</Label>
             <Select value={reportUserId} onValueChange={setReportUserId}>
-              <SelectTrigger className="w-[150px] bg-background">
+              <SelectTrigger className="h-7 text-xs w-[130px] bg-background">
                 <SelectValue placeholder="All Users" />
               </SelectTrigger>
               <SelectContent>
@@ -1394,32 +1428,32 @@ export default function Reports() {
           </div>
         </div>
         <div className="sm:ml-auto w-full sm:w-auto">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="w-full sm:w-auto">
-            {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-            Refresh Data
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="h-7 text-xs px-2.5 w-full sm:w-auto">
+            {isRefreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+            Refresh
           </Button>
         </div>
       </div>
 
-      <Tabs defaultValue="stock" className="space-y-6">
-        <TabsList className="w-full justify-start overflow-x-auto flex-nowrap scrollbar-none h-auto p-1 bg-muted/50">
-          <TabsTrigger value="stock" className="whitespace-nowrap min-w-fit">Stock Report</TabsTrigger>
-          <TabsTrigger value="sales" className="whitespace-nowrap min-w-fit">Sales Report</TabsTrigger>
-          <TabsTrigger value="grouped-sales" className="whitespace-nowrap min-w-fit">Sales Grouping</TabsTrigger>
-          <TabsTrigger value="purchases" className="whitespace-nowrap min-w-fit">Purchases Report</TabsTrigger>
-          <TabsTrigger value="returns" className="whitespace-nowrap min-w-fit">Returns</TabsTrigger>
-          <TabsTrigger value="payments" className="whitespace-nowrap min-w-fit">Payments Report</TabsTrigger>
-          <TabsTrigger value="profitability" className="whitespace-nowrap min-w-fit">Profitability Report</TabsTrigger>
-          <TabsTrigger value="fast-moving" className="whitespace-nowrap min-w-fit">Fast Moving Items</TabsTrigger>
-          <TabsTrigger value="history" className="whitespace-nowrap min-w-fit">Inventory History</TabsTrigger>
+      <Tabs defaultValue="stock" className="space-y-3">
+        <TabsList className="w-full justify-start overflow-x-auto flex-nowrap scrollbar-none h-8 p-0.5 bg-muted/50 rounded-lg">
+          <TabsTrigger value="stock" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Stock Report</TabsTrigger>
+          <TabsTrigger value="sales" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Sales Report</TabsTrigger>
+          <TabsTrigger value="grouped-sales" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Sales Grouping</TabsTrigger>
+          <TabsTrigger value="purchases" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Purchases Report</TabsTrigger>
+          <TabsTrigger value="returns" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Returns</TabsTrigger>
+          <TabsTrigger value="payments" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Payments Report</TabsTrigger>
+          <TabsTrigger value="profitability" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Profitability Report</TabsTrigger>
+          <TabsTrigger value="fast-moving" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Fast Moving Items</TabsTrigger>
+          <TabsTrigger value="history" className="whitespace-nowrap min-w-fit text-xs px-2.5 py-1">Inventory History</TabsTrigger>
         </TabsList>
 
         {/* Stock Report Tab */}
-        <TabsContent value="stock" className="space-y-8">
+        <TabsContent value="stock" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Stock <span className="text-amber-600 font-serif italic font-normal">Valuation</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -1588,7 +1622,7 @@ export default function Reports() {
 
           {/* Ledger Table Section */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Inventory Ledger</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -1604,29 +1638,29 @@ export default function Reports() {
                 <table id="stock-ledger-table" className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">Product</th>
-                      <th className="py-3.5 px-4">Variant</th>
-                      <th className="py-3.5 px-4">Category</th>
-                      <th className="py-3.5 px-4 text-right">Cost</th>
-                      <th className="py-3.5 px-4 text-right">Price</th>
-                      <th className="py-3.5 px-4 text-right">Stock</th>
-                      <th className="py-3.5 px-4 text-right">Total Cost</th>
-                      <th className="py-3.5 px-4 text-right">Total Retail</th>
-                      <th className="py-3.5 px-6">Status</th>
+                      <th className="py-2 px-3 text-xs">Product</th>
+                      <th className="py-2 px-2.5 text-xs">Variant</th>
+                      <th className="py-2 px-2.5 text-xs">Category</th>
+                      <th className="py-2 px-2.5 text-right text-xs">Cost</th>
+                      <th className="py-2 px-2.5 text-right text-xs">Price</th>
+                      <th className="py-2 px-2.5 text-right text-xs">Stock</th>
+                      <th className="py-2 px-2.5 text-right text-xs">Total Cost</th>
+                      <th className="py-2 px-2.5 text-right text-xs">Total Retail</th>
+                      <th className="py-2 px-3 text-xs">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
                     {stockItems.map((item, idx) => (
                       <tr key={item.variant.id || idx} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-4 px-6 font-semibold text-foreground">{item.product.name}</td>
-                        <td className="py-4 px-4 text-xs text-muted-foreground">{Object.values(item.variant.attributes).join(' / ') || 'Default'}</td>
-                        <td className="py-4 px-4"><span className="px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase bg-muted/60 text-muted-foreground">{item.product.category}</span></td>
-                        <td className="py-4 px-4 text-right font-serif">{sym}{item.variant.cost.toFixed(2)}</td>
-                        <td className="py-4 px-4 text-right font-serif">{sym}{item.variant.price.toFixed(2)}</td>
-                        <td className="py-4 px-4 text-right font-bold text-base">{item.currentStock}</td>
-                        <td className="py-4 px-4 text-right font-serif font-medium text-muted-foreground">{sym}{item.totalCost.toFixed(2)}</td>
-                        <td className="py-4 px-4 text-right font-serif font-medium text-emerald-600 dark:text-emerald-400">{sym}{item.totalRetail.toFixed(2)}</td>
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-xs font-semibold text-foreground">{item.product.name}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-xs text-muted-foreground">{Object.values(item.variant.attributes).join(' / ') || 'Default'}</td>
+                        <td className="py-1.5 px-2.5 text-xs"><span className="px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase bg-muted/60 text-muted-foreground">{item.product.category}</span></td>
+                        <td className="py-1.5 px-2.5 text-xs text-right font-serif">{sym}{item.variant.cost.toFixed(2)}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-right font-serif">{sym}{item.variant.price.toFixed(2)}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-right font-bold text-base">{item.currentStock}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-right font-serif font-medium text-muted-foreground">{sym}{item.totalCost.toFixed(2)}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-right font-serif font-medium text-emerald-600 dark:text-emerald-400">{sym}{item.totalRetail.toFixed(2)}</td>
+                        <td className="py-1.5 px-3 text-xs whitespace-nowrap">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${item.statusColor}`}>
                             {item.statusText}
                           </span>
@@ -1636,13 +1670,13 @@ export default function Reports() {
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={3}>TOTALS</td>
-                      <td className="py-3.5 px-4 text-right">-</td>
-                      <td className="py-3.5 px-4 text-right">-</td>
-                      <td className="py-3.5 px-4 text-right text-base">{stockItems.reduce((sum, item) => sum + item.currentStock, 0)}</td>
-                      <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{stockItems.reduce((sum, item) => sum + item.totalCost, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="py-3.5 px-4 text-right font-serif text-base text-emerald-600 dark:text-emerald-400">{sym}{stockItems.reduce((sum, item) => sum + item.totalRetail, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="py-3.5 px-6">-</td>
+                      <td className="py-2 px-3 text-xs" colSpan={3}>TOTALS</td>
+                      <td className="py-2 px-2.5 text-right text-xs">-</td>
+                      <td className="py-2 px-2.5 text-right text-xs">-</td>
+                      <td className="py-2 px-2.5 text-right text-xs text-base">{stockItems.reduce((sum, item) => sum + item.currentStock, 0)}</td>
+                      <td className="py-2 px-2.5 text-right text-xs font-serif text-xs">{sym}{stockItems.reduce((sum, item) => sum + item.totalCost, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2 px-2.5 text-right text-xs font-serif text-xs text-emerald-600 dark:text-emerald-400">{sym}{stockItems.reduce((sum, item) => sum + item.totalRetail, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2 px-3 text-xs">-</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1651,11 +1685,11 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="sales" className="space-y-8">
+        <TabsContent value="sales" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Sales <span className="text-amber-600 font-serif italic font-normal">Summary</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -1798,7 +1832,7 @@ export default function Reports() {
 
           {/* Ledger Table Section */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Sales Ledger</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -1814,43 +1848,43 @@ export default function Reports() {
                 <table id="sales-ledger-table" className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">Date</th>
-                      <th className="py-3.5 px-4">Receipt #</th>
-                      <th className="py-3.5 px-4">Items</th>
-                      <th className="py-3.5 px-4">Payment Status</th>
-                      <th className="py-3.5 px-4 text-right">Subtotal</th>
-                      <th className="py-3.5 px-4 text-right">Tax</th>
-                      <th className="py-3.5 px-6 text-right">Total</th>
+                      <th className="py-2 px-3 text-xs">Date</th>
+                      <th className="py-2 px-2.5 text-xs">Receipt #</th>
+                      <th className="py-2 px-2.5 text-xs">Items</th>
+                      <th className="py-2 px-2.5 text-xs">Payment Status</th>
+                      <th className="py-2 px-2.5 text-right text-xs">Subtotal</th>
+                      <th className="py-2 px-2.5 text-right text-xs">Tax</th>
+                      <th className="py-2 px-3 text-right text-xs">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
                     {salesItems.map((sale) => (
                       <tr key={sale.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-xs whitespace-nowrap">
                           <span className="font-semibold text-foreground">{format(new Date(sale.timestamp), 'MMM d')}</span>
                           <span className="text-xs text-muted-foreground ml-2">{format(new Date(sale.timestamp), 'HH:mm')}</span>
                         </td>
-                        <td className="py-4 px-4 whitespace-nowrap font-mono text-xs font-bold text-amber-600 dark:text-amber-400">{sale.journalNumber || sale.id}</td>
-                        <td className="py-4 px-4 text-xs font-medium text-foreground max-w-[250px] truncate">
+                        <td className="py-1.5 px-2.5 text-xs whitespace-nowrap font-mono text-xs font-bold text-amber-600 dark:text-amber-400">{sale.journalNumber || sale.id}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-xs font-medium text-foreground max-w-[250px] truncate">
                           {sale.items.map(i => `${i.productName} (${i.adjustment})`).join(', ')}
                         </td>
-                        <td className="py-4 px-4 whitespace-nowrap">
+                        <td className="py-1.5 px-2.5 text-xs whitespace-nowrap">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${sale.status === 'COMPLETED' || sale.status === 'PAID' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'}`}>
                             {sale.status === 'COMPLETED' ? 'Paid' : sale.status.toLowerCase()}
                           </span>
                         </td>
-                        <td className="py-4 px-4 text-right font-serif text-muted-foreground">{sym}{(sale.subtotal || 0).toFixed(2)}</td>
-                        <td className="py-4 px-4 text-right font-serif text-muted-foreground">{sym}{(sale.tax || sale.taxAmount || 0).toFixed(2)}</td>
-                        <td className="py-4 px-6 text-right font-serif font-semibold text-base text-emerald-600 dark:text-emerald-400">{sym}{(sale.total || sale.totalAmount || 0).toFixed(2)}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-right font-serif text-muted-foreground">{sym}{(sale.subtotal || 0).toFixed(2)}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-right font-serif text-muted-foreground">{sym}{(sale.tax || sale.taxAmount || 0).toFixed(2)}</td>
+                        <td className="py-1.5 px-3 text-xs text-right font-serif font-semibold text-base text-emerald-600 dark:text-emerald-400">{sym}{(sale.total || sale.totalAmount || 0).toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={4}>TOTALS</td>
-                      <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{salesItems.reduce((sum, s) => sum + (s.subtotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{salesItems.reduce((sum, s) => sum + (s.tax || s.taxAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="py-3.5 px-6 text-right font-serif text-base text-emerald-600 dark:text-emerald-400">{sym}{salesItems.reduce((sum, s) => sum + (s.total || s.totalAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2 px-3 text-xs" colSpan={4}>TOTALS</td>
+                      <td className="py-2 px-2.5 text-right text-xs font-serif text-xs">{sym}{salesItems.reduce((sum, s) => sum + (s.subtotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2 px-2.5 text-right text-xs font-serif text-xs">{sym}{salesItems.reduce((sum, s) => sum + (s.tax || s.taxAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2 px-3 text-right text-xs font-serif text-xs text-emerald-600 dark:text-emerald-400">{sym}{salesItems.reduce((sum, s) => sum + (s.total || s.totalAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1860,7 +1894,7 @@ export default function Reports() {
 
           {/* Sales Trend Chart */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <h3 className="font-serif text-2xl font-normal text-foreground">Sales Trend</h3>
               <div className="text-xs text-muted-foreground font-medium">Daily Revenue • KES</div>
             </CardHeader>
@@ -1880,11 +1914,11 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="grouped-sales" className="space-y-8">
+        <TabsContent value="grouped-sales" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Sales <span className="text-amber-600 font-serif italic font-normal">Grouping</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -1929,7 +1963,7 @@ export default function Reports() {
 
           {/* Grouped Table */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Sales by {salesGroupByLabels[salesGroupBy]}</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -1943,101 +1977,101 @@ export default function Reports() {
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 {(() => {
-                const paymentMode = salesGroupBy === 'payment';
-                const colCount = paymentMode ? 3 : 6;
-                return (
-                <table id="grouped-sales-table" className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">{salesGroupByLabels[salesGroupBy]}</th>
-                      <th className="py-3.5 px-4 text-right">{paymentMode ? 'Payments' : 'Transactions'}</th>
-                      {!paymentMode && <th className="py-3.5 px-4 text-right">Units</th>}
-                      {!paymentMode && <th className="py-3.5 px-4 text-right">Subtotal</th>}
-                      {!paymentMode && <th className="py-3.5 px-4 text-right">Tax</th>}
-                      <th className="py-3.5 px-6 text-right">{paymentMode ? 'Amount' : 'Total'}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y text-sm">
-                    {groupedSales.length === 0 ? (
-                      <tr><td colSpan={colCount} className="py-8 text-center text-muted-foreground">No sales in the selected period.</td></tr>
-                    ) : groupedSales.map((row) => {
-                      const expandable = row.children.length > 0;
-                      const open = !!expandedGroups[row.key];
-                      return (
-                        <React.Fragment key={row.key}>
-                          <tr
-                            className={`transition-colors ${expandable ? 'cursor-pointer hover:bg-muted/30' : ''} ${open ? 'bg-muted/20' : ''}`}
-                            onClick={() => expandable && toggleGroup(row.key)}
-                          >
-                            <td className="py-4 px-6 font-semibold text-foreground">
-                              <span className="inline-flex items-center gap-1.5">
-                                {expandable
-                                  ? (open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />)
-                                  : <span className="w-4 h-4 inline-block" />}
-                                {row.label}
-                              </span>
-                            </td>
-                            <td className="py-4 px-4 text-right text-muted-foreground">{row.transactions}</td>
-                            {!paymentMode && <td className="py-4 px-4 text-right text-muted-foreground">{row.units}</td>}
-                            {!paymentMode && <td className="py-4 px-4 text-right font-serif text-muted-foreground">{sym}{row.subtotal.toFixed(2)}</td>}
-                            {!paymentMode && <td className="py-4 px-4 text-right font-serif text-muted-foreground">{sym}{row.tax.toFixed(2)}</td>}
-                            <td className="py-4 px-6 text-right font-serif font-semibold text-base text-emerald-600 dark:text-emerald-400">{sym}{row.total.toFixed(2)}</td>
-                          </tr>
-                          {open && row.children.map((child) => {
-                            const childExpandable = !!child.children && child.children.length > 0;
-                            const childOpen = !!expandedGroups[child.key];
-                            return (
-                              <React.Fragment key={child.key}>
-                                <tr
-                                  className={`bg-muted/5 text-xs transition-colors ${childExpandable ? 'cursor-pointer hover:bg-muted/20' : ''}`}
-                                  onClick={() => childExpandable && toggleGroup(child.key)}
-                                >
-                                  <td className="py-2.5 pl-12 pr-6">
-                                    <span className="inline-flex items-center gap-1.5">
-                                      {childExpandable
-                                        ? (childOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />)
-                                        : <span className="w-3.5 h-3.5 inline-block" />}
-                                      <span>
-                                        <span className="font-mono font-medium text-foreground">{child.label}</span>
-                                        {child.sublabel && <span className="block text-[11px] text-muted-foreground truncate max-w-[420px]">{child.sublabel}</span>}
-                                      </span>
-                                    </span>
-                                  </td>
-                                  <td className="py-2.5 px-4 text-right text-muted-foreground">—</td>
-                                  {!paymentMode && <td className="py-2.5 px-4 text-right text-muted-foreground">{child.units}</td>}
-                                  {!paymentMode && <td className="py-2.5 px-4 text-right font-serif text-muted-foreground">{sym}{child.subtotal.toFixed(2)}</td>}
-                                  {!paymentMode && <td className="py-2.5 px-4 text-right font-serif text-muted-foreground">{sym}{child.tax.toFixed(2)}</td>}
-                                  <td className="py-2.5 px-6 text-right font-serif text-muted-foreground">{sym}{child.total.toFixed(2)}</td>
-                                </tr>
-                                {childOpen && child.children!.map((leaf) => (
-                                  <tr key={leaf.key} className="bg-muted/10 text-[11px]">
-                                    <td className="py-2 pl-[4.75rem] pr-6 text-muted-foreground">{leaf.label}</td>
-                                    <td className="py-2 px-4 text-right text-muted-foreground">—</td>
-                                    {!paymentMode && <td className="py-2 px-4 text-right text-muted-foreground">{leaf.units}</td>}
-                                    {!paymentMode && <td className="py-2 px-4 text-right font-serif text-muted-foreground">{sym}{leaf.subtotal.toFixed(2)}</td>}
-                                    {!paymentMode && <td className="py-2 px-4 text-right font-serif text-muted-foreground">{sym}{leaf.tax.toFixed(2)}</td>}
-                                    <td className="py-2 px-6 text-right font-serif text-muted-foreground">{sym}{leaf.total.toFixed(2)}</td>
-                                  </tr>
-                                ))}
-                              </React.Fragment>
-                            );
-                          })}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
-                    <tr>
-                      <td className="py-3.5 px-6">TOTALS</td>
-                      <td className="py-3.5 px-4 text-right">{groupedSalesTotals.transactions}</td>
-                      {!paymentMode && <td className="py-3.5 px-4 text-right">{groupedSalesTotals.units}</td>}
-                      {!paymentMode && <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{groupedSalesTotals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
-                      {!paymentMode && <td className="py-3.5 px-4 text-right font-serif text-base">{sym}{groupedSalesTotals.tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
-                      <td className="py-3.5 px-6 text-right font-serif text-base text-emerald-600 dark:text-emerald-400">{sym}{groupedSalesTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-                );
+                  const paymentMode = salesGroupBy === 'payment';
+                  const colCount = paymentMode ? 3 : 6;
+                  return (
+                    <table id="grouped-sales-table" className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
+                          <th className="py-2 px-3 text-xs">{salesGroupByLabels[salesGroupBy]}</th>
+                          <th className="py-2 px-2.5 text-right text-xs">{paymentMode ? 'Payments' : 'Transactions'}</th>
+                          {!paymentMode && <th className="py-2 px-2.5 text-right text-xs">Units</th>}
+                          {!paymentMode && <th className="py-2 px-2.5 text-right text-xs">Subtotal</th>}
+                          {!paymentMode && <th className="py-2 px-2.5 text-right text-xs">Tax</th>}
+                          <th className="py-2 px-3 text-right text-xs">{paymentMode ? 'Amount' : 'Total'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y text-sm">
+                        {groupedSales.length === 0 ? (
+                          <tr><td colSpan={colCount} className="py-8 text-center text-muted-foreground">No sales in the selected period.</td></tr>
+                        ) : groupedSales.map((row) => {
+                          const expandable = row.children.length > 0;
+                          const open = !!expandedGroups[row.key];
+                          return (
+                            <React.Fragment key={row.key}>
+                              <tr
+                                className={`transition-colors ${expandable ? 'cursor-pointer hover:bg-muted/30' : ''} ${open ? 'bg-muted/20' : ''}`}
+                                onClick={() => expandable && toggleGroup(row.key)}
+                              >
+                                <td className="py-1.5 px-3 text-xs font-semibold text-foreground">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    {expandable
+                                      ? (open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />)
+                                      : <span className="w-4 h-4 inline-block" />}
+                                    {row.label}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 px-2.5 text-xs text-right text-muted-foreground">{row.transactions}</td>
+                                {!paymentMode && <td className="py-1.5 px-2.5 text-xs text-right text-muted-foreground">{row.units}</td>}
+                                {!paymentMode && <td className="py-1.5 px-2.5 text-xs text-right font-serif text-muted-foreground">{sym}{row.subtotal.toFixed(2)}</td>}
+                                {!paymentMode && <td className="py-1.5 px-2.5 text-xs text-right font-serif text-muted-foreground">{sym}{row.tax.toFixed(2)}</td>}
+                                <td className="py-1.5 px-3 text-xs text-right font-serif font-semibold text-base text-emerald-600 dark:text-emerald-400">{sym}{row.total.toFixed(2)}</td>
+                              </tr>
+                              {open && row.children.map((child) => {
+                                const childExpandable = !!child.children && child.children.length > 0;
+                                const childOpen = !!expandedGroups[child.key];
+                                return (
+                                  <React.Fragment key={child.key}>
+                                    <tr
+                                      className={`bg-muted/5 text-xs transition-colors ${childExpandable ? 'cursor-pointer hover:bg-muted/20' : ''}`}
+                                      onClick={() => childExpandable && toggleGroup(child.key)}
+                                    >
+                                      <td className="py-2.5 pl-12 pr-6">
+                                        <span className="inline-flex items-center gap-1.5">
+                                          {childExpandable
+                                            ? (childOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />)
+                                            : <span className="w-3.5 h-3.5 inline-block" />}
+                                          <span>
+                                            <span className="font-mono font-medium text-foreground">{child.label}</span>
+                                            {child.sublabel && <span className="block text-[11px] text-muted-foreground truncate max-w-[420px]">{child.sublabel}</span>}
+                                          </span>
+                                        </span>
+                                      </td>
+                                      <td className="py-1 px-2.5 text-xs text-right text-muted-foreground">—</td>
+                                      {!paymentMode && <td className="py-1 px-2.5 text-xs text-right text-muted-foreground">{child.units}</td>}
+                                      {!paymentMode && <td className="py-1 px-2.5 text-xs text-right font-serif text-muted-foreground">{sym}{child.subtotal.toFixed(2)}</td>}
+                                      {!paymentMode && <td className="py-1 px-2.5 text-xs text-right font-serif text-muted-foreground">{sym}{child.tax.toFixed(2)}</td>}
+                                      <td className="py-1.5 px-3 text-xs text-right font-serif text-muted-foreground">{sym}{child.total.toFixed(2)}</td>
+                                    </tr>
+                                    {childOpen && child.children!.map((leaf) => (
+                                      <tr key={leaf.key} className="bg-muted/10 text-[11px]">
+                                        <td className="py-2 pl-[4.75rem] pr-6 text-muted-foreground">{leaf.label}</td>
+                                        <td className="py-2 px-4 text-right text-muted-foreground">—</td>
+                                        {!paymentMode && <td className="py-2 px-4 text-right text-muted-foreground">{leaf.units}</td>}
+                                        {!paymentMode && <td className="py-2 px-4 text-right font-serif text-muted-foreground">{sym}{leaf.subtotal.toFixed(2)}</td>}
+                                        {!paymentMode && <td className="py-2 px-4 text-right font-serif text-muted-foreground">{sym}{leaf.tax.toFixed(2)}</td>}
+                                        <td className="py-2 px-6 text-right font-serif text-muted-foreground">{sym}{leaf.total.toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
+                        <tr>
+                          <td className="py-2 px-3 text-xs">TOTALS</td>
+                          <td className="py-2 px-2.5 text-right text-xs">{groupedSalesTotals.transactions}</td>
+                          {!paymentMode && <td className="py-2 px-2.5 text-right text-xs">{groupedSalesTotals.units}</td>}
+                          {!paymentMode && <td className="py-2 px-2.5 text-right text-xs font-serif text-xs">{sym}{groupedSalesTotals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
+                          {!paymentMode && <td className="py-2 px-2.5 text-right text-xs font-serif text-xs">{sym}{groupedSalesTotals.tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
+                          <td className="py-2 px-3 text-right text-xs font-serif text-xs text-emerald-600 dark:text-emerald-400">{sym}{groupedSalesTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  );
                 })()}
               </div>
             </CardContent>
@@ -2046,7 +2080,7 @@ export default function Reports() {
           {/* Grouped Chart */}
           {groupedSales.length > 0 && (
             <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-              <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+              <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Total by {salesGroupByLabels[salesGroupBy]}</h3>
                 <div className="text-xs text-muted-foreground font-medium">Top 15 • KES</div>
               </CardHeader>
@@ -2067,11 +2101,11 @@ export default function Reports() {
           )}
         </TabsContent>
 
-        <TabsContent value="returns" className="space-y-8">
+        <TabsContent value="returns" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Sales <span className="text-amber-600 font-serif italic font-normal">Returns</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -2177,7 +2211,7 @@ export default function Reports() {
 
           {/* Ledger Table Section */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Returns Log</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -2193,31 +2227,31 @@ export default function Reports() {
                 <table id="returns-ledger-table" className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">Date</th>
-                      <th className="py-3.5 px-4">Return Ref</th>
-                      <th className="py-3.5 px-4">Items Returned</th>
-                      <th className="py-3.5 px-4">Reason / Notes</th>
-                      <th className="py-3.5 px-6 text-right">Refund Amount</th>
+                      <th className="py-2 px-3 text-xs">Date</th>
+                      <th className="py-2 px-2.5 text-xs">Return Ref</th>
+                      <th className="py-2 px-2.5 text-xs">Items Returned</th>
+                      <th className="py-2 px-2.5 text-xs">Reason / Notes</th>
+                      <th className="py-2 px-3 text-right text-xs">Refund Amount</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
                     {returnsItems.map((r) => (
                       <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-xs whitespace-nowrap">
                           <span className="font-semibold text-foreground">{format(new Date(r.timestamp), 'MMM d')}</span>
                           <span className="text-xs text-muted-foreground ml-2">{format(new Date(r.timestamp), 'HH:mm')}</span>
                         </td>
-                        <td className="py-4 px-4 font-mono text-xs font-bold text-foreground">{r.journalNumber}</td>
-                        <td className="py-4 px-4 text-xs font-medium text-foreground max-w-[250px] truncate">{r.items.map(i => `${i.productName} (${Math.abs(i.adjustment)})`).join(', ')}</td>
-                        <td className="py-4 px-4 text-xs text-muted-foreground italic truncate max-w-[200px]">{r.notes || '-'}</td>
-                        <td className="py-4 px-6 text-right font-serif font-semibold text-base text-rose-600 dark:text-rose-400">-KES {(r.totalAmount || (r as any).amountPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        <td className="py-1.5 px-2.5 text-xs font-mono text-xs font-bold text-foreground">{r.journalNumber}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-xs font-medium text-foreground max-w-[250px] truncate">{r.items.map(i => `${i.productName} (${Math.abs(i.adjustment)})`).join(', ')}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-xs text-muted-foreground italic truncate max-w-[200px]">{r.notes || '-'}</td>
+                        <td className="py-1.5 px-3 text-xs text-right font-serif font-semibold text-base text-rose-600 dark:text-rose-400">-KES {(r.totalAmount || (r as any).amountPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={4}>TOTALS</td>
-                      <td className="py-3.5 px-6 text-right font-serif text-base text-rose-600 dark:text-rose-400">-KES {returnsItems.reduce((sum, r) => sum + (r.totalAmount || (r as any).amountPaid || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2 px-3 text-xs" colSpan={4}>TOTALS</td>
+                      <td className="py-2 px-3 text-right text-xs font-serif text-xs text-rose-600 dark:text-rose-400">-KES {returnsItems.reduce((sum, r) => sum + (r.totalAmount || (r as any).amountPaid || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -2226,11 +2260,11 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="payments" className="space-y-8">
+        <TabsContent value="payments" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Payment <span className="text-amber-600 font-serif italic font-normal">Summary</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -2428,7 +2462,7 @@ export default function Reports() {
 
           {/* Ledger Table Section */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Ledger</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -2444,13 +2478,13 @@ export default function Reports() {
                 <table id="payments-ledger-table" className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">Date</th>
-                      <th className="py-3.5 px-4">Source</th>
-                      <th className="py-3.5 px-4">Customer</th>
-                      <th className="py-3.5 px-4">Reference</th>
-                      <th className="py-3.5 px-4">Received by</th>
-                      <th className="py-3.5 px-4">Method</th>
-                      <th className="py-3.5 px-6 text-right">Amount</th>
+                      <th className="py-2 px-3 text-xs">Date</th>
+                      <th className="py-2 px-2.5 text-xs">Source</th>
+                      <th className="py-2 px-2.5 text-xs">Customer</th>
+                      <th className="py-2 px-2.5 text-xs">Reference</th>
+                      <th className="py-2 px-2.5 text-xs">Received by</th>
+                      <th className="py-2 px-2.5 text-xs">Method</th>
+                      <th className="py-2 px-3 text-right text-xs">Amount</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
@@ -2463,7 +2497,7 @@ export default function Reports() {
                       const isNegative = p.amount < 0 || (p.reference && p.reference.includes('RETURN'));
                       return (
                         <tr key={p.id || idx} className="hover:bg-muted/30 transition-colors">
-                          <td className="py-4 px-6 whitespace-nowrap">
+                          <td className="py-1.5 px-3 text-xs whitespace-nowrap">
                             <span className="font-semibold text-foreground">{format(new Date(p.date), 'MMM d')}</span>
                             <span className="text-xs text-muted-foreground ml-2">{format(new Date(p.date), 'HH:mm')}</span>
                             {p.saleDate && new Date(p.saleDate).toDateString() !== new Date(p.date).toDateString() && (
@@ -2473,21 +2507,21 @@ export default function Reports() {
                               </div>
                             )}
                           </td>
-                          <td className="py-4 px-4 whitespace-nowrap">
+                          <td className="py-1.5 px-2.5 text-xs whitespace-nowrap">
                             <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase ${p.source === 'POS' ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200' : 'bg-orange-100 text-orange-900 dark:bg-orange-900/60 dark:text-orange-200'}`}>
                               {p.source || 'POS'}
                             </span>
                           </td>
-                          <td className="py-4 px-4 font-medium text-foreground">{p.customerName || '-'}</td>
-                          <td className="py-4 px-4 font-mono text-xs text-muted-foreground max-w-[200px] truncate">{p.reference || '-'}</td>
-                          <td className="py-4 px-4 text-xs text-foreground whitespace-nowrap">{p.receivedBy || p.createdBy || '-'}</td>
-                          <td className="py-4 px-4 whitespace-nowrap">
+                          <td className="py-1.5 px-2.5 text-xs font-medium text-foreground">{p.customerName || '-'}</td>
+                          <td className="py-1.5 px-2.5 text-xs font-mono text-xs text-muted-foreground max-w-[200px] truncate">{p.reference || '-'}</td>
+                          <td className="py-1.5 px-2.5 text-xs text-xs text-foreground whitespace-nowrap">{p.receivedBy || p.createdBy || '-'}</td>
+                          <td className="py-1.5 px-2.5 text-xs whitespace-nowrap">
                             <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${methodStyle.badgeBg}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${methodStyle.dot}`} />
                               {p.method || 'CASH'}
                             </div>
                           </td>
-                          <td className="py-4 px-6 whitespace-nowrap text-right font-serif font-medium text-base">
+                          <td className="py-1.5 px-3 text-xs whitespace-nowrap text-right font-serif font-medium text-base">
                             {isNegative ? (
                               <span className="text-rose-600 dark:text-rose-400">-KES {Math.abs(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                             ) : (
@@ -2500,8 +2534,8 @@ export default function Reports() {
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={6}>TOTALS</td>
-                      <td className="py-3.5 px-6 text-right font-serif text-base">
+                      <td className="py-2 px-3 text-xs" colSpan={6}>TOTALS</td>
+                      <td className="py-2 px-3 text-right text-xs font-serif text-xs">
                         {(() => {
                           const total = filteredCombinedPayments.reduce((sum, p) => sum + p.amount, 0);
                           return total < 0 ? (
@@ -2519,11 +2553,11 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="fast-moving" className="space-y-8">
+        <TabsContent value="fast-moving" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Fast Moving <span className="text-amber-600 font-serif italic font-normal">Items</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -2626,7 +2660,7 @@ export default function Reports() {
 
           {/* Chart Card */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <h3 className="font-serif text-2xl font-normal text-foreground">Velocity Rankings Chart</h3>
               <div className="text-xs text-muted-foreground font-medium">Top 10 Products by Qty Sold</div>
             </CardHeader>
@@ -2647,7 +2681,7 @@ export default function Reports() {
 
           {/* Ledger Table Section */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Velocity Ledger</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -2663,24 +2697,24 @@ export default function Reports() {
                 <table id="fast-moving-ledger-table" className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">Rank</th>
-                      <th className="py-3.5 px-4">Product</th>
-                      <th className="py-3.5 px-6 text-right">Qty Sold</th>
+                      <th className="py-2 px-3 text-xs">Rank</th>
+                      <th className="py-2 px-2.5 text-xs">Product</th>
+                      <th className="py-2 px-3 text-right text-xs">Qty Sold</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
                     {bestSellers.filter(item => !fastMovingSearchQuery || item.name.toLowerCase().includes(fastMovingSearchQuery.toLowerCase())).map((item, idx) => (
                       <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-4 px-6 font-mono font-bold text-xs text-amber-600 dark:text-amber-400">#{idx + 1}</td>
-                        <td className="py-4 px-4 font-semibold text-foreground">{item.name}</td>
-                        <td className="py-4 px-6 text-right font-serif font-bold text-base text-foreground">{item.sales}</td>
+                        <td className="py-1.5 px-3 text-xs font-mono font-bold text-xs text-amber-600 dark:text-amber-400">#{idx + 1}</td>
+                        <td className="py-1.5 px-2.5 text-xs font-semibold text-foreground">{item.name}</td>
+                        <td className="py-1.5 px-3 text-xs text-right font-serif font-semibold text-xs text-foreground">{item.sales}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={2}>TOTALS</td>
-                      <td className="py-3.5 px-6 text-right font-serif text-base text-foreground">
+                      <td className="py-2 px-3 text-xs" colSpan={2}>TOTALS</td>
+                      <td className="py-2 px-3 text-right text-xs font-serif text-xs text-foreground">
                         {bestSellers.filter(item => !fastMovingSearchQuery || item.name.toLowerCase().includes(fastMovingSearchQuery.toLowerCase())).reduce((sum, item) => sum + item.sales, 0)}
                       </td>
                     </tr>
@@ -2691,11 +2725,11 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="history" className="space-y-8">
+        <TabsContent value="history" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Stock <span className="text-amber-600 font-serif italic font-normal">Movement</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -2706,7 +2740,7 @@ export default function Reports() {
               <Button variant="outline" size="sm" className="rounded-full shadow-sm" onClick={handleExportHistory}>
                 <Download className="w-4 h-4 mr-1.5 text-muted-foreground" /> Export
               </Button>
-              <Button variant="outline" size="sm" className="rounded-full shadow-sm" onClick={() => printTable('history-ledger-table', 'Stock Movement Audit Log')}>
+              <Button variant="outline" size="sm" className="rounded-full shadow-sm" onClick={() => printTable('history-ledger-table', `Stock Movement Audit Log - ${products.find(p => p.id === selectedProductId)?.name || ''}`)}>
                 <Printer className="w-4 h-4 mr-1.5 text-muted-foreground" /> Print
               </Button>
               <Button size="sm" className="rounded-full bg-amber-950 text-amber-50 hover:bg-amber-900 shadow-sm dark:bg-amber-900 dark:text-amber-100" onClick={refreshData}>
@@ -2794,7 +2828,7 @@ export default function Reports() {
             </div>
           </div>
 
-          {/* Summary Cards Grid (Compact Single Row) */}
+          {/* Summary Cards Grid (Compact Single Row)
           <div className="flex flex-col sm:flex-row gap-3 overflow-x-auto w-full pb-1">
             <div className="flex-1 min-w-[150px] p-3.5 rounded-2xl border shadow-sm transition-all hover:shadow-md bg-gradient-to-br from-emerald-50/90 to-teal-100/70 border-emerald-200/80 dark:from-emerald-950/40 dark:to-teal-900/30 dark:border-emerald-800/50 text-emerald-950 dark:text-emerald-100 flex flex-col justify-between space-y-3">
               <div className="flex items-center justify-between gap-1">
@@ -2858,23 +2892,43 @@ export default function Reports() {
                 <div className="flex justify-between items-center text-[10px] font-semibold opacity-75"><span>Value</span><span>100%</span></div>
               </div>
             </div>
-          </div>
+          </div> */}
 
           {selectedProductId ? (
-            <div className="space-y-8">
-              <div className="p-4 bg-amber-50/60 dark:bg-card border border-amber-200/60 dark:border-border rounded-2xl flex gap-8">
-                <div>
-                  <span className="text-xs text-muted-foreground uppercase font-semibold block">Opening Balance</span>
-                  <span className="font-serif font-bold text-2xl text-foreground">{openingBalance}</span>
+            <div className="space-y-6">
+              <div className="p-4 bg-amber-50/70 dark:bg-card border border-amber-200/70 dark:border-border rounded-2xl flex flex-wrap items-center justify-between gap-6">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 bg-amber-200/70 dark:bg-amber-900/60 px-2.5 py-0.5 rounded-full">
+                      Product
+                    </span>
+                    {products.find(p => p.id === selectedProductId)?.sku && (
+                      <span className="text-xs font-mono text-muted-foreground">
+                        SKU: {products.find(p => p.id === selectedProductId)?.sku}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="font-serif font-bold text-2xl text-foreground">
+                    {products.find(p => p.id === selectedProductId)?.name}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedLocationId === 'all' ? 'All Locations' : (locations.find(l => l.id === selectedLocationId)?.name || 'Selected Location')} &bull; {selectedVariantIds.length === 1 ? (Object.values(products.find(p => p.id === selectedProductId)?.variants.find(v => v.id === selectedVariantIds[0])?.attributes || {}).join(' / ') || '-') : (selectedVariantIds.length > 1 ? 'Selected Variants' : 'All Variants')}
+                  </p>
                 </div>
-                <div>
-                  <span className="text-xs text-muted-foreground uppercase font-semibold block">Current Stock</span>
-                  <span className="font-serif font-bold text-2xl text-emerald-600 dark:text-emerald-400">{currentDisplayedStock()}</span>
+                <div className="flex items-center gap-8">
+                  <div>
+                    <span className="text-xs text-muted-foreground uppercase font-semibold block">Opening Balance</span>
+                    <span className="font-serif font-bold text-2xl text-foreground">{openingBalance}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground uppercase font-semibold block">Current Stock</span>
+                    <span className="font-serif font-bold text-2xl text-emerald-600 dark:text-emerald-400">{currentDisplayedStock()}</span>
+                  </div>
                 </div>
               </div>
 
               <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-                <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+                <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
                   <div className="flex items-center gap-3">
                     <h3 className="font-serif text-2xl font-normal text-foreground">Movement Audit Log</h3>
                     <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -2886,30 +2940,69 @@ export default function Reports() {
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table id="history-ledger-table" className="w-full text-left border-collapse">
+                      <caption className="caption-top text-left p-4 bg-amber-50/40 dark:bg-muted/10 border-b">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Product:</span>
+                            <span className="font-serif font-semibold text-xs text-foreground">
+                              {products.find(p => p.id === selectedProductId)?.name}
+                            </span>
+                            {products.find(p => p.id === selectedProductId)?.sku && (
+                              <span className="text-xs font-mono text-muted-foreground">
+                                ({products.find(p => p.id === selectedProductId)?.sku})
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Period: {format(buildStartDate(), 'MMM d, yyyy')} &ndash; {format(buildEndDate(), 'MMM d, yyyy')}
+                          </div>
+                        </div>
+                      </caption>
                       <thead>
                         <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                          <th className="py-3.5 px-6">Date</th>
-                          <th className="py-3.5 px-4">Type</th>
-                          <th className="py-3.5 px-4">Variant (Info)</th>
-                          <th className="py-3.5 px-4">Location</th>
-                          <th className="py-3.5 px-4">Reference</th>
-                          <th className="py-3.5 px-4 text-right">In/Out</th>
-                          <th className="py-3.5 px-6 text-right">Running Balance</th>
+                          <th className="py-2 px-3 text-xs">Date</th>
+                          <th className="py-2 px-2.5 text-xs">Type</th>
+                          <th className="py-2 px-2.5 text-xs">Variant (Info)</th>
+                          <th className="py-2 px-2.5 text-xs">Location</th>
+                          <th className="py-2 px-2.5 text-xs">Reference</th>
+                          <th className="py-2 px-2.5 text-right text-xs">In/Out</th>
+                          <th className="py-2 px-3 text-right text-xs">Running Balance</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y text-sm">
+                        {selectedProductId && (
+                          <tr className="bg-amber-50/60 dark:bg-amber-950/20 font-semibold border-b">
+                            <td className="py-2 px-3 text-xs whitespace-nowrap text-muted-foreground">{format(buildStartDate(), 'MMM d, yyyy HH:mm')}</td>
+                            <td className="py-2 px-2.5 text-xs">
+                              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                                Opening Stock
+                              </span>
+                            </td>
+                            <td className="py-2 px-2.5 text-xs text-xs text-muted-foreground">
+                              {selectedVariantIds.length === 1
+                                ? (Object.values(products.find(p => p.id === selectedProductId)?.variants.find(v => v.id === selectedVariantIds[0])?.attributes || {}).join(' / ') || '-')
+                                : (selectedVariantIds.length > 1 ? 'Selected Variants' : 'All Variants')}
+                            </td>
+                            <td className="py-2 px-2.5 text-xs text-xs text-foreground font-semibold">
+                              {selectedLocationId === 'all' ? 'All Locations' : (locations.find(l => l.id === selectedLocationId)?.name || 'Selected Location')}
+                            </td>
+                            <td className="py-2 px-2.5 text-xs text-xs font-mono font-medium text-muted-foreground">OPENING</td>
+                            <td className="py-2 px-2.5 text-right text-xs font-serif font-semibold text-xs text-muted-foreground">-</td>
+                            <td className="py-2 px-3 text-right text-xs font-serif font-semibold text-xs text-foreground">{openingBalance}</td>
+                          </tr>
+                        )}
                         {movements.length > 0 ? (
                           movements.map((move, i) => (
                             <tr key={i} className="hover:bg-muted/30 transition-colors">
-                              <td className="py-4 px-6 whitespace-nowrap font-semibold">{format(move.date, 'MMM d, yyyy HH:mm')}</td>
-                              <td className="py-4 px-4 capitalize"><span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-muted text-foreground">{move.type}</span></td>
-                              <td className="py-4 px-4 text-xs text-muted-foreground">{move.variantInfo || '-'}</td>
-                              <td className="py-4 px-4 text-xs font-semibold text-foreground">{move.locationName}</td>
-                              <td className="py-4 px-4 text-xs font-mono font-medium text-foreground">{move.reference}</td>
-                              <td className={`py-4 px-4 text-right font-serif font-bold text-base ${move.quantity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              <td className="py-1.5 px-3 text-xs whitespace-nowrap font-semibold">{format(move.date, 'MMM d, yyyy HH:mm')}</td>
+                              <td className="py-1.5 px-2.5 text-xs capitalize"><span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-muted text-foreground">{move.type}</span></td>
+                              <td className="py-1.5 px-2.5 text-xs text-xs text-muted-foreground">{move.variantInfo || '-'}</td>
+                              <td className="py-1.5 px-2.5 text-xs text-xs font-semibold text-foreground">{move.locationName}</td>
+                              <td className="py-1.5 px-2.5 text-xs text-xs font-mono font-medium text-foreground">{move.reference}</td>
+                              <td className={`py-1.5 px-2.5 text-xs text-right font-serif font-semibold text-xs ${move.quantity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                 {move.quantity > 0 ? '+' : ''}{move.quantity}
                               </td>
-                              <td className="py-4 px-6 text-right font-serif font-bold text-base text-foreground">{move.runningBalance}</td>
+                              <td className="py-1.5 px-3 text-xs text-right font-serif font-semibold text-xs text-foreground">{move.runningBalance}</td>
                             </tr>
                           ))
                         ) : (
@@ -2919,11 +3012,11 @@ export default function Reports() {
                       {movements.length > 0 && (
                         <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                           <tr>
-                            <td className="py-3.5 px-6" colSpan={5}>NET CHANGE</td>
-                            <td className={`py-3.5 px-4 text-right font-serif font-bold text-base ${movements.reduce((sum, m) => sum + m.quantity, 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                            <td className="py-2 px-3 text-xs" colSpan={5}>NET CHANGE</td>
+                            <td className={`py-2 px-2.5 text-right text-xs font-serif font-semibold text-xs ${movements.reduce((sum, m) => sum + m.quantity, 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                               {movements.reduce((sum, m) => sum + m.quantity, 0) > 0 ? '+' : ''}{movements.reduce((sum, m) => sum + m.quantity, 0)}
                             </td>
-                            <td className="py-3.5 px-6 text-right font-serif font-bold text-base text-foreground">
+                            <td className="py-2 px-3 text-right text-xs font-serif font-semibold text-xs text-foreground">
                               {movements[movements.length - 1].runningBalance} (Final)
                             </td>
                           </tr>
@@ -2942,11 +3035,11 @@ export default function Reports() {
           )}
         </TabsContent>
 
-        <TabsContent value="purchases" className="space-y-8">
+        <TabsContent value="purchases" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Purchase <span className="text-amber-600 font-serif italic font-normal">Orders</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -3072,7 +3165,7 @@ export default function Reports() {
 
           {/* Ledger Table Section */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Procurement Ledger</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -3088,13 +3181,13 @@ export default function Reports() {
                 <table id="procurement-ledger-table" className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">Date</th>
-                      <th className="py-3.5 px-4">Supplier</th>
-                      <th className="py-3.5 px-4">PO #</th>
-                      <th className="py-3.5 px-4">Items</th>
-                      <th className="py-3.5 px-4">Status</th>
-                      <th className="py-3.5 px-4">Payment</th>
-                      <th className="py-3.5 px-6 text-right">Total</th>
+                      <th className="py-2 px-3 text-xs">Date</th>
+                      <th className="py-2 px-2.5 text-xs">Supplier</th>
+                      <th className="py-2 px-2.5 text-xs">PO #</th>
+                      <th className="py-2 px-2.5 text-xs">Items</th>
+                      <th className="py-2 px-2.5 text-xs">Status</th>
+                      <th className="py-2 px-2.5 text-xs">Payment</th>
+                      <th className="py-2 px-3 text-right text-xs">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
@@ -3104,25 +3197,25 @@ export default function Reports() {
                       <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No purchases found for this period.</td></tr>
                     ) : purchasesItems.map((po) => (
                       <tr key={po.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-xs whitespace-nowrap">
                           <span className="font-semibold text-foreground">{format(new Date(po.dateReceived || po.createdAt || po.timestamp), 'MMM d, yyyy')}</span>
                           <span className="text-xs text-muted-foreground ml-2">{format(new Date(po.dateReceived || po.createdAt || po.timestamp), 'HH:mm')}</span>
                         </td>
-                        <td className="py-4 px-4 font-semibold text-foreground">{po.supplier?.name || '-'}</td>
-                        <td className="py-4 px-4 font-mono text-xs font-bold text-amber-600 dark:text-amber-400">{po.journalNumber || po.id}</td>
-                        <td className="py-4 px-4 text-xs font-medium text-foreground max-w-[250px] truncate">
+                        <td className="py-1.5 px-2.5 text-xs font-semibold text-foreground">{po.supplier?.name || '-'}</td>
+                        <td className="py-1.5 px-2.5 text-xs font-mono text-xs font-bold text-amber-600 dark:text-amber-400">{po.journalNumber || po.id}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-xs font-medium text-foreground max-w-[250px] truncate">
                           {(po.items || []).map((i: any) => `${i.productName || i.sku} (${i.quantity})`).join(', ')}
                         </td>
-                        <td className="py-4 px-4 whitespace-nowrap"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${po.status === 'RECEIVED' || po.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'}`}>{po.status}</span></td>
-                        <td className="py-4 px-4 whitespace-nowrap"><span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-muted text-foreground">{po.paymentStatus}</span></td>
-                        <td className="py-4 px-6 text-right font-serif font-semibold text-base text-foreground">{sym}{(po.total || po.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        <td className="py-1.5 px-2.5 text-xs whitespace-nowrap"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${po.status === 'RECEIVED' || po.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'}`}>{po.status}</span></td>
+                        <td className="py-1.5 px-2.5 text-xs whitespace-nowrap"><span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-muted text-foreground">{po.paymentStatus}</span></td>
+                        <td className="py-1.5 px-3 text-xs text-right font-serif font-semibold text-base text-foreground">{sym}{(po.total || po.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={6}>TOTALS</td>
-                      <td className="py-3.5 px-6 text-right font-serif text-base text-foreground">{sym}{purchasesItems.reduce((sum, po) => sum + (po.total || po.totalAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2 px-3 text-xs" colSpan={6}>TOTALS</td>
+                      <td className="py-2 px-3 text-right text-xs font-serif text-xs text-foreground">{sym}{purchasesItems.reduce((sum, po) => sum + (po.total || po.totalAmount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -3132,7 +3225,7 @@ export default function Reports() {
 
           {/* Purchases Trend Chart */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-6 py-4">
+            <CardHeader className="flex flex-row items-center justify-between bg-muted/20 border-b px-4 py-2">
               <h3 className="font-serif text-2xl font-normal text-foreground">Purchases Trend</h3>
               <div className="text-xs text-muted-foreground font-medium">Daily Procurement • KES</div>
             </CardHeader>
@@ -3153,11 +3246,11 @@ export default function Reports() {
         </TabsContent>
 
         {/* Profitability Report Tab */}
-        <TabsContent value="profitability" className="space-y-8">
+        <TabsContent value="profitability" className="space-y-3">
           {/* Title Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b">
             <div>
-              <h2 className="text-3xl font-normal tracking-tight font-serif text-foreground">
+              <h2 className="text-xl font-bold tracking-tight font-serif text-foreground">
                 Profitability <span className="text-amber-600 font-serif italic font-normal">Report</span>
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -3232,25 +3325,22 @@ export default function Reports() {
             </div>
 
             {/* Net Profit / Loss */}
-            <div className={`flex-1 min-w-[200px] p-3.5 rounded-2xl border shadow-sm transition-all hover:shadow-md flex flex-col justify-between space-y-3 ${
-              profitabilityMetrics.netProfit >= 0
+            <div className={`flex-1 min-w-[200px] p-3.5 rounded-2xl border shadow-sm transition-all hover:shadow-md flex flex-col justify-between space-y-3 ${profitabilityMetrics.netProfit >= 0
                 ? 'bg-gradient-to-br from-violet-50/90 to-fuchsia-100/70 border-violet-200/80 dark:from-violet-950/40 dark:to-fuchsia-900/30 dark:border-violet-800/50 text-violet-950 dark:text-violet-100'
                 : 'bg-gradient-to-br from-amber-50/90 to-orange-100/70 border-amber-200/80 dark:from-amber-950/40 dark:to-orange-900/30 dark:border-amber-800/50 text-amber-950 dark:text-amber-100'
-            }`}>
+              }`}>
               <div className="flex items-center justify-between gap-1">
-                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                  profitabilityMetrics.netProfit >= 0
+                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${profitabilityMetrics.netProfit >= 0
                     ? 'bg-violet-100/80 text-violet-800 dark:bg-violet-900/60 dark:text-violet-200 border-violet-200'
                     : 'bg-amber-100/80 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border-amber-200'
-                }`}>
+                  }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${profitabilityMetrics.netProfit >= 0 ? 'bg-violet-500' : 'bg-amber-500'}`} />
                   <span>{profitabilityMetrics.netProfit >= 0 ? 'NET PROFIT' : 'NET LOSS'}</span>
                 </div>
-                <div className={`p-1.5 rounded-full shrink-0 ${
-                  profitabilityMetrics.netProfit >= 0
+                <div className={`p-1.5 rounded-full shrink-0 ${profitabilityMetrics.netProfit >= 0
                     ? 'bg-violet-200/60 text-violet-800 dark:bg-violet-800/50 dark:text-violet-200'
                     : 'bg-amber-200/60 text-amber-800 dark:bg-amber-800/50 dark:text-amber-200'
-                }`}>
+                  }`}>
                   <TrendingUp className="w-3.5 h-3.5" />
                 </div>
               </div>
@@ -3281,7 +3371,7 @@ export default function Reports() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Detailed Lists */}
             <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card lg:col-span-2">
-              <CardHeader className="bg-muted/20 border-b px-6 py-4">
+              <CardHeader className="bg-muted/20 border-b px-4 py-2">
                 <CardTitle className="font-serif text-xl font-normal text-foreground">Operational Breakdown</CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-6">
@@ -3341,7 +3431,7 @@ export default function Reports() {
 
             {/* Recharts Bar Chart */}
             <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-              <CardHeader className="bg-muted/20 border-b px-6 py-4">
+              <CardHeader className="bg-muted/20 border-b px-4 py-2">
                 <CardTitle className="font-serif text-xl font-normal text-foreground">Revenue vs Expenses</CardTitle>
               </CardHeader>
               <CardContent className="p-6">
@@ -3373,7 +3463,7 @@ export default function Reports() {
 
           {/* Ledger Table Section */}
           <Card className="rounded-3xl border shadow-sm overflow-hidden bg-card">
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between bg-muted/20 border-b px-6 py-4 gap-4">
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between bg-muted/20 border-b px-4 py-2 gap-4">
               <div className="flex items-center gap-3">
                 <h3 className="font-serif text-2xl font-normal text-foreground">Profitability Ledger</h3>
                 <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border-0">
@@ -3395,12 +3485,12 @@ export default function Reports() {
                 <table id="profitability-ledger-table" className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/10">
-                      <th className="py-3.5 px-6">Date</th>
-                      <th className="py-3.5 px-4">Type</th>
-                      <th className="py-3.5 px-4">Source / Entity</th>
-                      <th className="py-3.5 px-4">Category / Method</th>
-                      <th className="py-3.5 px-4">Description</th>
-                      <th className="py-3.5 px-6 text-right">Cash Flow</th>
+                      <th className="py-2 px-3 text-xs">Date</th>
+                      <th className="py-2 px-2.5 text-xs">Type</th>
+                      <th className="py-2 px-2.5 text-xs">Source / Entity</th>
+                      <th className="py-2 px-2.5 text-xs">Category / Method</th>
+                      <th className="py-2 px-2.5 text-xs">Description</th>
+                      <th className="py-2 px-3 text-right text-xs">Cash Flow</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
@@ -3410,25 +3500,23 @@ export default function Reports() {
                       <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">No cash flows found in the ledger.</td></tr>
                     ) : filteredProfitabilityLedger.map((item) => (
                       <tr key={item.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-xs whitespace-nowrap">
                           <span className="font-semibold text-foreground">{format(item.date, 'MMM d')}</span>
                           <span className="text-xs text-muted-foreground ml-2">{format(item.date, 'HH:mm')}</span>
                         </td>
-                        <td className="py-4 px-4 whitespace-nowrap">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                            item.type === 'REVENUE'
+                        <td className="py-1.5 px-2.5 text-xs whitespace-nowrap">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${item.type === 'REVENUE'
                               ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-200'
                               : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 border-rose-200'
-                          }`}>
+                            }`}>
                             {item.type}
                           </span>
                         </td>
-                        <td className="py-4 px-4 font-medium text-foreground">{item.source}</td>
-                        <td className="py-4 px-4 font-mono text-xs text-muted-foreground">{item.category}</td>
-                        <td className="py-4 px-4 text-xs font-medium text-foreground max-w-[300px] truncate">{item.description}</td>
-                        <td className={`py-4 px-6 text-right font-serif font-bold text-base whitespace-nowrap ${
-                          item.type === 'REVENUE' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                        }`}>
+                        <td className="py-1.5 px-2.5 text-xs font-medium text-foreground">{item.source}</td>
+                        <td className="py-1.5 px-2.5 text-xs font-mono text-xs text-muted-foreground">{item.category}</td>
+                        <td className="py-1.5 px-2.5 text-xs text-xs font-medium text-foreground max-w-[300px] truncate">{item.description}</td>
+                        <td className={`py-1.5 px-3 text-xs text-right font-serif font-semibold text-xs whitespace-nowrap ${item.type === 'REVENUE' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                          }`}>
                           {item.type === 'REVENUE' ? '+' : ''}{sym}{item.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -3436,10 +3524,9 @@ export default function Reports() {
                   </tbody>
                   <tfoot className="border-t-2 border-double bg-amber-50/50 dark:bg-card text-xs font-bold text-foreground">
                     <tr>
-                      <td className="py-3.5 px-6" colSpan={5}>NET INCOME BALANCE</td>
-                      <td className={`py-3.5 px-6 text-right font-serif font-bold text-base whitespace-nowrap ${
-                        profitabilityMetrics.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                      }`}>
+                      <td className="py-2 px-3 text-xs" colSpan={5}>NET INCOME BALANCE</td>
+                      <td className={`py-2 px-3 text-right text-xs font-serif font-semibold text-xs whitespace-nowrap ${profitabilityMetrics.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                        }`}>
                         {profitabilityMetrics.netProfit >= 0 ? '+' : ''}{sym}{profitabilityMetrics.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
                     </tr>

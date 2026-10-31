@@ -1937,140 +1937,62 @@ export default function CustomerAccounts() {
 
       {/* Add Customer Dialog */}
       <Dialog open={isAddCustomerOpen} onOpenChange={setIsAddCustomerOpen}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="pb-1">
             <DialogTitle>Add New Customer</DialogTitle>
-            <DialogDescription>Create a new customer profile for sales and credit accounts.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="cust-name">Full Name *</Label>
+          <div className="space-y-3 py-1">
+            <div className="space-y-1">
+              <Label htmlFor="cust-name" className="text-xs">Full Name *</Label>
               <Input
                 id="cust-name"
                 value={newCustomer.name}
                 onChange={(e) => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="John Doe"
+                className="h-8"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-email">Email Address</Label>
-              <Input
-                id="cust-email"
-                type="email"
-                value={newCustomer.email}
-                onChange={(e) => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
-                placeholder="john@example.com"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="cust-email" className="text-xs">Email</Label>
+                <Input
+                  id="cust-email"
+                  type="email"
+                  value={newCustomer.email}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
+                  placeholder="john@example.com"
+                  className="h-8"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="cust-phone" className="text-xs">Phone</Label>
+                <Input
+                  id="cust-phone"
+                  value={newCustomer.phone}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
+                  placeholder="+254 700 000 000"
+                  className="h-8"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-phone">Phone Number</Label>
-              <Input
-                id="cust-phone"
-                value={newCustomer.phone}
-                onChange={(e) => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="+254 700 000 000"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-idNumber">ID Number</Label>
+            <div className="space-y-1">
+              <Label htmlFor="cust-idNumber" className="text-xs">ID Number</Label>
               <Input
                 id="cust-idNumber"
                 value={newCustomer.idNumber}
                 onChange={(e) => setNewCustomer(prev => ({ ...prev, idNumber: e.target.value }))}
                 placeholder="National ID or Passport"
+                className="h-8"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-type">Customer Type</Label>
-              <Select
-                value={newCustomer.customerType}
-                onValueChange={(val) => setNewCustomer(prev => ({ ...prev, customerType: val }))}
-              >
-                <SelectTrigger id="cust-type">
-                  <SelectValue placeholder="Select type..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="POS">POS Customer</SelectItem>
-                  <SelectItem value="ROOM">Room Customer</SelectItem>
-                  <SelectItem value="BOTH">Both</SelectItem>
-                  <SelectItem value="TENANT">Tenant</SelectItem>
-                  <SelectItem value="WHOLESALE">Wholesale</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-limit">Credit Limit</Label>
-              <Input
-                id="cust-limit"
-                type="number"
-                min="0"
-                step="0.01"
-                value={newCustomer.creditLimit}
-                onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
-                placeholder="0.00"
-              />
-              <p className="text-xs text-muted-foreground">Maximum credit balance allowed. Leave blank for no limit.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddCustomerOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddCustomerSubmit} disabled={!newCustomer.name || isSubmittingCustomer}>
-              {isSubmittingCustomer ? 'Adding...' : 'Add Customer'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Customer Dialog */}
-      <Dialog open={!!editingCustomer} onOpenChange={() => setEditingCustomer(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Customer</DialogTitle>
-            <DialogDescription>Update customer profile details.</DialogDescription>
-          </DialogHeader>
-          {editingCustomer && (
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-cust-name">Full Name *</Label>
-                <Input
-                  id="edit-cust-name"
-                  value={editingCustomer.name}
-                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, name: e.target.value } : null)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-cust-email">Email Address</Label>
-                <Input
-                  id="edit-cust-email"
-                  type="email"
-                  value={editingCustomer.email || ''}
-                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, email: e.target.value } : null)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-cust-phone">Phone Number</Label>
-                <Input
-                  id="edit-cust-phone"
-                  value={editingCustomer.phone || ''}
-                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, phone: e.target.value } : null)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-cust-idNumber">ID Number</Label>
-                <Input
-                  id="edit-cust-idNumber"
-                  value={editingCustomer.idNumber || ''}
-                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, idNumber: e.target.value } : null)}
-                  placeholder="National ID or Passport"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-cust-type">Customer Type</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="cust-type" className="text-xs">Customer Type</Label>
                 <Select
-                  value={editingCustomer.customerType || 'BOTH'}
-                  onValueChange={(val) => setEditingCustomer(prev => prev ? { ...prev, customerType: val } : null)}
+                  value={newCustomer.customerType}
+                  onValueChange={(val) => setNewCustomer(prev => ({ ...prev, customerType: val }))}
                 >
-                  <SelectTrigger id="edit-cust-type">
+                  <SelectTrigger id="cust-type" className="h-8">
                     <SelectValue placeholder="Select type..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -2082,24 +2004,116 @@ export default function CustomerAccounts() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-cust-limit">Credit Limit</Label>
+              <div className="space-y-1">
+                <Label htmlFor="cust-limit" className="text-xs">Credit Limit</Label>
                 <Input
-                  id="edit-cust-limit"
+                  id="cust-limit"
                   type="number"
                   min="0"
                   step="0.01"
-                  value={editingCustomer.creditLimit ?? ''}
-                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, creditLimit: e.target.value ? Number(e.target.value) : undefined } : null)}
-                  placeholder="0.00"
+                  value={newCustomer.creditLimit}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
+                  placeholder="No limit"
+                  className="h-8"
                 />
-                <p className="text-xs text-muted-foreground">Maximum credit balance allowed. Leave blank for no limit.</p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setIsAddCustomerOpen(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleAddCustomerSubmit} disabled={!newCustomer.name || isSubmittingCustomer}>
+              {isSubmittingCustomer ? 'Adding...' : 'Add Customer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Customer Dialog */}
+      <Dialog open={!!editingCustomer} onOpenChange={() => setEditingCustomer(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="pb-1">
+            <DialogTitle>Edit Customer</DialogTitle>
+          </DialogHeader>
+          {editingCustomer && (
+            <div className="space-y-3 py-1">
+              <div className="space-y-1">
+                <Label htmlFor="edit-cust-name" className="text-xs">Full Name *</Label>
+                <Input
+                  id="edit-cust-name"
+                  value={editingCustomer.name}
+                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, name: e.target.value } : null)}
+                  className="h-8"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="edit-cust-email" className="text-xs">Email</Label>
+                  <Input
+                    id="edit-cust-email"
+                    type="email"
+                    value={editingCustomer.email || ''}
+                    onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, email: e.target.value } : null)}
+                    className="h-8"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-cust-phone" className="text-xs">Phone</Label>
+                  <Input
+                    id="edit-cust-phone"
+                    value={editingCustomer.phone || ''}
+                    onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, phone: e.target.value } : null)}
+                    className="h-8"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-cust-idNumber" className="text-xs">ID Number</Label>
+                <Input
+                  id="edit-cust-idNumber"
+                  value={editingCustomer.idNumber || ''}
+                  onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, idNumber: e.target.value } : null)}
+                  placeholder="National ID or Passport"
+                  className="h-8"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="edit-cust-type" className="text-xs">Customer Type</Label>
+                  <Select
+                    value={editingCustomer.customerType || 'BOTH'}
+                    onValueChange={(val) => setEditingCustomer(prev => prev ? { ...prev, customerType: val } : null)}
+                  >
+                    <SelectTrigger id="edit-cust-type" className="h-8">
+                      <SelectValue placeholder="Select type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="POS">POS Customer</SelectItem>
+                      <SelectItem value="ROOM">Room Customer</SelectItem>
+                      <SelectItem value="BOTH">Both</SelectItem>
+                      <SelectItem value="TENANT">Tenant</SelectItem>
+                      <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-cust-limit" className="text-xs">Credit Limit</Label>
+                  <Input
+                    id="edit-cust-limit"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editingCustomer.creditLimit ?? ''}
+                    onChange={(e) => setEditingCustomer(prev => prev ? { ...prev, creditLimit: e.target.value ? Number(e.target.value) : undefined } : null)}
+                    placeholder="No limit"
+                    className="h-8"
+                  />
+                </div>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingCustomer(null)}>Cancel</Button>
-            <Button onClick={handleUpdateCustomerSubmit} disabled={!editingCustomer?.name || isSubmittingCustomer}>
+            <Button variant="outline" size="sm" onClick={() => setEditingCustomer(null)}>Cancel</Button>
+            <Button size="sm" onClick={handleUpdateCustomerSubmit} disabled={!editingCustomer?.name || isSubmittingCustomer}>
               {isSubmittingCustomer ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
